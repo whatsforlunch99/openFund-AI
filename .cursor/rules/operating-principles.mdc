@@ -1,0 +1,40 @@
+---
+description: Operating principles, safety, code quality, and preferences
+alwaysApply: true
+---
+
+# Operating Principles
+
+## Diffs and edits
+
+- Prefer small, reviewable diffs. Avoid sweeping refactors unless explicitly requested.
+- Before editing: identify the file(s) to change and state the plan in 3–6 bullets.
+- Never invent APIs, configs, or file paths. If unsure, search the repo first.
+- Keep changes consistent with existing style and architecture.
+
+## Safety and secrets
+
+- Never paste secrets, tokens, private keys, .env values, or credentials into code or logs.
+- If a task requires secrets, ask the user to provide them via environment variables.
+- Do not add analytics, telemetry, or network calls unless requested.
+
+## Code quality
+
+- Add or update tests for behavioral changes when the project has tests.
+- Prefer type safety and explicit error handling.
+- Add comments only when the intent is non-obvious.
+
+## Build and run
+
+- If you need to run commands, propose the exact command and why.
+- When changes may break the build, run the fastest relevant check first.
+
+## Output formatting
+
+- **Code changes:** short summary + list of files changed.
+- **Debugging:** hypothesis, experiments run, and the minimum fix.
+
+## Preferences
+
+- Concise explanation, concrete steps, copy-pasteable commands.
+- Default language for explanation: English.

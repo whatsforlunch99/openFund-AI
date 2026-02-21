@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openfund-ai"
+version = "0.1.0"
+description = "Open-source investment research framework (A2A + MCP skeleton)"
+readme = "docs/claude-v2.md"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["a2a*", "agents*", "api*", "safety*", "output*", "mcp*", "config*"]

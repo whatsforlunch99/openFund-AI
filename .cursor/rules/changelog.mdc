@@ -1,0 +1,24 @@
+---
+description: Keep a changelog.md with summary-style change history
+alwaysApply: true
+---
+
+# Changelog Convention
+
+- **Every project** must have a `CHANGELOG.md` (or `changelog.md`) at the repo root.
+- **Update it** when making user-visible or notable changes: features, fixes, refactors, config, dependencies.
+- **Summary style:** short, scannable entries (one line or a few bullets per change). Avoid long prose.
+- **Order:** newest first. Use a heading per version or date (e.g. `## [Unreleased]`, `## [0.2.0] - 2025-02-21`).
+
+**Example:**
+
+```markdown
+## [Unreleased]
+- Add MCP analyst_tool skeleton.
+- Fix conversation_manager broadcast_stop.
+
+## [0.1.0] - 2025-02-20
+- Initial skeleton: a2a, agents, api, safety, output, mcp, config.
+```
+
+When adding or refactoring features, remind the user to add an entry to the changelog if one is missing.

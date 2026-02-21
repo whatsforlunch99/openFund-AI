@@ -1,5 +1,6 @@
 """Configuration loaded from environment (MILVUS_*, NEO4J_*, TAVILY_*, etc.)."""
 
+import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -50,4 +51,18 @@ def load_config() -> Config:
     Returns:
         Config instance populated from env.
     """
-    raise NotImplementedError
+    return Config(
+        milvus_uri=os.getenv("MILVUS_URI", ""),
+        milvus_collection=os.getenv("MILVUS_COLLECTION", ""),
+        neo4j_uri=os.getenv("NEO4J_URI", ""),
+        neo4j_user=os.getenv("NEO4J_USER", ""),
+        neo4j_password=os.getenv("NEO4J_PASSWORD", ""),
+        tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
+        yahoo_base_url=os.getenv("YAHOO_BASE_URL", ""),
+        yahoo_api_key=os.getenv("YAHOO_API_KEY") or None,
+        analyst_api_url=os.getenv("ANALYST_API_URL", ""),
+        analyst_api_key=os.getenv("ANALYST_API_KEY") or None,
+        mcp_server_endpoint=os.getenv("MCP_SERVER_ENDPOINT", ""),
+        llm_api_key=os.getenv("LLM_API_KEY") or None,
+        llm_model=os.getenv("LLM_MODEL") or None,
+    )

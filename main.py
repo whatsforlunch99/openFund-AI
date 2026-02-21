@@ -1,5 +1,7 @@
 """Entry point: wire MessageBus, agents, API, and optional MCP server."""
 
+from config.config import load_config
+
 
 def main() -> None:
     """
@@ -10,7 +12,8 @@ def main() -> None:
     agents with bus and MCP client; starts FastAPI (REST + WebSocket)
     and agent runners; optionally starts MCP server.
     """
-    raise NotImplementedError
+    load_config()
+    print("OpenFund-AI ready (config loaded)")
 
 
 if __name__ == "__main__":

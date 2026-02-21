@@ -4,7 +4,7 @@ Summary of notable changes. Newest first.
 
 ## [Unreleased]
 
-(Add entries here as you make changes.)
+- docs: add staged_implementation_plan.md and test_plan.md (tests per stage, runnable commands).
 
 ## [0.1.0] - 2025-02-21
 

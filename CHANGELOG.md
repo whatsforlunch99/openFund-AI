@@ -5,6 +5,10 @@ Summary of notable changes. Newest first.
 ## [Unreleased]
 
 - docs: add staged_implementation_plan.md and test_plan.md (tests per stage, runnable commands).
+- docs: add clarification.md (architecture decisions and settled items).
+- docs: update claude-v2.md (conversation persistence structure, API details).
+- docs: enhance staged_implementation_plan.md and test_plan.md (detailed test functions, runnable commands per stage).
+- config: track .DS_Store (macOS directory settings).
 
 ## [0.1.0] - 2025-02-21
 

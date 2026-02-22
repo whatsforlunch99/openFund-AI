@@ -57,6 +57,9 @@ OpenFund-AI/
 │       ├── market_tool.py    # Tavily + Yahoo
 │       ├── analyst_tool.py   # Custom API
 │       └── file_tool.py
+├── memory/                   # conversation persistence (git-ignored)
+│   └── <user_id>/
+│       └── conversations.json
 ├── config/
 │   └── config.py
 ├── main.py
@@ -70,12 +73,16 @@ OpenFund-AI/
 
 ### api/rest.py
 
-- **POST /chat** (or **POST /research**): body `query`, optional `conversation_id`, `user_profile` → SafetyGateway → create/load conversation → send ACLMessage to Planner → return/stream response.
-- **GET /conversations/{id}** (optional): return conversation state.
+- **`create_app(bus, manager, safety, mcp_client)`**: returns a FastAPI app; all shared state is injected as constructor arguments — route handlers close over them. Tests call `create_app(mock_bus, ...)` directly.
+- **POST /chat**: body `{ query, conversation_id? (str), user_id? (str, default ""), user_profile? (UserProfile) }` → `SafetyGateway.process_user_input` (raises `SafetyError` → HTTP 400) → if `conversation_id` supplied call `get_conversation`, else call `create_conversation` → send `ACLMessage` to Planner → block on `conversation_state.completion_event.wait(timeout=E2E_TIMEOUT_SECONDS)` → return JSON `{ conversation_id, status, response }`. On timeout return **HTTP 408** `{ "status": "timeout", "conversation_id": "...", "response": null }`.
+- **GET /conversations/{id}**: return conversation state JSON.
 
 ### api/websocket.py
 
-- **WebSocket /ws**: same flow; stream partial responses.
+- **WebSocket /ws**: same flow as POST /chat. Sends discrete JSON event messages — not a single final message:
+  - `{"event": "status", "agent": "<name>", "message": "working"}` — emitted once per agent as it begins processing.
+  - `{"event": "response", "conversation_id": "...", "response": "..."}` — emitted once when Responder completes.
+  - Token-level streaming is deferred to Stage 19 (LLM).
 
 ---
 
@@ -84,6 +91,7 @@ OpenFund-AI/
 ### safety/safety_gateway.py
 
 - **SafetyGateway**: `validate_input`, `check_guardrails`, `mask_pii`, `process_user_input` (single entry before bus).
+- `process_user_input(...) -> ProcessedInput` raises `SafetyError(reason: str, code: str)` on validation or guardrail failure. FastAPI registers an exception handler mapping `SafetyError` to HTTP 400.
 
 ---
 
@@ -91,15 +99,19 @@ OpenFund-AI/
 
 ### a2a/acl_message.py
 
-- **ACLMessage**: performative, sender, receiver, content, conversation_id; add `reply_to`, `in_reply_to`, `timestamp`; reserve performative for STOP.
+- **ACLMessage**: `performative`, `sender`, `receiver`, `content`, `conversation_id`; add `reply_to`, `in_reply_to`, `timestamp`.
+- Performatives are typed as a `StrEnum` (Python 3.11+). Complete set: `REQUEST`, `INFORM`, `STOP`, `FAILURE`, `ACK`, `REFUSE`, `CANCEL`. New values added only when a stage requires them.
 
 ### a2a/message_bus.py
 
-- **MessageBus**: `send`, `receive(agent_name, timeout?)`, `broadcast`.
+- **MessageBus**: `register_agent(name: str)`, `send`, `receive(agent_name, timeout?)`, `broadcast`.
+- `register_agent` must be called in `main()` for each agent before any messages are sent. `broadcast` delivers to all registered names.
 
 ### a2a/conversation_manager.py
 
 - **ConversationManager**: `create_conversation`, `get_conversation`, `register_reply`, `broadcast_stop`.
+- **ConversationState** fields: `id` (UUID str), `user_id` (str, `""` if anonymous), `initial_query` (str), `messages` (list[dict], append-only ACLMessage log), `status` ("active" | "complete" | "error"), `final_response` (str | None), `created_at` (datetime), `completion_event` (threading.Event — set by `register_reply` when `final_response` is written; callers block with `event.wait(timeout=30)`).
+- **Persistence:** JSON, one file per user at `memory/<user_id>/conversations.json` (anonymous users: `memory/anonymous/conversations.json`). Root dir configurable via `MEMORY_STORE_PATH` env var (default `memory/`). Written on every `create_conversation` and `register_reply` call. Directory auto-created with `os.makedirs(..., exist_ok=True)`. Thread-safety: `# TODO` deferred to a later stage.
 
 ---
 
@@ -108,14 +120,17 @@ OpenFund-AI/
 ### agents/base_agent.py
 
 - **BaseAgent**: `__init__(name, message_bus)`, `run()`, `handle_message(message)` (abstract).
+- `run()` loop: `while True` → `message_bus.receive(self.name, timeout=1.0)` → skip `None` → if `performative == STOP` break (thread exits cleanly) → else call `handle_message`. `handle_message` never receives a STOP message.
 
 ### agents/planner_agent.py
 
-- **PlannerAgent**: `handle_message`, `decompose_task(query) -> List[TaskStep]`, `create_research_request(...)`, (Phase 2) `resolve_conflicts(agent_outputs)`.
+- **PlannerAgent**: `handle_message`, `decompose_task(query) -> List[TaskStep]`, `create_research_request(...)`, `compute_sufficiency(collected: dict) -> float`, (Phase 2) `resolve_conflicts(agent_outputs)`.
+- **TaskStep** dataclass: `agent` (str: "librarian" | "websearcher" | "analyst"), `action` (str), `params` (dict).
+- **Stub behavior (pre-LLM):** `decompose_task` always returns three TaskSteps — one each for librarian, websearcher, and analyst. Planner sends all three `REQUEST` messages in parallel (no waiting between sends), tracks expected INFORMs, and when all three have replied calls `compute_sufficiency`. Stub `compute_sufficiency` always returns `1.0`. If score ≥ `PLANNER_SUFFICIENCY_THRESHOLD` (env var, default `0.6`) → send to Responder. The LLM in Stage 19 replaces both `decompose_task` and `compute_sufficiency` without touching the control flow.
 
 ### agents/librarian_agent.py
 
-- **LibrarianAgent**: `handle_message`; uses MCP **vector_tool (Milvus)** and **kg_tool (Neo4j)**; `retrieve_knowledge_graph`, `retrieve_documents`, `combine_results`.
+- **LibrarianAgent**: `handle_message`; uses MCP **vector_tool (Milvus)**, **kg_tool (Neo4j)**, and **sql_tool (PostgreSQL)**; `retrieve_knowledge_graph`, `retrieve_documents`, `retrieve_sql`, `combine_results`. Calls `"vector_tool.search"`, `"kg_tool.query_graph"`, and `"sql_tool.run_query"` via MCPClient.
 
 ### agents/websearch_agent.py
 
@@ -127,7 +142,9 @@ OpenFund-AI/
 
 ### agents/responder_agent.py
 
-- **ResponderAgent**: `handle_message`, `evaluate_confidence`, `should_terminate`, `format_response(analysis, user_profile)`; use OutputRail for compliance and formatting; optional `request_refinement`.
+- **ResponderAgent**: `handle_message`, `evaluate_confidence(analysis: dict) -> float`, `should_terminate() -> bool`, `format_response(analysis, user_profile)`; use OutputRail for compliance and formatting; optional `request_refinement`.
+- `evaluate_confidence` takes the analysis dict only; returns hardcoded `0.8` stub until LLM is added.
+- `should_terminate` returns True when confidence ≥ `RESPONDER_CONFIDENCE_THRESHOLD` (env var, default `0.75`). When not terminating, sends `REQUEST` (refinement) to Planner.
 
 ---
 
@@ -136,6 +153,7 @@ OpenFund-AI/
 ### output/output_rail.py
 
 - **OutputRail**: `check_compliance(text)`, `format_for_user(text, user_profile)`.
+- `user_profile` uses `UserProfile` StrEnum: `BEGINNER`, `LONG_TERM`, `ANALYST`. Input normalized to lowercase; unknown values return HTTP 400.
 
 ---
 
@@ -151,9 +169,10 @@ OpenFund-AI/
 
 ### mcp/tools/vector_tool.py — **Milvus**
 
-- **search(query: str, top_k: int, filter?: dict) -> list** — Milvus collection; returns docs with scores.
+- **search(query: str, top_k: int, filter?: dict) -> list** — embeds query using `sentence-transformers/all-MiniLM-L6-v2` (384 dims), searches Milvus collection, returns docs with scores.
 - **index_documents(docs: list) -> dict** (optional).
-- Config: MILVUS_URI (or host/port), MILVUS_COLLECTION.
+- Config: `MILVUS_URI` (e.g. `grpc://host:19530`; host/port not supported), `MILVUS_COLLECTION`, `EMBEDDING_MODEL` (default `sentence-transformers/all-MiniLM-L6-v2`), `EMBEDDING_DIM` (default `384`).
+- Test stub: zero-vector of length `EMBEDDING_DIM`.
 
 ### mcp/tools/kg_tool.py — **Neo4j**
 
@@ -170,12 +189,19 @@ OpenFund-AI/
 
 ### mcp/tools/analyst_tool.py — **Custom API**
 
-- **run_analysis(payload: dict) -> dict** — POST to custom Analyst API; payload/response schema defined by that API (e.g. metrics: sharpe, max_drawdown, monte_carlo distribution).
-- Config: ANALYST_API_URL, optional ANALYST_API_KEY or auth header.
+- **run_analysis(payload: dict) -> dict** — POST to `ANALYST_API_URL`; optional auth via `ANALYST_API_KEY` header.
+- Stub schema (until real API spec is provided):
+  ```jsonc
+  // request: { "returns": [0.02, -0.01, 0.03], "horizon": 252 }
+  // response: { "sharpe": 1.4, "max_drawdown": -0.12, "distribution": { "mean": 0.08, "std": 0.15 } }
+  ```
+- Config: `ANALYST_API_URL`, optional `ANALYST_API_KEY`.
 
-### mcp/tools/sql_tool.py
+### mcp/tools/sql_tool.py — **PostgreSQL**
 
-- **run_query(query: str, params?: dict) -> dict**.
+- **run_query(query: str, params?: dict) -> dict** — executes parameterised SQL against PostgreSQL; returns rows as list of dicts.
+- Config: `DATABASE_URL` env var.
+- Implemented in Stage 8b (after kg_tool, before market_tool). Tests mock the PostgreSQL connection.
 
 ### mcp/tools/file_tool.py
 
@@ -187,7 +213,18 @@ OpenFund-AI/
 
 ### config/config.py
 
-- **load_config() -> Config**: env vars for API keys, model names; **MILVUS_***, **NEO4J_***, **TAVILY_API_KEY**, **YAHOO_***, **ANALYST_API_URL** (and optional auth); MCP server endpoint; feature flags.
+- **load_config() -> Config**: reads all env vars via `os.getenv`; defaults to empty strings or documented defaults. Full env var list:
+  - **Milvus:** `MILVUS_URI`, `MILVUS_COLLECTION`
+  - **Embedding:** `EMBEDDING_MODEL` (default `sentence-transformers/all-MiniLM-L6-v2`), `EMBEDDING_DIM` (default `384`)
+  - **Neo4j:** `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`
+  - **Market:** `TAVILY_API_KEY`, `YAHOO_BASE_URL`, `YAHOO_API_KEY`
+  - **Analyst API:** `ANALYST_API_URL`, `ANALYST_API_KEY`
+  - **SQL:** `DATABASE_URL`
+  - **Persistence:** `MEMORY_STORE_PATH` (default `memory/`)
+  - **Timeouts:** `E2E_TIMEOUT_SECONDS` (default `30`)
+  - **Thresholds:** `PLANNER_SUFFICIENCY_THRESHOLD` (default `0.6`), `ANALYST_CONFIDENCE_THRESHOLD` (default `0.6`), `RESPONDER_CONFIDENCE_THRESHOLD` (default `0.75`)
+  - **LLM (Phase 2):** `LLM_API_KEY`, `LLM_MODEL`
+  - **MCP:** MCP server endpoint; feature flags
 
 ---
 
@@ -195,23 +232,27 @@ OpenFund-AI/
 
 ### main.py
 
-- **main()**: create MessageBus, ConversationManager, SafetyGateway, MCP client (with config); instantiate agents (inject bus + MCP client); start FastAPI (REST + WebSocket) and agent runners; optionally start MCP server.
+- **main()**: call `load_config()`; create `InMemoryMessageBus`; call `register_agent` for each agent name; create `ConversationManager`, `SafetyGateway`, `MCPClient`/`MCPServer` (tools registered); instantiate all agents (inject bus + mcp_client); call `create_app(bus, manager, safety, mcp_client)` and mount with uvicorn; start each agent in a daemon thread (`agent.run()`).
+- `--e2e-once` flag: run one full conversation without HTTP, block on `completion_event.wait(timeout=E2E_TIMEOUT_SECONDS)`, exit 0.
 
 ---
 
 ## Design Constraints
 
-- All inter-agent communication: ACLMessage only.
-- All external data: via MCP only (Milvus, Neo4j, Tavily, Yahoo, custom Analyst API accessed only through MCP tools).
-- Termination: only Responder; broadcast STOP via ConversationManager.
-- Loop: multiple refinement cycles (Analyst.needs_more_data → Planner → Responder.should_terminate).
+- All inter-agent communication: ACLMessage only (performatives typed as StrEnum).
+- All external data: via MCP only (Milvus, Neo4j, PostgreSQL, Tavily, Yahoo, custom Analyst API — all accessed through namespaced MCP tools).
+- Termination: only Responder; broadcast STOP via ConversationManager; all agent threads exit on STOP receipt.
+- Planner orchestrates hub-and-spoke: specialists (Librarian, WebSearcher, Analyst) only reply to Planner.
+- Planner dispatches to all three specialists in parallel; proceeds to Responder when sufficiency score ≥ `PLANNER_SUFFICIENCY_THRESHOLD`.
+- Conversation state persisted as JSON under `memory/<user_id>/conversations.json`; `completion_event` (threading.Event) signals reply readiness to pollers.
 
 ---
 
 ## Next Implementation Steps
 
-1. Implement MessageBus backend; ConversationManager and STOP.
-2. Implement MCP server and tools: **vector_tool (Milvus)**, **kg_tool (Neo4j)**, **market_tool (Tavily + Yahoo)**, **analyst_tool (custom API)**, sql_tool, file_tool.
-3. Add SafetyGateway and OutputRail; wire REST/WebSocket.
-4. Define Analyst API payload/response schema and confidence/termination rules.
-5. Logging, monitoring, error handling; config and deployment.
+1. Implement `InMemoryMessageBus` with `register_agent`; `ConversationManager` with `ConversationState` and JSON persistence; STOP broadcast.
+2. Implement MCP server and tools (namespaced): `vector_tool` (Milvus + sentence-transformers), `kg_tool` (Neo4j), `sql_tool` (PostgreSQL, Stage 8b), `market_tool` (Tavily + Yahoo), `analyst_tool` (custom API stub), `file_tool`.
+3. Implement `SafetyGateway` (raises `SafetyError`), `OutputRail` (`UserProfile` StrEnum), wire `create_app(bus, manager, safety, ...)` REST + WebSocket (event stream).
+4. Implement agents: `PlannerAgent` (parallel dispatch to all 3, `PLANNER_SUFFICIENCY_THRESHOLD`), `LibrarianAgent` (vector + kg + sql), `WebSearcherAgent`, `AnalystAgent` (`ANALYST_CONFIDENCE_THRESHOLD`), `ResponderAgent` (`RESPONDER_CONFIDENCE_THRESHOLD`, 0.8 stub).
+5. E2E loop (`--e2e-once`), REST Stage 17, WebSocket Stage 18; logging, monitoring, config, deployment.
+6. Stage 19: replace stub `decompose_task` and `compute_sufficiency` with LLM (ReAct prompt). LangGraph deferred to Stage 20+.

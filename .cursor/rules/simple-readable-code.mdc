@@ -1,0 +1,18 @@
+---
+description: Prefer clear, minimal, readable code; avoid over-engineering and premature optimization
+alwaysApply: true
+---
+
+# Simple, Readable Code
+
+- **Prioritize simplicity** over performance or scalability. Do not introduce parallelism, premature optimization, caching, or extra abstractions unless explicitly requested. Avoid over-engineering.
+
+- **Straightforward control flow.** Prefer explicit code over clever tricks. Avoid unnecessary patterns (factories, repositories, DI, etc.) unless required.
+
+- **Short, focused functions.** Use descriptive variable and function names. Avoid deeply nested logic.
+
+- **No defensive production machinery by default.** Do not add retry logic, concurrency control, or advanced error pipelines unless asked.
+
+- **Standard library first.** Prefer stdlib over third-party libraries. Do not introduce new dependencies unless necessary.
+
+- **Avoid premature abstraction.** Write code that is easy to understand for a developer reading it for the first time.

@@ -14,6 +14,16 @@ class MessageBus(ABC):
     """
 
     @abstractmethod
+    def register_agent(self, name: str) -> None:
+        """
+        Register an agent by name. Required for receive and for broadcast delivery.
+
+        Args:
+            name: Unique agent name (e.g. "planner", "librarian", "responder").
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def send(self, message: ACLMessage) -> None:
         """
         Send an ACL message to the designated receiver.

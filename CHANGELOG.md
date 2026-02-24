@@ -1,9 +1,10 @@
 # Changelog
 
-Summary of notable changes. Newest first.
+Summary of notable changes. Newest first. Detailed work breakdown and changelog are also in [docs/progress.md](docs/progress.md).
 
 ## [Unreleased]
 
+- docs: reorganize /docs into user-flow, prd, backend, frontend (placeholder), file-structure, progress, project-status; changelog integrated into progress.md; remove .cursor/rules/changelog.mdc.
 - docs: add staged_implementation_plan.md and test_plan.md (tests per stage, runnable commands).
 - docs: add clarification.md (architecture decisions and settled items).
 - docs: update claude-v2.md (conversation persistence structure, API details).

@@ -1,27 +1,6 @@
-# OpenFund-AI — Claude.md v2 (Detailed)
+# File-Structure Document
 
-A2A Multi-Agent Skeleton (FIPA-ACL + MCP) + Six-Layer + Tech Stack. This document provides, for each Python file: **purpose**, **list of functions/classes**, and for each: **purpose**, **docstring**, **example usage**.
-
----
-
-## Overview
-
-- **A2A** communication via FIPA-ACL and a message bus
-- **Six-layer architecture**: User Interaction, Safety, Orchestration, Research Execution, Tool/Data (MCP), Output Review
-- **Technology stack**: **Milvus** (vector DB), **Neo4j** (graph), **Tavily** + **Yahoo APIs** (web/market search), **custom Analyst API** (quant analysis)
-- **MCP** as the only path for external data; Responder-controlled termination
-- **Message flow**: Planner decides who to call (Librarian / WebSearcher / Analyst or combination). When information is sufficient, Planner sends to Responder; when insufficient, Planner decides who to call next with a refined query. Only Responder may broadcast STOP.
-
----
-
-## Technology Stack
-
-| Concern | Technology | MCP Tool / Config |
-|--------|------------|-------------------|
-| Vector DB | Milvus | `vector_tool` — MILVUS_URI, MILVUS_COLLECTION |
-| Knowledge graph | Neo4j | `kg_tool` — NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD |
-| Web / market search | Tavily + Yahoo | `market_tool` — TAVILY_API_KEY, YAHOO_BASE_URL |
-| Analyst backend | Custom API | `analyst_tool` — ANALYST_API_URL, ANALYST_API_KEY |
+Directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). See [backend.md](backend.md) for API and architecture, [prd.md](prd.md) for product intent, [user-flow.md](user-flow.md) for user flow.
 
 ---
 
@@ -40,7 +19,13 @@ OpenFund-AI/
 ├── tests/
 │   └── test-stages.py   # Single test file; tests grouped by stage
 └── docs/
-    └── claude-v2.md
+    ├── user-flow.md
+    ├── prd.md
+    ├── backend.md
+    ├── frontend.md
+    ├── file-structure.md (this file)
+    ├── progress.md
+    └── project-status.md
 ```
 
 ---

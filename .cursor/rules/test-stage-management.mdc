@@ -1,15 +1,15 @@
 ---
-description: When a stage is completed, add tests per test_plan.md to tests/test-stages.py
+description: When a stage is completed, add tests per docs/progress.md to tests/test-stages.py
 alwaysApply: true
 ---
 
 # Test Case Management (Staged Implementation)
 
-When you **complete implementation for a stage** (from [docs/staged_implementation_plan.md](docs/staged_implementation_plan.md)), add the corresponding test cases to **tests/test-stages.py** as specified in [docs/test_plan.md](docs/test_plan.md).
+When you **complete implementation for a stage**, add the corresponding test cases to **tests/test-stages.py** as specified in [docs/progress.md](docs/progress.md) and [docs/prd.md](docs/prd.md).
 
 ## Workflow
 
-1. After implementing a stage (e.g. Stage 2 MessageBus, Stage 4 SafetyGateway), open [docs/test_plan.md](docs/test_plan.md) and find that stage’s **Tests** table.
+1. After implementing a stage, open [docs/progress.md](docs/progress.md) for the stage list and runnable commands, and [docs/prd.md](docs/prd.md) for behavior and decisions.
 2. Implement each test case listed there as one or more pytest test functions.
 3. Add them to **tests/test-stages.py**, grouped by stage (e.g. a class `TestStage2MessageBus` or a module-level comment `# --- Stage N ---` and tests below it).
 4. Use pytest conventions: `test_*` names, assert expectations; mock external deps (Milvus, Neo4j, HTTP, etc.) so tests run without real services.
@@ -18,8 +18,8 @@ When you **complete implementation for a stage** (from [docs/staged_implementati
 
 - **Single file:** `tests/test-stages.py` holds all stage tests.
 - **Organization:** Group tests by stage number/name so the file stays scannable (e.g. Stage 2 block, then Stage 3 block).
-- **Stage 1:** test_plan.md specifies a runnable CLI check only; no pytest in test-stages.py for Stage 1 unless you add a small smoke test.
+- **Stage 1:** progress.md specifies a runnable CLI check only; no pytest for Stage 1.1 unless you add a smoke test.
 
 ## Reference
 
-Use [docs/test_plan.md](docs/test_plan.md) as the source of truth for what to test each stage. Match the described behavior and assertions; run with `pytest tests/test-stages.py -v` (or `-k stage_2` if you use markers).
+Use [docs/progress.md](docs/progress.md) for work breakdown and runnable commands; [docs/prd.md](docs/prd.md) for what to test. Run with `pytest tests/test-stages.py -v` (or `-k stage_2`).

@@ -1,0 +1,32 @@
+---
+description: /docs structure, purpose of each document, and when to update each
+alwaysApply: true
+---
+
+# Project Documentation Structure
+
+All docs live in `/docs`. Each document has a single responsibility; no overlap or duplication.
+
+| Document | Purpose |
+|----------|---------|
+| **user-flow.md** | Application behavioral flow from user perspective: entry points, navigation, screen/state transitions, decision branches, auth boundaries, error states, session lifecycle. No UI styling, schema, or implementation. |
+| **prd.md** | What the system must do and why: problem statement, target users, scope, functional requirements, constraints, acceptance criteria, success metrics. No API definitions or implementation. |
+| **backend.md** | Server-side behavior and architecture: system overview, API contracts, data models, business rules, validation, auth, error handling, integrations. No UI or product rationale. |
+| **frontend.md** | Frontend architecture and behavior. Leave blank until frontend planning begins. |
+| **file-structure.md** | Codebase organization: directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). No business reasoning, flow, or execution history. |
+| **progress.md** | Development execution state (replaces changelog): work breakdown (tasks, status, blockers), implementation notes (decisions, PRD deviations, refactors), repeated errors & resolutions, newly introduced changes. Update immediately after implementation changes. |
+| **project-status.md** | Major capability readiness table: Capability | Status | Notes. Status: Not Started, In Progress, Live, Deprecated. |
+
+## Update triggers (when to touch which doc)
+
+- **user-flow.md:** New screen/state, navigation or auth flow change, error path change, new entry point.
+- **prd.md:** New feature approved, scope/acceptance criteria/business requirements/success metrics change.
+- **backend.md:** API contracts, data models, business rules, auth, integrations, validation change.
+- **frontend.md:** When frontend architecture, components, or state management are defined.
+- **file-structure.md:** New module, changed file responsibility, function added/removed/refactored, directory structure change.
+- **progress.md:** Task completed/created, architectural decision, recurring error identified, behavioral change from a fix, dependency change. Update right after implementation.
+- **project-status.md:** Capability becomes operational, state change, deprecated, or release milestone.
+
+## Governance
+
+A feature is not complete until: PRD reflects it, User Flow reflects the interaction, Backend reflects implementation, File Structure reflects code, Progress logs the change, Project Status reflects capability state. Documentation integrity is mandatory.

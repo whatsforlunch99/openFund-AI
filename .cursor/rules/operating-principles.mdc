@@ -21,6 +21,7 @@ alwaysApply: true
 ## Code quality
 
 - Add or update tests for behavioral changes when the project has tests.
+- When making user-visible or notable changes, add an entry to [docs/progress.md](docs/progress.md) (Changelog section) and update [docs/project-status.md](docs/project-status.md) if a major capability goes online.
 - Prefer type safety and explicit error handling.
 - Add comments only when the intent is non-obvious.
 

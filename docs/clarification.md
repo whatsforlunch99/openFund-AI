@@ -81,14 +81,14 @@ Hub-and-spoke: Planner is the sole orchestrator. All specialists reply only to P
 
 ```
 REST/main  → Planner
-Planner    → Librarian / WebSearcher / Analyst  (REQUEST, one or more rounds)
+Planner    → Librarian / WebSearcher / Analyst  (REQUEST, one or more per round)
 <agent>    → Planner                             (INFORM: result)
 Planner    → Responder                           (REQUEST: consolidated data)
-Responder  → Planner                             (INFORM: final_response)
-Responder  → broadcast STOP
+Responder  → user                                (final reply via register_reply; API returns to user)
+Responder  → broadcast STOP                     (tells all agents, including Planner, that conversation is complete)
 ```
 
-Planner accumulates replies and decides each next call dynamically — see C3 for stub behavior.
+Planner accumulates replies and decides each next call dynamically. Responder does not send the final response to Planner; it registers the final reply (for the API to return to the user) and broadcasts STOP so all agents know the conversation is complete. See C3 for stub behavior.
 
 ---
 
@@ -164,7 +164,7 @@ All tool names are namespaced: `"file_tool.read_file"`, `"vector_tool.search"`, 
 
 ### F2 · Milvus config
 
-Only `MILVUS_URI` is supported (e.g. `grpc://host:19530` or a Zilliz cloud URI). `MILVUS_HOST` / `MILVUS_PORT` are not supported.
+`MILVUS_URI` (e.g. `grpc://host:19530` or a Zilliz cloud URI) and `MILVUS_COLLECTION` (collection name for vector search). `MILVUS_HOST` / `MILVUS_PORT` are not supported.
 
 ---
 
@@ -228,11 +228,11 @@ Stage 19 is LLM-only: replace stub `decompose_task` with a real LLM call + ReAct
 
 ### C3 · Planner stub behavior before LLM exists
 
-The stub (pre-LLM) Planner always dispatches to all three specialists in parallel, collects all three INFORMs, then proceeds to Responder. Detailed behavior:
+The **design** allows Planner to choose one or more of Librarian, WebSearcher, and Analyst per round; when information is sufficient, Planner sends consolidated data to Responder. The **stub** (pre-LLM) may simplify by always dispatching to all three specialists in parallel, then proceeding to Responder. Detailed stub behavior (when using all three):
 
-- `decompose_task(query)` always returns three `TaskStep` objects: one each for `librarian`, `websearcher`, and `analyst`.
-- Planner sends all three `REQUEST` messages simultaneously (parallel dispatch, no waiting between sends).
-- Planner tracks expected replies. Once all three `INFORM` replies are received, it computes a sufficiency score.
+- `decompose_task(query)` returns a list of `TaskStep` objects (stub may return three: one each for `librarian`, `websearcher`, and `analyst`).
+- Planner sends `REQUEST` messages to the chosen agent(s) (stub: all three simultaneously, no waiting between sends).
+- Planner tracks expected replies. Once all requested `INFORM` replies are received, it computes a sufficiency score.
 - **Stub sufficiency score:** always returns `1.0` once all dispatched agents have replied. The threshold check still exists in code so the LLM can replace the scoring function in Stage 19 without touching control flow.
 - **Env var:** `PLANNER_SUFFICIENCY_THRESHOLD` (default `0.6`). Stub always scores `1.0` so it always passes.
 
@@ -274,7 +274,7 @@ One status event is emitted per agent as it begins processing. One response even
 | B3  | TaskStep structure                                   | ✅ dataclass with agent / action / params                        |
 | C1  | Broadcast agent registration                         | ✅ explicit `register_agent()`                                   |
 | C2  | Agent chain pattern                                  | ✅ hub-and-spoke, Planner orchestrates                           |
-| C3  | Planner stub dispatch + sufficiency score            | ✅ all 3 parallel; stub scores 1.0; PLANNER_SUFFICIENCY_THRESHOLD |
+| C3  | Planner stub dispatch + sufficiency score            | ✅ one-or-more per round (design); stub may use all 3; scores 1.0; PLANNER_SUFFICIENCY_THRESHOLD |
 | C4  | BaseAgent.run()                                      | ✅ confirmed loop + STOP intercept                               |
 | C5  | Completion signal                                    | ✅ `threading.Event` per conversation                            |
 | D1  | create_or_get                                        | ✅ inline create + get in REST                                   |

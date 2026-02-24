@@ -1,331 +1,362 @@
 # OpenFund-AI: Staged Implementation (Runnable Checkpoints)
 
-Each stage ends with a **runnable checkpoint**: either tests passing or a command/API you can execute. Dependencies flow stage-to-stage; external services (Milvus, Neo4j, Tavily, Yahoo, Analyst API) can be mocked in tests so stages are runnable without full infra.
+This plan aligns with [clarification.md](clarification.md), [claude-v2.md](claude-v2.md), and [use-case-flows.md](use-case-flows.md). Development proceeds in **slices**: each slice is a **runnable unit** you can implement and verify before moving on. Start with the smallest runnable pipeline (Planner + Librarian + Responder + MCP), then add tools, other agents, Safety, and REST. External services (Milvus, Neo4j, Tavily, Yahoo, Analyst API) can be mocked so every slice is runnable without full infra.
 
 ---
 
-## Stage 1 — Config and minimal main
+## Development order (slices)
 
-**Scope:** [config/config.py](../config/config.py) `load_config()`, [main.py](../main.py) `main()`.
-
-- Implement `load_config()`: read env with `os.getenv`, default empty strings; no .env file required.
-- Implement `main()`: call `load_config()`, print `"OpenFund-AI ready (config loaded)"`, exit 0.
-
-**Runnable:** `PYTHONPATH=. python main.py` prints the message and exits 0.
-
----
-
-## Stage 2 — In-memory MessageBus
-
-**Scope:** New implementation of [a2a/message_bus.py](../a2a/message_bus.py) (e.g. `InMemoryMessageBus`).
-
-- Implement a concrete `MessageBus`: `register_agent(name: str)` adds agent to known set; per-agent queues (`defaultdict(queue.Queue)`); `send` puts to receiver queue; `receive(agent_name, timeout?)` blocks until message or timeout returns `None`; `broadcast` puts to all registered agent queues.
-- Tests in `tests/test-stages.py`: send message → receive by that agent → assert content. Broadcast: register two agents, broadcast → each receives. Receive with timeout returns `None` when empty.
-
-**Runnable:** `pytest tests/test-stages.py -k stage_2 -v` passes.
+| Slice | What you add | Runnable checkpoint |
+|-------|----------------|---------------------|
+| 1 | Config, MessageBus, ConversationManager (1.1, 1.2, 1.3) | `main.py` runs; stage_1_2 and stage_1_3 tests pass |
+| 2 | MCP server/client, file_tool only (2.1) | stage_2_1 tests pass; `call_tool("file_tool.read_file", ...)` works |
+| 3 | ACLMessage, BaseAgent, Planner (1 step), Librarian (file_tool), Responder (stub format) | `python main.py --e2e-once` completes one conversation |
+| 4 | vector_tool, kg_tool, sql_tool (mocks); full Librarian | E2E with Librarian using three tools |
+| 5 | WebSearcher, Analyst; Planner sends to all three | E2E with five agents, one round |
+| 6 | SafetyGateway | E2E with `process_user_input`; bad input rejected |
+| 7 | REST: create_app, POST /chat, GET /conversations | `curl` POST /chat returns 200 JSON |
+| 8 | OutputRail in Responder | Response text varies by user_profile |
+| 9 | WebSocket /ws | GET and WebSocket work |
+| Optional | New rounds (Planner); Stage 10.2 LLM | Multi-round or LLM-driven flow |
 
 ---
 
-## Stage 3 — ConversationManager
+## Prerequisite: ACLMessage and BaseAgent
 
-**Scope:** [a2a/conversation_manager.py](../a2a/conversation_manager.py).
+Before any agents run (Slice 3), implement:
 
-- Implement `ConversationState` dataclass: `id` (UUID str), `user_id` (str), `initial_query` (str), `messages` (list[dict]), `status` ("active"|"complete"|"error"), `final_response` (str|None), `created_at` (datetime), `completion_event` (threading.Event).
-- Implement `create_conversation(user_id, query) -> ConversationState`: generate UUID, build state, persist to `memory/<user_id>/conversations.json` (root dir from `MEMORY_STORE_PATH` env var, default `memory/`); auto-create dir with `os.makedirs(..., exist_ok=True)`. Anonymous users use `memory/anonymous/`.
-- Implement `get_conversation(id) -> ConversationState`.
-- Implement `register_reply(conversation_id, message)`: append message dict to `state.messages`; if message is final response set `state.final_response`, `state.status = "complete"`, and `state.completion_event.set()`; persist to JSON. Thread-safety: `# TODO` deferred.
-- Implement `broadcast_stop`: build STOP ACLMessage, call `message_bus.broadcast`.
-- Tests in `tests/test-stages.py`: create → valid UUID + state; get → same state; register_reply → message appended + event set + file written; broadcast_stop → STOP performative sent.
-
-**Runnable:** `pytest tests/test-stages.py -k stage_3 -v` passes.
+- **a2a/acl_message.py**: `ACLMessage` dataclass — performative, sender, receiver, content, conversation_id, timestamp (B1). Default conversation_id (UUID) and timestamp in `__post_init__`.
+- **agents/base_agent.py**: `BaseAgent` — `run()` loop: `receive(self.name, timeout=1.0)`; if message is STOP, break; else `handle_message(msg)` (C4). Subclasses implement `handle_message`.
 
 ---
 
-## Stage 4 — SafetyGateway
+## Slice 1 — Bootstrap (no agents)
 
-**Scope:** [safety/safety_gateway.py](../safety/safety_gateway.py).
+**Implement:** Stages 1.1, 1.2, 1.3 (see [Reference: Stage specifications](#reference-stage-specifications) below).
 
-- Implement `validate_input`: length and charset checks; return `ValidationResult`.
-- Implement `check_guardrails`: block list of phrases (e.g. "buy now", "sell immediately"); return `GuardrailResult`.
-- Implement `mask_pii`: regex for phone/ID patterns, replace with placeholder; return masked string.
-- Implement `process_user_input(...) -> ProcessedInput`: validate → guardrails → mask_pii. On failure raises `SafetyError(reason: str, code: str)`. FastAPI registers an exception handler mapping `SafetyError` → HTTP 400.
-- Tests in `tests/test-stages.py`: valid input passes; blocked phrase raises `SafetyError`; PII masked; integration test for full pipeline.
+- **Stage 1.1:** [config/config.py](../config/config.py) `load_config()`, [main.py](../main.py) `main()` — load env, print ready, exit 0.
+- **Stage 1.2:** [a2a/message_bus.py](../a2a/message_bus.py) — `InMemoryMessageBus` with `register_agent`, `send`, `receive`, `broadcast` (C1).
+- **Stage 1.3:** [a2a/conversation_manager.py](../a2a/conversation_manager.py) — `ConversationState` (B2), `create_conversation` → conversation_id, `get_conversation`, `register_reply`, `broadcast_stop`; persistence (D2).
 
-**Runnable:** `pytest tests/test-stages.py -k stage_4 -v` passes.
+**Runnable:** `PYTHONPATH=. python main.py` prints ready; `pytest tests/test-stages.py -k stage_1_2 -v` and `-k stage_1_3 -v` pass.
 
----
-
-## Stage 5 — OutputRail
-
-**Scope:** [output/output_rail.py](../output/output_rail.py).
-
-- Implement `UserProfile` StrEnum: `BEGINNER`, `LONG_TERM`, `ANALYST`. Input normalized to lowercase; unknown values return HTTP 400.
-- Implement `check_compliance(text) -> ComplianceResult`: keyword check (e.g. no "buy"/"sell" in isolation).
-- Implement `format_for_user(text, user_profile: UserProfile) -> str`: switch on profile, return string with appropriate disclaimer.
-- Tests in `tests/test-stages.py`: compliance pass/fail; `format_for_user` returns str for all three profiles with distinct content; unknown profile rejected.
-
-**Runnable:** `pytest tests/test-stages.py -k stage_5 -v` passes.
+**Goal:** Config, bus, and conversation state work; no agent flow yet.
 
 ---
 
-## Stage 6 — MCP server and client (in-process)
+## Slice 2 — MCP plumbing + one tool
 
-**Scope:** [mcp/mcp_server.py](../mcp/mcp_server.py), [mcp/mcp_client.py](../mcp/mcp_client.py), one tool.
+**Implement:** Stage 2.1 — MCP server, MCP client, [mcp/tools/file_tool.py](../mcp/tools/file_tool.py) `read_file`. Register only `"file_tool.read_file"` (F1).
 
-- Implement `MCPServer.register_tool(name, handler)` (store handler) and `dispatch(tool_name, payload)` (call handler, return dict; catch exceptions → return error dict).
-- Implement `MCPClient`: hold reference to server; `call_tool(tool_name, payload)` calls `server.dispatch`.
-- Implement [mcp/tools/file_tool.py](../mcp/tools/file_tool.py) `read_file`: read from path, return `{"content": ..., "path": ...}`.
-- Register as `"file_tool.read_file"` (namespaced convention). Test: `client.call_tool("file_tool.read_file", {"path": "CHANGELOG.md"})` returns content.
-- Tests in `tests/test-stages.py`: register + dispatch; call_tool success; unknown tool returns error dict; handler exception returns error dict.
+**Runnable:** `pytest tests/test-stages.py -k stage_2_1 -v` passes; `client.call_tool("file_tool.read_file", {"path": "CHANGELOG.md"})` returns content.
 
-**Runnable:** `pytest tests/test-stages.py -k stage_6 -v` passes..
+**Goal:** Any agent can call one MCP tool; no Milvus/Neo4j/APIs needed.
 
 ---
 
-## Stage 7 — vector_tool (Milvus)
+## Slice 3 — Minimal chain: Planner + Librarian + Responder
 
-**Scope:** [mcp/tools/vector_tool.py](../mcp/tools/vector_tool.py).
+**Implement:**
 
-- Implement `search(query, top_k, filter?)`: embed query using `sentence-transformers/all-MiniLM-L6-v2` (model and dim from `EMBEDDING_MODEL` / `EMBEDDING_DIM` env vars, defaults `all-MiniLM-L6-v2` / `384`); search Milvus collection via `MILVUS_URI`; return list of docs with scores.
-- Implement `index_documents(docs)`: embed and insert into collection.
-- Test stub: zero-vector of length `EMBEDDING_DIM` instead of real model. Mock Milvus connection so tests pass without a running instance.
-- Register as `"vector_tool.search"` and `"vector_tool.index_documents"`.
-- Tests in `tests/test-stages.py`: search returns list with scores; index_documents returns status; embedding uses configured dim.
+- **ACLMessage** and **BaseAgent** (prerequisite above).
+- **PlannerAgent (reduced):** On REQUEST from caller, `decompose_task` stub returns **one** `TaskStep`: `agent="librarian"`. Send one REQUEST to librarian; on **one** INFORM from librarian, `compute_sufficiency` (stub 1.0) → send REQUEST to Responder with `{ conversation_id, user_profile, analysis: <librarian result> }`. No WebSearcher/Analyst.
+- **LibrarianAgent:** `handle_message` → parse query/conversation_id → `mcp_client.call_tool("file_tool.read_file", {"path": ...})` (path from query or fixed file) → `combine_results` (single doc) → send INFORM to **planner**.
+- **ResponderAgent:** `handle_message` → read conversation_id, user_profile, analysis → `evaluate_confidence` (stub 0.8) → `should_terminate` (True) → **stub** format (e.g. `final_text = str(analysis)`) and **stub** compliance (always pass) → `register_reply(conversation_id, INFORM with final_response)` → `broadcast_stop`. No real OutputRail yet.
+- **main():** Create bus; `register_agent("planner")`, `register_agent("librarian")`, `register_agent("responder")`; ConversationManager; MCP server (file_tool only); instantiate Planner, Librarian, Responder (bus + mcp_client); start three daemon threads. **No SafetyGateway.** `--e2e-once`: create conversation, send REQUEST to planner with `{ query, conversation_id, user_profile }`, block on `state.completion_event.wait(timeout=30)`, print `state.final_response`.
 
-**Runnable:** `pytest tests/test-stages.py -k stage_7 -v` passes (mock); optional manual run with real Milvus.
+**Runnable:** `PYTHONPATH=. python main.py --e2e-once` runs one full conversation end-to-end; exits 0 and prints a response.
 
----
-
-## Stage 8 — kg_tool (Neo4j)
-
-**Scope:** [mcp/tools/kg_tool.py](../mcp/tools/kg_tool.py).
-
-- Implement `query_graph(cypher, params?)`: Neo4j driver, run Cypher, return nodes/edges dict.
-- Implement `get_relations(entity)`: parameterised Cypher query for entity relations.
-- Register as `"kg_tool.query_graph"` and `"kg_tool.get_relations"`.
-- Tests in `tests/test-stages.py`: mock Neo4j driver; query_graph returns nodes/edges dict; get_relations returns relation dict.
-
-**Runnable:** `pytest tests/test-stages.py -k stage_8 -v` passes.
+**Goal:** Smallest runnable agent pipeline with real MCP.
 
 ---
 
-## Stage 8b — sql_tool (PostgreSQL)
+## Slice 4 — Remaining MCP tools (mocks) + full Librarian
 
-**Scope:** [mcp/tools/sql_tool.py](../mcp/tools/sql_tool.py).
+**Implement:** Stages 4.1, 4.2, 4.3 — vector_tool, kg_tool, sql_tool (stubs/mocks). Register all on MCP server. **LibrarianAgent** full behavior: `vector_tool.search`, `kg_tool.query_graph`, `sql_tool.run_query` → `combine_results` → INFORM to planner. Planner stub can still send only to Librarian for this slice.
 
-- Implement `run_query(query: str, params?: dict) -> dict`: execute parameterised SQL against PostgreSQL (via `psycopg2` or `asyncpg`); return rows as list of dicts.
-- Config: `DATABASE_URL` env var.
-- Register as `"sql_tool.run_query"`.
-- Tests in `tests/test-stages.py`: mock PostgreSQL connection; run_query returns expected rows dict; parameterised query uses params correctly.
+**Runnable:** E2E still works; Librarian returns combined vector + graph + sql (mocked). `pytest -k stage_4_1 -k stage_4_2 -k stage_4_3` pass.
 
-**Runnable:** `pytest tests/test-stages.py -k stage_8b -v` passes.
+**Goal:** Librarian uses all three tool types; no real Milvus/Neo4j/DB.
 
 ---
 
-## Stage 9 — market_tool (Tavily + Yahoo)
+## Slice 5 — WebSearcher and Analyst; Planner sends to all three
 
-**Scope:** [mcp/tools/market_tool.py](../mcp/tools/market_tool.py).
+**Implement:** Stages 5.1, 5.2 (market_tool, analyst_tool — mocks); Stages 5.3, 5.4 (WebSearcherAgent, AnalystAgent). **PlannerAgent** full stub: `decompose_task` returns **three** TaskSteps; send three REQUESTs in parallel; collect three INFORMs; `compute_sufficiency` (1.0) → send REQUEST to Responder with consolidated payload. In main: register and start five agents.
 
-- Implement `fetch(fund_or_symbol) -> dict`: call Yahoo and/or Tavily; return dict with `timestamp`.
-- Implement `fetch_bulk(symbols) -> dict`: timestamp per symbol.
-- Implement `search_web(query) -> list` (Tavily): each result includes `timestamp`.
-- Register as `"market_tool.fetch"`, `"market_tool.fetch_bulk"`, `"market_tool.search_web"`.
-- Tests in `tests/test-stages.py`: mock HTTP (pytest-httpx); fetch returns dict with timestamp; fetch_bulk has timestamp per symbol; search_web results each have timestamp.
+**Runnable:** `python main.py --e2e-once` runs one round: Planner → Librarian, WebSearcher, Analyst → Planner → Responder → register_reply + broadcast_stop.
 
-**Runnable:** `pytest tests/test-stages.py -k stage_9 -v` passes.
+**Goal:** Full hub-and-spoke with all three specialists.
 
 ---
 
-## Stage 10 — analyst_tool (custom API)
+## Slice 6 — Safety
 
-**Scope:** [mcp/tools/analyst_tool.py](../mcp/tools/analyst_tool.py).
+**Implement:** Stage 6.1 (SafetyGateway). In `main` for `--e2e-once`, call `SafetyGateway.process_user_input(query)` before `create_conversation`; on `SafetyError` exit non-zero or skip send. No REST yet.
 
-- Implement `run_analysis(payload: dict) -> dict`: POST to `ANALYST_API_URL`; include `ANALYST_API_KEY` auth header if configured.
-- Stub schema: request `{ "returns": [...], "horizon": 252 }`, response `{ "sharpe": 1.4, "max_drawdown": -0.12, "distribution": { "mean": 0.08, "std": 0.15 } }`.
-- Register as `"analyst_tool.run_analysis"`.
-- Tests in `tests/test-stages.py`: mock HTTP; assert POST to correct URL; response matches stub shape; auth header present when key configured.
+**Runnable:** E2E with valid query works; blocked phrase raises SafetyError or exits with error.
 
-**Runnable:** `pytest tests/test-stages.py -k stage_10 -v` passes.
+**Goal:** All user input passes through Safety before the bus; ready for REST.
 
 ---
 
-## Stage 11 — PlannerAgent (stub decomposition)
+## Slice 7 — REST API (POST /chat, GET /conversations)
 
-**Scope:** [agents/planner_agent.py](../agents/planner_agent.py).
+**Implement:** Stage 7.1 — `create_app(bus, manager, safety, mcp_client)`; POST /chat (validate body → process_user_input → create/get conversation → send to Planner → block on completion_event → return JSON); GET /conversations/{id} (404 if not found); SafetyError → HTTP 400; timeout → 408. Mount app in main; uvicorn.
 
-- Implement `decompose_task(query) -> List[TaskStep]` — stub always returns three `TaskStep` objects: `{ agent: "librarian", action: "retrieve_fund_facts", params: {query} }`, `{ agent: "websearcher", action: "fetch_market_data", params: {query} }`, `{ agent: "analyst", action: "run_analysis", params: {query} }`.
-- Implement `create_research_request(step, accumulated_data)`: build `ACLMessage(performative=REQUEST, receiver=step.agent, content={query, step, data: accumulated_data})`.
-- Implement `handle_message`: on initial REQUEST from REST/main → call `decompose_task` → send all three REQUEST messages in parallel (no waiting between sends) → track expected replies in a dict. On each INFORM reply → store result → call `compute_sufficiency`. If score ≥ `PLANNER_SUFFICIENCY_THRESHOLD` → send REQUEST to Responder.
-- Implement `compute_sufficiency(collected: dict) -> float` — stub always returns `1.0`. `PLANNER_SUFFICIENCY_THRESHOLD` env var default `0.6`.
-- Tests in `tests/test-stages.py`: send REQUEST to Planner → assert three messages sent (one to each specialist) in the same round. `compute_sufficiency` returns float. After all three INFORMs received → assert REQUEST sent to Responder.
+**Runnable:** `curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" -d '{"query":"..."}'` returns 200 with conversation_id and response; blocked input → 400; unknown conversation_id → 404.
 
-**Runnable:** `pytest tests/test-stages.py -k stage_11 -v` passes.
+**Goal:** Full request-to-response over HTTP with safety.
 
 ---
 
-## Stage 12 — LibrarianAgent
+## Slice 8 — OutputRail (real formatting and compliance)
 
-**Scope:** [agents/librarian_agent.py](../agents/librarian_agent.py).
+**Implement:** Stage 8.1 (OutputRail). Inject into Responder; replace stub format/compliance with `format_for_user(..., user_profile)` and `check_compliance(final_text)` before register_reply.
 
-- Implement `handle_message`: parse request, call `retrieve_documents`, `retrieve_knowledge_graph`, and `retrieve_sql` via MCPClient, call `combine_results`, send INFORM reply to Planner.
-- `retrieve_documents`: `mcp_client.call_tool("vector_tool.search", {query, top_k})`.
-- `retrieve_knowledge_graph`: `mcp_client.call_tool("kg_tool.query_graph", {cypher, params})`.
-- `retrieve_sql`: `mcp_client.call_tool("sql_tool.run_query", {query, params})`.
-- Tests in `tests/test-stages.py`: mock MCPClient; assert all three tool names called; reply ACLMessage sent to Planner with combined result in content.
+**Runnable:** POST /chat with `user_profile: "beginner"` vs `"analyst"` returns differently formatted text.
 
-**Runnable:** `pytest tests/test-stages.py -k stage_12 -v` passes.
+**Goal:** Responses are profile-aware and compliance-checked.
 
 ---
 
-## Stage 13 — WebSearcherAgent
+## Slice 9 — WebSocket
 
-**Scope:** [agents/websearch_agent.py](../agents/websearch_agent.py).
+**Implement:** Stage 9.1 — WebSocket /ws: same flow as POST /chat; send status events per agent and final response event (I1).
 
-- Implement `handle_message`: parse request, call `fetch_market_data` (`"market_tool.fetch"`), optionally `fetch_sentiment` / `fetch_regulatory` (`"market_tool.search_web"`); send INFORM reply to Planner with timestamp in content.
-- Tests in `tests/test-stages.py`: mock MCPClient; assert reply contains timestamp field; receiver is Planner.
+**Runnable:** GET /conversations/{id} returns state; WebSocket client receives status events then response event.
 
-**Runnable:** `pytest tests/test-stages.py -k stage_13 -v` passes.
-
----
-
-## Stage 14 — AnalystAgent
-
-**Scope:** [agents/analyst_agent.py](../agents/analyst_agent.py).
-
-- Implement `handle_message`: receive structured_data and market_data from content; call `analyze` (calls `"analyst_tool.run_analysis"` via MCPClient); call `needs_more_data`.
-- `needs_more_data(confidence: float) -> bool`: returns True when confidence < `ANALYST_CONFIDENCE_THRESHOLD` (env var, default `0.6`) → send REQUEST (refinement) to Planner. Otherwise send INFORM (analysis result) to Planner.
-- Tests in `tests/test-stages.py`: mock MCPClient; when needs_more_data is False → assert INFORM sent to Planner; when True → assert REQUEST sent to Planner. `analyze` returns dict; `needs_more_data` returns bool.
-
-**Runnable:** `pytest tests/test-stages.py -k stage_14 -v` passes.
+**Goal:** Full API surface.
 
 ---
 
-## Stage 15 — ResponderAgent
+## Optional: New rounds and LLM
 
-**Scope:** [agents/responder_agent.py](../agents/responder_agent.py).
-
-- Implement `handle_message`: receive analysis from Planner; call `evaluate_confidence(analysis: dict) -> float` (stub returns `0.8`); call `should_terminate`.
-- `should_terminate`: returns True when confidence ≥ `RESPONDER_CONFIDENCE_THRESHOLD` (env var, default `0.75`) → call `format_response` via OutputRail → call `check_compliance` → send INFORM (final response) to Planner → call `conversation_manager.broadcast_stop`. When False → send REQUEST (refinement) to Planner.
-- Inject OutputRail and ConversationManager into Responder constructor.
-- Tests in `tests/test-stages.py`: mock bus and OutputRail; assert evaluate_confidence called with dict only; when terminating: format_response called, check_compliance called, final INFORM sent, broadcast_stop called with STOP performative.
-
-**Runnable:** `pytest tests/test-stages.py -k stage_15 -v` passes.
+- **Planner new rounds:** When `compute_sufficiency` < threshold, generate new queries from all current info and send REQUESTs again to one or more agents (use-case-flows). Add when you want multi-round behavior.
+- **Stage 10.2 (LLM):** Replace stub `decompose_task` and `compute_sufficiency` with LLM; keep message flow unchanged.
 
 ---
 
-## Stage 16 — End-to-end agent loop (no HTTP)
-
-**Scope:** [main.py](../main.py), wiring.
-
-- In `main()`: create `InMemoryMessageBus`; call `register_agent` for each agent name; create `ConversationManager`, `SafetyGateway`, `MCPClient`/`MCPServer` (all tools registered with namespaced names); instantiate all agents (Planner, Librarian, WebSearcher, Analyst, Responder) injecting bus and mcp_client; start each in a daemon thread (`agent.run()`).
-- `--e2e-once` flag: call `SafetyGateway.process_user_input`; create conversation; send ACLMessage to Planner; block on `state.completion_event.wait(timeout=E2E_TIMEOUT_SECONDS)` (default 30s). On completion print final response and exit 0. On timeout exit 0 (non-fatal for stub stages). Use stub/mock tools (no real Milvus/Neo4j/APIs required).
-
-**Runnable:** `PYTHONPATH=. python main.py --e2e-once` completes one conversation and exits 0.
-
----
-
-## Stage 17 — REST API (POST /chat)
-
-**Scope:** [api/rest.py](../api/rest.py).
-
-- Implement `create_app(bus, manager, safety, mcp_client)`: returns FastAPI app with all state injected; route handlers close over dependencies. `main()` creates all objects and passes them in; tests call `create_app(mock_bus, ...)` directly.
-- **POST /chat** body: `{ query: str, conversation_id?: str, user_id?: str (default ""), user_profile?: UserProfile }`.
-  - `SafetyGateway.process_user_input` → raises `SafetyError` → HTTP 400.
-  - If `conversation_id` supplied → `get_conversation`; else → `create_conversation(user_id, query)`.
-  - Send `ACLMessage(REQUEST)` to Planner.
-  - Block on `state.completion_event.wait(timeout=E2E_TIMEOUT_SECONDS)`.
-  - On success: return `200 { conversation_id, status: "complete", response }`.
-  - On timeout: return `408 { status: "timeout", conversation_id, response: null }`.
-- Register `SafetyError` exception handler → HTTP 400.
-- Mount app in `main()`; run with uvicorn.
-
-**Runnable:** `uvicorn api.rest:app` (or via main); `curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" -d '{"query":"fund X performance"}'` returns 200 JSON with response.
-
----
-
-## Stage 18 — GET /conversations and WebSocket
-
-**Scope:** [api/rest.py](../api/rest.py) GET endpoint, [api/websocket.py](../api/websocket.py).
-
-- Implement **GET /conversations/{id}**: return conversation state JSON (messages, status, final_response).
-- Implement **WebSocket /ws**: accept connection; receive JSON `{ query, conversation_id?, user_id?, user_profile? }`; same flow as POST /chat but send discrete JSON event messages over the socket:
-  - `{"event": "status", "agent": "<name>", "message": "working"}` — one per agent as it starts.
-  - `{"event": "response", "conversation_id": "...", "response": "..."}` — once when Responder completes.
-  - Token-level streaming deferred to Stage 19.
-
-**Runnable:** GET /conversations/{id} returns state JSON; WebSocket client receives status events then final response event.
-
----
-
-## Stage 19 — LLM integration (Phase 2)
-
-**Scope:** [agents/planner_agent.py](../agents/planner_agent.py), new LLM client module.
-
-- Add LLM client (OpenAI/Claude) behind config (`LLM_API_KEY`, `LLM_MODEL`); call from Planner.
-- Replace stub `decompose_task` and `compute_sufficiency` with LLM-based implementations (ReAct-style prompt). Keep `create_research_request` and all message flow unchanged.
-- LangGraph graph topology is deferred to Stage 20+.
-
-**Runnable:** POST /chat with natural language query returns a response that reflects LLM-decomposed steps (manual or integration test).
-
----
-
-## Summary diagram
+## Summary diagram (slice order)
 
 ```mermaid
 flowchart LR
-  S1[Stage 1 Config]
-  S2[Stage 2 MessageBus]
-  S3[Stage 3 ConvMgr]
-  S4[Stage 4 Safety]
-  S5[Stage 5 OutputRail]
-  S6[Stage 6 MCP]
-  S7[Stage 7 Vector]
-  S8[Stage 8 KG]
-  S8b[Stage 8b SQL]
-  S9[Stage 9 Market]
-  S10[Stage 10 Analyst]
-  S11[Stage 11 Planner]
-  S12[Stage 12 Librarian]
-  S13[Stage 13 WebSearcher]
-  S14[Stage 14 AnalystAgent]
-  S15[Stage 15 Responder]
-  S16[Stage 16 E2E Loop]
-  S17[Stage 17 REST]
-  S18[Stage 18 WS]
+  S1[Slice_1_Bootstrap]
+  S2[Slice_2_MCP]
+  S3[Slice_3_Minimal_Chain]
+  S4[Slice_4_Tools_Librarian]
+  S5[Slice_5_All_Agents]
+  S6[Slice_6_Safety]
+  S7[Slice_7_REST]
+  S8[Slice_8_OutputRail]
+  S9[Slice_9_WS]
   S1 --> S2 --> S3
-  S3 --> S4 --> S5 --> S6
-  S6 --> S7 --> S8 --> S8b --> S9 --> S10
-  S10 --> S11 --> S12 --> S13 --> S14 --> S15
-  S15 --> S16 --> S17 --> S18
+  S3 --> S4 --> S5
+  S5 --> S6 --> S7
+  S7 --> S8 --> S9
 ```
+
+---
+
+## Reference: Stage specifications
+
+Stages are ordered by the **slice in which they first appear** and numbered as **slice.sub** (e.g. 2.1). Each stage is a subset of the work done in that slice. Implement the subset required by the slice you are on; tests use `-k stage_N_M` (e.g. `stage_1_2`) for the corresponding stage.
+
+### Slice 1 — Bootstrap
+
+#### Stage 1.1 — Config and minimal main
+
+- **Scope:** [config/config.py](../config/config.py), [main.py](../main.py).
+- `load_config()`: read env via `os.getenv`, default empty strings.
+- `main()`: call `load_config()`, print `"OpenFund-AI ready (config loaded)"`, exit 0.
+- **Runnable:** `PYTHONPATH=. python main.py`.
+
+#### Stage 1.2 — In-memory MessageBus
+
+- **Scope:** [a2a/message_bus.py](../a2a/message_bus.py). Per C1.
+- `register_agent(name)`, per-agent queues; `send`, `receive(agent_name, timeout?)`, `broadcast`.
+- **Runnable:** `pytest tests/test-stages.py -k stage_1_2 -v`.
+
+#### Stage 1.3 — ConversationManager
+
+- **Scope:** [a2a/conversation_manager.py](../a2a/conversation_manager.py). Per B2, D2.
+- `ConversationState`: id, user_id, initial_query, messages, status, final_response, created_at, completion_event.
+- `create_conversation(user_id, initial_query) -> str`; `get_conversation(conversation_id)`; `register_reply`; `broadcast_stop`; persist to `memory/<user_id>/conversations.json`.
+- **Runnable:** `pytest tests/test-stages.py -k stage_1_3 -v`.
+
+---
+
+### Slice 2 — MCP + one tool
+
+#### Stage 2.1 — MCP server and client
+
+- **Scope:** [mcp/mcp_server.py](../mcp/mcp_server.py), [mcp/mcp_client.py](../mcp/mcp_client.py), [mcp/tools/file_tool.py](../mcp/tools/file_tool.py). Per F1.
+- `register_tool`, `dispatch`; MCPClient `call_tool`; `read_file` → `{"content", "path"}`; register `"file_tool.read_file"`.
+- **Runnable:** `pytest tests/test-stages.py -k stage_2_1 -v`.
+
+---
+
+### Slice 3 — Minimal chain (Planner, Librarian, Responder)
+
+In Slice 3 you implement a **subset** of each agent (one TaskStep, file_tool only, stub format/compliance). Full behavior is in later slices.
+
+#### Stage 3.1 — PlannerAgent
+
+- **Scope:** [agents/planner_agent.py](../agents/planner_agent.py). Per C2, C3, use-case-flows.
+- **Slice 3 subset:** stub returns one TaskStep (librarian); one REQUEST, one INFORM, then REQUEST to Responder. **Full (Slice 5):** `decompose_task` → three TaskSteps; parallel REQUESTs; collect INFORMs; `compute_sufficiency`; new rounds when insufficient.
+- TaskStep(agent, action, params). `create_research_request(query, step, context?)`. Stub sufficiency 1.0.
+- **Runnable:** `pytest tests/test-stages.py -k stage_3_1 -v`.
+
+#### Stage 3.2 — LibrarianAgent
+
+- **Scope:** [agents/librarian_agent.py](../agents/librarian_agent.py).
+- **Slice 3 subset:** `handle_message` → `file_tool.read_file` only → `combine_results` (single doc) → INFORM to planner. **Full (Slice 4):** vector_tool.search, kg_tool.query_graph, sql_tool.run_query → combine_results → INFORM to planner.
+- **Runnable:** `pytest tests/test-stages.py -k stage_3_2 -v`.
+
+#### Stage 3.3 — ResponderAgent
+
+- **Scope:** [agents/responder_agent.py](../agents/responder_agent.py). Per C2.
+- **Slice 3 subset:** stub `format_response` and stub compliance; register_reply; broadcast_stop. **Full (Slice 8):** OutputRail `format_for_user`, `check_compliance` before register_reply.
+- evaluate_confidence (stub 0.8); should_terminate; no INFORM to Planner with final response.
+- **Runnable:** `pytest tests/test-stages.py -k stage_3_3 -v`.
+
+---
+
+### Slice 4 — Tools (vector, kg, sql) + full Librarian
+
+#### Stage 4.1 — vector_tool (Milvus)
+
+- **Scope:** [mcp/tools/vector_tool.py](../mcp/tools/vector_tool.py). Per F2, F3.
+- MILVUS_URI, MILVUS_COLLECTION; `search(query, top_k, filter?)`; stub: zero-vector; register `"vector_tool.search"`.
+- **Runnable:** `pytest tests/test-stages.py -k stage_4_1 -v` (mock).
+
+#### Stage 4.2 — kg_tool (Neo4j)
+
+- **Scope:** [mcp/tools/kg_tool.py](../mcp/tools/kg_tool.py). `query_graph`, `get_relations`; register `"kg_tool.query_graph"`, `"kg_tool.get_relations"`.
+- **Runnable:** `pytest tests/test-stages.py -k stage_4_2 -v` (mock).
+
+#### Stage 4.3 — sql_tool (PostgreSQL)
+
+- **Scope:** [mcp/tools/sql_tool.py](../mcp/tools/sql_tool.py). Per F5. `run_query`; DATABASE_URL; register `"sql_tool.run_query"`.
+- **Runnable:** `pytest tests/test-stages.py -k stage_4_3 -v` (mock).
+
+---
+
+### Slice 5 — WebSearcher, Analyst, full Planner
+
+#### Stage 5.1 — market_tool
+
+- **Scope:** [mcp/tools/market_tool.py](../mcp/tools/market_tool.py). `fetch`, `fetch_bulk`, `search_web`; all returns include `timestamp`. Register market_tool.*.
+- **Runnable:** `pytest tests/test-stages.py -k stage_5_1 -v` (mock).
+
+#### Stage 5.2 — analyst_tool
+
+- **Scope:** [mcp/tools/analyst_tool.py](../mcp/tools/analyst_tool.py). Per F4. `run_analysis` POST to ANALYST_API_URL; stub schema.
+- **Runnable:** `pytest tests/test-stages.py -k stage_5_2 -v` (mock).
+
+#### Stage 5.3 — WebSearcherAgent
+
+- **Scope:** [agents/websearch_agent.py](../agents/websearch_agent.py). market_tool; INFORM to planner with timestamp.
+- **Runnable:** `pytest tests/test-stages.py -k stage_5_3 -v`.
+
+#### Stage 5.4 — AnalystAgent
+
+- **Scope:** [agents/analyst_agent.py](../agents/analyst_agent.py). analyze; needs_more_data → refinement REQUEST to Planner or INFORM (result) to Planner only.
+- **Runnable:** `pytest tests/test-stages.py -k stage_5_4 -v`.
+
+---
+
+### Slice 6 — Safety
+
+#### Stage 6.1 — SafetyGateway
+
+- **Scope:** [safety/safety_gateway.py](../safety/safety_gateway.py). Per E1.
+- `validate_input`, `check_guardrails`, `mask_pii`, `process_user_input` → ProcessedInput or raises SafetyError.
+- **Runnable:** `pytest tests/test-stages.py -k stage_6_1 -v`.
+
+---
+
+### Slice 7 — REST API
+
+#### Stage 7.1 — REST API
+
+- **Scope:** [api/rest.py](../api/rest.py). create_app; POST /chat (body, safety, create/get, send to Planner, wait, 200/408); GET /conversations/{id} (404); SafetyError → 400.
+- **Runnable:** curl POST /chat; GET /conversations/{id}.
+
+---
+
+### Slice 8 — OutputRail
+
+#### Stage 8.1 — OutputRail
+
+- **Scope:** [output/output_rail.py](../output/output_rail.py). Per E2.
+- UserProfile StrEnum; `check_compliance(text)`; `format_for_user(text, user_profile)`.
+- **Runnable:** `pytest tests/test-stages.py -k stage_8_1 -v`.
+
+---
+
+### Slice 9 — WebSocket
+
+#### Stage 9.1 — WebSocket
+
+- **Scope:** [api/websocket.py](../api/websocket.py). /ws; status events + response event (I1).
+- **Runnable:** WebSocket client.
+
+---
+
+### E2E and optional
+
+#### Stage 10.1 — E2E loop (full main)
+
+- **Scope:** [main.py](../main.py). Grows each slice: register_agent for active agents; ConversationManager, (from Slice 6) SafetyGateway, MCP server (all registered tools), all agents; `--e2e-once` with process_user_input, create conversation, send to Planner, wait, print response.
+- **Runnable:** `PYTHONPATH=. python main.py --e2e-once` (first valid after Slice 3).
+
+#### Stage 10.2 — LLM (Phase 2, optional)
+
+- **Scope:** Planner + LLM client. Replace stub decompose_task and compute_sufficiency; keep flow (H2).
+- **Runnable:** POST /chat with NL query.
 
 ---
 
 ## Test layout
 
-All tests live in `tests/test-stages.py`. Run the full suite with `pytest tests/test-stages.py -v`, or a single stage with `pytest tests/test-stages.py -k stage_N -v`.
+All tests in `tests/test-stages.py`. Per A2: one test function per stage (not a class). Run full suite: `pytest tests/test-stages.py -v`. By slice:
 
-| Stage | Filter | Runnable command |
-|-------|--------|-----------------|
-| 1 | — | `PYTHONPATH=. python main.py` |
-| 2 | `stage_2` | `pytest tests/test-stages.py -k stage_2 -v` |
-| 3 | `stage_3` | `pytest tests/test-stages.py -k stage_3 -v` |
-| 4 | `stage_4` | `pytest tests/test-stages.py -k stage_4 -v` |
-| 5 | `stage_5` | `pytest tests/test-stages.py -k stage_5 -v` |
-| 6 | `stage_6` | `pytest tests/test-stages.py -k stage_6 -v` |
-| 7 | `stage_7` | `pytest tests/test-stages.py -k stage_7 -v` |
-| 8 | `stage_8` | `pytest tests/test-stages.py -k stage_8 -v` |
-| 8b | `stage_8b` | `pytest tests/test-stages.py -k stage_8b -v` |
-| 9 | `stage_9` | `pytest tests/test-stages.py -k stage_9 -v` |
-| 10 | `stage_10` | `pytest tests/test-stages.py -k stage_10 -v` |
-| 11 | `stage_11` | `pytest tests/test-stages.py -k stage_11 -v` |
-| 12 | `stage_12` | `pytest tests/test-stages.py -k stage_12 -v` |
-| 13 | `stage_13` | `pytest tests/test-stages.py -k stage_13 -v` |
-| 14 | `stage_14` | `pytest tests/test-stages.py -k stage_14 -v` |
-| 15 | `stage_15` | `pytest tests/test-stages.py -k stage_15 -v` |
-| 16 | — | `PYTHONPATH=. python main.py --e2e-once` |
-| 17 | — | `curl` POST /chat (see stage description) |
-| 18 | — | GET /conversations/{id}; WebSocket client |
-| 19 | — | POST /chat with NL query |
+| Slice | Runnable command |
+|-------|------------------|
+| 1 | `python main.py`; `pytest -k stage_1_2 -v`; `pytest -k stage_1_3 -v` |
+| 2 | `pytest -k stage_2_1 -v` |
+| 3 | `python main.py --e2e-once` |
+| 4 | `pytest -k stage_4_1 -k stage_4_2 -k stage_4_3 -v`; E2E |
+| 5 | E2E with five agents |
+| 6 | E2E with Safety; `pytest -k stage_6_1 -v` |
+| 7 | `curl` POST /chat; GET /conversations/{id} |
+| 8 | POST /chat with different user_profile |
+| 9 | WebSocket client |
+
+By stage (same order as slices; each stage is slice.sub):
+
+| Stage | Slice | Filter | Command |
+|-------|-------|--------|---------|
+| 1.1 | 1 | — | `PYTHONPATH=. python main.py` |
+| 1.2 | 1 | `stage_1_2` | `pytest tests/test-stages.py -k stage_1_2 -v` |
+| 1.3 | 1 | `stage_1_3` | `pytest tests/test-stages.py -k stage_1_3 -v` |
+| 2.1 | 2 | `stage_2_1` | `pytest tests/test-stages.py -k stage_2_1 -v` |
+| 3.1 | 3 | `stage_3_1` | `pytest tests/test-stages.py -k stage_3_1 -v` |
+| 3.2 | 3 | `stage_3_2` | `pytest tests/test-stages.py -k stage_3_2 -v` |
+| 3.3 | 3 | `stage_3_3` | `pytest tests/test-stages.py -k stage_3_3 -v` |
+| 4.1 | 4 | `stage_4_1` | `pytest tests/test-stages.py -k stage_4_1 -v` |
+| 4.2 | 4 | `stage_4_2` | `pytest tests/test-stages.py -k stage_4_2 -v` |
+| 4.3 | 4 | `stage_4_3` | `pytest tests/test-stages.py -k stage_4_3 -v` |
+| 5.1 | 5 | `stage_5_1` | `pytest tests/test-stages.py -k stage_5_1 -v` |
+| 5.2 | 5 | `stage_5_2` | `pytest tests/test-stages.py -k stage_5_2 -v` |
+| 5.3 | 5 | `stage_5_3` | `pytest tests/test-stages.py -k stage_5_3 -v` |
+| 5.4 | 5 | `stage_5_4` | `pytest tests/test-stages.py -k stage_5_4 -v` |
+| 6.1 | 6 | `stage_6_1` | `pytest tests/test-stages.py -k stage_6_1 -v` |
+| 7.1 | 7 | — | curl POST /chat; GET /conversations/{id} |
+| 8.1 | 8 | `stage_8_1` | `pytest tests/test-stages.py -k stage_8_1 -v` |
+| 9.1 | 9 | — | WebSocket client |
+| 10.1 | E2E | — | `python main.py --e2e-once` |
+| 10.2 | Optional | — | POST /chat with NL |
 
 Add `pytest`, `pytest-asyncio`, `pytest-httpx` to `pyproject.toml` dev dependencies.

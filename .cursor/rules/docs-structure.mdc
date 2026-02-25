@@ -14,7 +14,7 @@ All docs live in `/docs`. Each document has a single responsibility; no overlap 
 | **backend.md** | Server-side behavior and architecture: system overview, API contracts, data models, business rules, validation, auth, error handling, integrations. No UI or product rationale. |
 | **frontend.md** | Frontend architecture and behavior. Leave blank until frontend planning begins. |
 | **file-structure.md** | Codebase organization: directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). No business reasoning, flow, or execution history. |
-| **progress.md** | Development execution state (replaces changelog): work breakdown (tasks, status, blockers), implementation notes (decisions, PRD deviations, refactors), repeated errors & resolutions, newly introduced changes. Update immediately after implementation changes. |
+| **progress.md** | Development execution state: work breakdown (tasks, status, blockers), implementation notes (decisions, PRD deviations, refactors), repeated errors & resolutions. Changelog lives at repo root in **CHANGELOG.md**. Update progress right after implementation; update CHANGELOG.md for user-visible or notable changes. |
 | **project-status.md** | Major capability readiness table: Capability | Status | Notes. Status: Not Started, In Progress, Live, Deprecated. |
 
 ## Update triggers (when to touch which doc)
@@ -24,7 +24,7 @@ All docs live in `/docs`. Each document has a single responsibility; no overlap 
 - **backend.md:** API contracts, data models, business rules, auth, integrations, validation change.
 - **frontend.md:** When frontend architecture, components, or state management are defined.
 - **file-structure.md:** New module, changed file responsibility, function added/removed/refactored, directory structure change.
-- **progress.md:** Task completed/created, architectural decision, recurring error identified, behavioral change from a fix, dependency change. Update right after implementation.
+- **progress.md:** Task completed/created, architectural decision, recurring error identified, behavioral change from a fix, dependency change. Update right after implementation. For **changelog entries** (features, fixes, refactors), update **CHANGELOG.md** at repo root.
 - **project-status.md:** Capability becomes operational, state change, deprecated, or release milestone.
 
 ## Governance

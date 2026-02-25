@@ -24,6 +24,7 @@ OpenFund-AI/
     ├── backend.md
     ├── frontend.md
     ├── file-structure.md (this file)
+    ├── test_plan.md
     ├── progress.md
     └── project-status.md
 ```
@@ -177,11 +178,11 @@ bus.broadcast(ACLMessage(performative="stop", sender="responder", receiver="*", 
 
 ## Class: `ConversationState`
 
-**Purpose:** Snapshot of one conversation; aligns with clarification B2. Holds id, user_id, initial_query, messages, status, final_response, created_at, and completion_event for API blocking and persistence.
+**Purpose:** Snapshot of one conversation. Holds id, user_id, initial_query, messages, status, final_response, created_at, and completion_event for API blocking and persistence.
 
 **Docstring:**
 ```text
-Conversation state per clarification B2.
+Conversation state for API blocking and persistence.
 Attributes:
     id: Conversation UUID (conversation_id).
     user_id: User identifier; empty string if anonymous.
@@ -348,7 +349,7 @@ mgr.broadcast_stop(cid)
 
 ## Class: `TaskStep`
 
-**Purpose:** One step in a decomposed task chain (agent target, action, and optional params). Aligns with clarification B3.
+**Purpose:** One step in a decomposed task chain (agent target, action, and optional params).
 
 **Docstring:**
 ```text

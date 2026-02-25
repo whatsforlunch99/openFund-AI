@@ -47,7 +47,7 @@ Development proceeds in **slices**; each slice is a runnable checkpoint. Tests l
 | 10.1 | E2E | — | `python main.py --e2e-once` |
 | 10.2 | Optional | — | POST /chat with NL (manual) |
 
-Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend.md). Test assertions per stage: see `tests/test-stages.py` and the test plan coverage (previously in test_plan.md; logic unchanged).
+Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend.md), and [test_plan.md](test_plan.md). Test assertions per stage: see `tests/test-stages.py`.
 
 ---
 
@@ -67,10 +67,7 @@ Summary of notable changes. Newest first. **Keep this section updated when makin
 
 - docs: align /docs with docs-structure rule — user-flow (behavioral flow only, no implementation); prd (what/why only); backend (API, data models, errors, integrations; no slices); file-structure (no Overview/Technology Stack); project-status (Not Started | In Progress | Live | Deprecated); rename product-requirements.md to prd.md.
 - docs: reorganize /docs into user-flow, prd, backend, frontend (placeholder), file-structure, progress, project-status; integrate changelog into progress.md; remove changelog.mdc rule.
-- docs: add staged_implementation_plan.md and test_plan.md (tests per stage, runnable commands).
-- docs: add clarification.md (architecture decisions and settled items).
-- docs: update claude-v2.md (conversation persistence structure, API details).
-- docs: enhance staged_implementation_plan and test_plan (detailed test functions, runnable commands per stage).
+- docs: add and maintain test_plan.md (tests per stage, runnable commands).
 - config: track .DS_Store (macOS directory settings).
 
 ### [0.1.0] — 2025-02-21

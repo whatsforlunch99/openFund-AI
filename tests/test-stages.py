@@ -14,7 +14,6 @@ from io import StringIO
 
 import pytest
 
-
 # --- Stage 1.1: Config and minimal main ---
 
 
@@ -56,7 +55,9 @@ def test_stage_1_2() -> None:
 
     from a2a.acl_message import ACLMessage, Performative
 
-    msg = ACLMessage(performative=Performative.REQUEST, sender="x", receiver="a", content={"q": 1})
+    msg = ACLMessage(
+        performative=Performative.REQUEST, sender="x", receiver="a", content={"q": 1}
+    )
     bus.send(msg)
     received = bus.receive("a", timeout=0.5)
     assert received is not None
@@ -64,7 +65,9 @@ def test_stage_1_2() -> None:
 
     assert bus.receive("empty_agent", timeout=0.1) is None
 
-    broadcast_msg = ACLMessage(performative=Performative.STOP, sender="x", receiver="*", content={})
+    broadcast_msg = ACLMessage(
+        performative=Performative.STOP, sender="x", receiver="*", content={}
+    )
     bus.broadcast(broadcast_msg)
     assert bus.receive("unregistered_agent", timeout=0.1) is None
     r_a = bus.receive("a", timeout=0.5)
@@ -79,8 +82,8 @@ def test_stage_1_2() -> None:
 def test_stage_1_3() -> None:
     """Stage 1.3: All functionalities per test_plan.md (lines 57–67): ConversationState (B2), create/get, register_reply, persistence, MEMORY_STORE_PATH, anonymous, broadcast_stop."""
     try:
-        from a2a.message_bus import InMemoryMessageBus
         from a2a.conversation_manager import ConversationManager
+        from a2a.message_bus import InMemoryMessageBus
     except ImportError:
         pytest.skip("InMemoryMessageBus not implemented (Stage 1.3)")
 
@@ -93,7 +96,9 @@ def test_stage_1_3() -> None:
     try:
         cid = mgr.create_conversation("user1", "What is fund X?")
     except NotImplementedError:
-        pytest.skip("ConversationManager.create_conversation not implemented (Stage 1.3)")
+        pytest.skip(
+            "ConversationManager.create_conversation not implemented (Stage 1.3)"
+        )
 
     assert isinstance(cid, str)
     assert len(cid) > 0
@@ -120,7 +125,12 @@ def test_stage_1_3() -> None:
     if hasattr(state, "completion_event"):
         assert not state.completion_event.is_set()
 
-    reply = ACLMessage(performative=Performative.INFORM, sender="responder", receiver="api", content={"final_response": "Here is the answer."})
+    reply = ACLMessage(
+        performative=Performative.INFORM,
+        sender="responder",
+        receiver="api",
+        content={"final_response": "Here is the answer."},
+    )
     try:
         mgr.register_reply(cid, reply)
     except NotImplementedError:
@@ -153,7 +163,7 @@ def test_stage_1_3() -> None:
             try:
                 mgr2 = ConversationManager(bus)
                 try:
-                    cid2 = mgr2.create_conversation("u2", "Query")
+                    _ = mgr2.create_conversation("u2", "Query")
                     path2 = os.path.join(tmp, "u2", "conversations.json")
                     if os.path.exists(path2):
                         with open(path2) as f:
@@ -167,7 +177,9 @@ def test_stage_1_3() -> None:
                 else:
                     os.environ.pop("MEMORY_STORE_PATH", None)
     if persistence_ok and os.path.exists(default_path):
-        assert os.path.isdir(os.path.dirname(default_path)), "Persistence (D2): dir auto-created for memory/<user_id>/conversations.json"
+        assert os.path.isdir(
+            os.path.dirname(default_path)
+        ), "Persistence (D2): dir auto-created for memory/<user_id>/conversations.json"
 
     with tempfile.TemporaryDirectory() as tmp:
         prev = os.environ.get("MEMORY_STORE_PATH")
@@ -175,9 +187,11 @@ def test_stage_1_3() -> None:
         try:
             mgr3 = ConversationManager(bus)
             try:
-                cid3 = mgr3.create_conversation("u3", "Q")
+                _ = mgr3.create_conversation("u3", "Q")
                 custom_path = os.path.join(tmp, "u3", "conversations.json")
-                assert os.path.exists(custom_path), "MEMORY_STORE_PATH should configure root dir (D2)"
+                assert os.path.exists(
+                    custom_path
+                ), "MEMORY_STORE_PATH should configure root dir (D2)"
             except NotImplementedError:
                 pass
         finally:
@@ -188,12 +202,14 @@ def test_stage_1_3() -> None:
 
     if persistence_ok:
         try:
-            cid_anon = mgr.create_conversation("", "Anonymous query")
+            _ = mgr.create_conversation("", "Anonymous query")
         except NotImplementedError:
             pass
         else:
             anon_path = os.path.join(memory_root, "anonymous", "conversations.json")
-            assert os.path.exists(anon_path), "user_id='' must persist to memory/anonymous/conversations.json (D2)"
+            assert os.path.exists(
+                anon_path
+            ), "user_id='' must persist to memory/anonymous/conversations.json (D2)"
 
     try:
         mgr.broadcast_stop(cid)
@@ -210,17 +226,13 @@ def test_stage_1_3() -> None:
 def test_stage_2_1() -> None:
     """Stage 2.1: MCP server and client, file_tool.read_file."""
     try:
-        from mcp.mcp_server import MCPServer
         from mcp.mcp_client import MCPClient
-        from mcp.tools import file_tool
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
-        pytest.skip(f"MCP or file_tool not available: {e}")
+        pytest.skip(f"MCP not available: {e}")
 
     server = MCPServer()
-    server.register_tool(
-        "file_tool.read_file",
-        lambda payload: file_tool.read_file(payload["path"]),
-    )
+    server.register_default_tools()
     client = MCPClient(server)
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
@@ -235,9 +247,144 @@ def test_stage_2_1() -> None:
     finally:
         os.unlink(path)
 
-    missing_result = client.call_tool("file_tool.read_file", {"path": "/nonexistent/file.txt"})
+    missing_result = client.call_tool(
+        "file_tool.read_file", {"path": "/nonexistent/file.txt"}
+    )
     assert isinstance(missing_result, dict)
-    assert "error" in missing_result or "content" not in missing_result or missing_result.get("content") is None
+    assert (
+        "error" in missing_result
+        or "content" not in missing_result
+        or missing_result.get("content") is None
+    )
+
+
+def test_stage_2_2_trading_tools() -> None:
+    """Stage 2.2: TradingAgents-integrated MCP tools (fundamental, news, market) in market_tool."""
+    try:
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"MCP not available: {e}")
+
+    server = MCPServer()
+    server.register_default_tools()
+    client = MCPClient(server)
+
+    # market_tool.get_fundamentals
+    r = client.call_tool("market_tool.get_fundamentals", {"ticker": "AAPL"})
+    assert isinstance(r, dict)
+    assert "error" in r or "content" in r
+    if "content" in r:
+        assert "AAPL" in r["content"] or "Apple" in r["content"].lower()
+        assert "timestamp" in r
+
+    # market_tool.get_stock_data (recent range)
+    r2 = client.call_tool(
+        "market_tool.get_stock_data",
+        {"symbol": "AAPL", "start_date": "2024-01-02", "end_date": "2024-01-10"},
+    )
+    assert isinstance(r2, dict)
+    assert "error" in r2 or "content" in r2
+    if "content" in r2:
+        assert "Open" in r2["content"] or "Close" in r2["content"]
+        assert "timestamp" in r2
+
+    # market_tool.get_news (symbol and limit required)
+    r3 = client.call_tool("market_tool.get_news", {"symbol": "AAPL", "limit": 3})
+    assert isinstance(r3, dict)
+    assert "error" in r3 or "content" in r3
+    if "content" in r3:
+        assert "timestamp" in r3
+
+    # analyst_tool.get_indicators (symbol, indicator, as_of_date, look_back_days)
+    r4 = client.call_tool(
+        "analyst_tool.get_indicators",
+        {
+            "symbol": "AAPL",
+            "indicator": "sma_50",
+            "as_of_date": "2024-01-15",
+            "look_back_days": 10,
+        },
+    )
+    assert isinstance(r4, dict)
+    assert "error" in r4 or "content" in r4
+    if "content" in r4:
+        assert "timestamp" in r4
+
+    # Missing required param returns error
+    r5 = client.call_tool("market_tool.get_global_news", {})
+    assert isinstance(r5, dict)
+    assert "error" in r5
+
+
+# --- Stage 2.3: Situation memory (BM25 + persistence) ---
+
+
+def test_stage_2_3_situation_memory() -> None:
+    """Stage 2.3: FinancialSituationMemory add_situations, get_memories, clear, save/load, missing file."""
+    try:
+        from memory.situation_memory import (
+            SITUATION_MEMORY_FILENAME,
+            FinancialSituationMemory,
+        )
+    except ImportError as e:
+        pytest.skip(f"Situation memory not available: {e}")
+
+    mem = FinancialSituationMemory("test")
+    assert mem.get_memories("any situation", n_matches=1) == []
+
+    pairs = [
+        ("High inflation and rising rates", "Consider defensive sectors."),
+        ("Tech volatility and institutional selling", "Reduce growth exposure."),
+    ]
+    mem.add_situations(pairs)
+    results = mem.get_memories("inflation and interest rates", n_matches=2)
+    assert len(results) >= 1
+    for r in results:
+        assert "matched_situation" in r
+        assert "recommendation" in r
+        assert "similarity_score" in r
+        assert isinstance(r["similarity_score"], (int, float))
+
+    mem.clear()
+    assert mem.get_memories("inflation", n_matches=1) == []
+
+    mem.add_situations(pairs)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, SITUATION_MEMORY_FILENAME)
+        mem.save(path)
+        assert os.path.exists(path)
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        assert len(data) == 2
+        assert data[0]["situation"] == pairs[0][0]
+        assert data[0]["recommendation"] == pairs[0][1]
+
+        mem2 = FinancialSituationMemory("test2")
+        mem2.load(path)
+        results2 = mem2.get_memories("inflation and rates", n_matches=1)
+        assert len(results2) >= 1
+        assert results2[0]["matched_situation"] == pairs[0][0]
+        assert results2[0]["recommendation"] == pairs[0][1]
+
+    mem3 = FinancialSituationMemory("test3")
+    mem3.load_from_dir("/nonexistent_dir_12345")
+    mem3.load(
+        os.path.join(tempfile.gettempdir(), "nonexistent_situation_memory_12345.json")
+    )
+    assert mem3.get_memories("anything", n_matches=1) == []
+
+
+def test_stage_2_3_situation_memory_load_from_dir_missing() -> None:
+    """Stage 2.3: load_from_dir with missing dir/file does not raise."""
+    try:
+        from memory.situation_memory import FinancialSituationMemory
+    except ImportError as e:
+        pytest.skip(f"Situation memory not available: {e}")
+
+    mem = FinancialSituationMemory("test")
+    mem.load_from_dir("/nonexistent/path/12345")
+    assert mem.get_memories("query", n_matches=1) == []
 
 
 def test_stage_3_1() -> None:

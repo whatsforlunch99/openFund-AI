@@ -1,1 +1,1 @@
-"""MCP tools: vector, kg, market, analyst, sql, file."""
+"""MCP tools: file, market, vector, kg, analyst, sql."""

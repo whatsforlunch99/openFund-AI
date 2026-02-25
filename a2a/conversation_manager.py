@@ -1,8 +1,10 @@
 """Conversation state and STOP broadcast for A2A flows."""
 
+from __future__ import annotations
+
 import threading
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from a2a.acl_message import ACLMessage
 from a2a.message_bus import MessageBus
@@ -28,7 +30,7 @@ class ConversationState:
         conversation_id: str,
         user_id: str,
         initial_query: str,
-        messages: Optional[List[Dict[str, Any]]] = None,
+        messages: Optional[list[dict[str, Any]]] = None,
         status: str = "active",
         final_response: Optional[str] = None,
         created_at: Optional[datetime] = None,
@@ -41,7 +43,9 @@ class ConversationState:
         self.status = status
         self.final_response = final_response
         self.created_at = created_at if created_at is not None else datetime.utcnow()
-        self.completion_event = completion_event if completion_event is not None else threading.Event()
+        self.completion_event = (
+            completion_event if completion_event is not None else threading.Event()
+        )
 
 
 class ConversationManager:
@@ -60,7 +64,7 @@ class ConversationManager:
             message_bus: MessageBus implementation for send/broadcast.
         """
         self._bus = message_bus
-        self._conversations: Dict[str, ConversationState] = {}
+        self._conversations: dict[str, ConversationState] = {}
 
     def create_conversation(self, user_id: str, initial_query: str) -> str:
         """

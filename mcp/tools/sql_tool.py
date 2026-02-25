@@ -1,9 +1,11 @@
 """SQL query execution (MCP tool)."""
 
-from typing import Dict, Optional
+from __future__ import annotations
+
+from typing import Optional
 
 
-def run_query(query: str, params: Optional[Dict] = None) -> dict:
+def run_query(query: str, params: Optional[dict] = None) -> dict:
     """
     Execute a SQL query with optional parameters.
 

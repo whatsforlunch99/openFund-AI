@@ -34,7 +34,9 @@ class MessageBus(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def receive(self, agent_name: str, timeout: Optional[float] = None) -> Optional[ACLMessage]:
+    def receive(
+        self, agent_name: str, timeout: Optional[float] = None
+    ) -> Optional[ACLMessage]:
         """
         Wait for a message addressed to the given agent.
 

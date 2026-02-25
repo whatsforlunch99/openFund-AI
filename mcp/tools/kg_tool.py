@@ -1,9 +1,11 @@
 """Knowledge graph queries via Neo4j (MCP tool)."""
 
-from typing import Dict, Optional
+from __future__ import annotations
+
+from typing import Optional
 
 
-def query_graph(cypher: str, params: Optional[Dict] = None) -> dict:
+def query_graph(cypher: str, params: Optional[dict] = None) -> dict:
     """
     Execute a Cypher query against Neo4j.
 

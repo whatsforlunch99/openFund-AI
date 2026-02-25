@@ -6,11 +6,16 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ### Added
 
+- **Situation memory (Stage 2.3):** BM25-based `FinancialSituationMemory` for (situation, recommendation) pairs; persistence at `{MEMORY_STORE_PATH}/situation_memory.json`. API: `add_situations`, `get_memories`, `clear`, `save(path)`, `load(path)`, `load_from_dir(memory_store_path)`. Shared instance via `get_situation_memory(memory_store_path)`; initialized in `main()`. Dependency: `rank_bm25`. Tests: `test_stage_2_3_situation_memory`, `test_stage_2_3_situation_memory_load_from_dir_missing`.
 - **Stage 2.1:** MCP server and client with `file_tool.read_file`: `MCPServer.dispatch`, `MCPClient(server).call_tool("file_tool.read_file", {"path": "..."})`, and `file_tool.read_file(path)` implemented; test_stage_2_1 passes.
+- **TradingAgents tools integration:** New MCP tools (yfinance-backed) integrated into **original** tool modules: `market_tool` now includes get_stock_data, get_indicators (SMA), get_fundamentals, get_balance_sheet, get_cashflow, get_income_statement, get_insider_transactions, get_news, get_global_news. Registration via `MCPServer.register_default_tools()`. No separate fundamental_tool/news_tool/register_tools files. Dependencies: yfinance, pandas, python-dateutil. Test `test_stage_2_2_trading_tools` verifies market_tool endpoints.
 
 ### Changed
 
-- (none yet)
+- **Python:** Minimum version relaxed to **3.9** (was 3.11) so `pip install -e ".[dev]"` works on systems with Python 3.9. Type hints use `from __future__ import annotations` and `Optional[str]` where needed for 3.9 compatibility.
+- **MCP tools:** Required params must be passed in payload—no UI or client-side defaults. Parameter names reflect usage: **symbol** (security id), **limit** (max articles/items), **as_of_date** (reference date for lookback). get_indicators in analyst_tool; get_news(symbol, limit); get_global_news(as_of_date, look_back_days, limit). Payload may still accept legacy keys (ticker, count, curr_date) for backward compatibility. Docs and backend aligned with implementation.
+- **MCP tool signatures:** Tool functions take **explicit parameters** (e.g. get_stock_data(symbol, start_date, end_date), get_news(symbol, limit, ...), get_global_news(as_of_date, look_back_days, limit), get_indicators(symbol, indicator, as_of_date, look_back_days)); MCP layer decomposes payload in register_default_tools.
+- **Code quality (python-review):** Ruff and black added to dev deps; `[tool.ruff]` and `[tool.black]` in pyproject.toml (target Python 3.9+). market_tool and analyst_tool log exceptions before returning `{"error": str(e)}`; get_global_news logs query failures at debug. file_tool.read_file validates `path` in payload (clear error if missing). Situation memory constructor uses `_config` (reserved, unused); save/load use `encoding="utf-8"`. Type hints: `dict`/`list`/`Callable` from collections.abc where applicable; tests use UTF-8 when loading JSON.
 
 ### Fixed
 

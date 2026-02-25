@@ -2,9 +2,9 @@
 
 from typing import Any
 
-from agents.base_agent import BaseAgent
 from a2a.acl_message import ACLMessage
 from a2a.message_bus import MessageBus
+from agents.base_agent import BaseAgent
 
 
 class AnalystAgent(BaseAgent):
@@ -15,7 +15,9 @@ class AnalystAgent(BaseAgent):
     helpers for sharpe_ratio, max_drawdown, monte_carlo_simulation.
     """
 
-    def __init__(self, name: str, message_bus: MessageBus, mcp_client: Any = None) -> None:
+    def __init__(
+        self, name: str, message_bus: MessageBus, mcp_client: Any = None
+    ) -> None:
         super().__init__(name, message_bus)
         self.mcp_client = mcp_client
 

@@ -1,6 +1,9 @@
 """MCP server: register and dispatch tools."""
 
-from typing import Any, Callable, Dict
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
 
 
 class MCPServer:
@@ -13,7 +16,7 @@ class MCPServer:
     """
 
     def __init__(self) -> None:
-        self._handlers: Dict[str, Callable[..., Any]] = {}
+        self._handlers: dict[str, Callable[..., Any]] = {}
 
     def register_tool(self, name: str, handler: Callable[..., Any]) -> None:
         """
@@ -43,3 +46,90 @@ class MCPServer:
             return handler(payload)
         except Exception as e:
             return {"error": str(e)}
+
+    def register_default_tools(self) -> None:
+        """
+        Register all default MCP tools (file_tool.read_file and market_tool.*).
+        Handlers decompose payload dict into explicit parameters for each tool.
+        """
+        from mcp.tools import analyst_tool, file_tool, market_tool
+
+        self.register_tool(
+            "file_tool.read_file",
+            lambda p: (
+                file_tool.read_file(p["path"])
+                if "path" in p
+                else {"error": "Missing required parameter 'path'"}
+            ),
+        )
+        self.register_tool(
+            "market_tool.get_stock_data",
+            lambda p: market_tool.get_stock_data(
+                p.get("symbol") or p.get("ticker") or "",
+                p.get("start_date") or "",
+                p.get("end_date") or "",
+            ),
+        )
+        self.register_tool(
+            "market_tool.get_fundamentals",
+            lambda p: market_tool.get_fundamentals(
+                p.get("ticker") or p.get("symbol") or ""
+            ),
+        )
+        self.register_tool(
+            "market_tool.get_balance_sheet",
+            lambda p: market_tool.get_balance_sheet(
+                p.get("ticker") or p.get("symbol") or "",
+                p.get("freq") or "quarterly",
+            ),
+        )
+        self.register_tool(
+            "market_tool.get_cashflow",
+            lambda p: market_tool.get_cashflow(
+                p.get("ticker") or p.get("symbol") or "",
+                p.get("freq") or "quarterly",
+            ),
+        )
+        self.register_tool(
+            "market_tool.get_income_statement",
+            lambda p: market_tool.get_income_statement(
+                p.get("ticker") or p.get("symbol") or "",
+                p.get("freq") or "quarterly",
+            ),
+        )
+        self.register_tool(
+            "market_tool.get_insider_transactions",
+            lambda p: market_tool.get_insider_transactions(
+                p.get("ticker") or p.get("symbol") or ""
+            ),
+        )
+        self.register_tool(
+            "market_tool.get_news",
+            lambda p: market_tool.get_news(
+                p.get("symbol") or p.get("ticker") or "",
+                (
+                    p.get("limit")
+                    if "limit" in p
+                    else p.get("count") if "count" in p else None
+                ),
+                p.get("start_date"),
+                p.get("end_date"),
+            ),
+        )
+        self.register_tool(
+            "market_tool.get_global_news",
+            lambda p: market_tool.get_global_news(
+                p.get("as_of_date") or p.get("curr_date") or "",
+                p.get("look_back_days") if "look_back_days" in p else None,
+                p.get("limit") if "limit" in p else None,
+            ),
+        )
+        self.register_tool(
+            "analyst_tool.get_indicators",
+            lambda p: analyst_tool.get_indicators(
+                p.get("symbol") or p.get("ticker") or "",
+                p.get("indicator") or "",
+                p.get("as_of_date") or p.get("curr_date") or "",
+                p.get("look_back_days") if "look_back_days" in p else None,
+            ),
+        )

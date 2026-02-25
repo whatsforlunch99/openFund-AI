@@ -1,6 +1,6 @@
 """File read/list (MCP tool)."""
 
-from typing import List
+from __future__ import annotations
 
 
 def read_file(path: str) -> dict:
@@ -21,7 +21,7 @@ def read_file(path: str) -> dict:
         return {"error": str(e), "path": path}
 
 
-def list_files(prefix: str) -> List[str]:
+def list_files(prefix: str) -> list[str]:
     """
     List files under a prefix path.
 

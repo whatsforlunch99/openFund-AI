@@ -1,10 +1,12 @@
 """Planner agent: task decomposition and research request creation."""
 
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
 
-from agents.base_agent import BaseAgent
+from typing import Any, Optional
+
 from a2a.acl_message import ACLMessage
 from a2a.message_bus import MessageBus
+from agents.base_agent import BaseAgent
 
 
 class TaskStep:
@@ -21,7 +23,7 @@ class TaskStep:
         self,
         agent: str,
         action: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: Optional[dict[str, Any]] = None,
     ) -> None:
         self.agent = agent
         self.action = action
@@ -50,7 +52,7 @@ class PlannerAgent(BaseAgent):
         """
         raise NotImplementedError
 
-    def decompose_task(self, query: str) -> List[TaskStep]:
+    def decompose_task(self, query: str) -> list[TaskStep]:
         """
         Produce a ReAct-style task chain from the user query.
 
@@ -66,7 +68,7 @@ class PlannerAgent(BaseAgent):
         self,
         query: str,
         step: TaskStep,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[dict[str, Any]] = None,
     ) -> ACLMessage:
         """
         Build a request ACL message for Librarian, WebSearcher, or Analyst.
@@ -81,7 +83,7 @@ class PlannerAgent(BaseAgent):
         """
         raise NotImplementedError
 
-    def resolve_conflicts(self, agent_outputs: Dict[str, Any]) -> Any:
+    def resolve_conflicts(self, agent_outputs: dict[str, Any]) -> Any:
         """
         Self-reflection when agent results conflict (Phase 2).
 

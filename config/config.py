@@ -68,6 +68,7 @@ def load_config() -> Config:
     Returns:
         Config instance populated from env.
     """
+
     def _int(key: str, default: int) -> int:
         try:
             return int(os.getenv(key, str(default)))

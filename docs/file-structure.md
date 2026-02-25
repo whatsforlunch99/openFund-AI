@@ -46,6 +46,9 @@ OpenFund-AI/
 ├── config/
 │   ├── __init__.py
 │   └── config.py
+├── memory/
+│   ├── __init__.py
+│   └── situation_memory.py
 ├── main.py
 ├── CHANGELOG.md
 ├── README.md
@@ -961,9 +964,71 @@ cfg = load_config()
 
 ---
 
+# memory/situation_memory.py
+
+**Purpose:** BM25-based storage of (situation, recommendation) pairs with persistence. Used for "similar past situations" retrieval; persisted at `{MEMORY_STORE_PATH}/situation_memory.json`. No dependency on TradingAgents package.
+
+---
+
+## Constant: `SITUATION_MEMORY_FILENAME`
+
+**Purpose:** Default filename under MEMORY_STORE_PATH: `situation_memory.json`.
+
+---
+
+## Function: `get_situation_memory(memory_store_path: str = "memory") -> FinancialSituationMemory`
+
+**Purpose:** Return the shared situation-memory singleton; loads from disk if the file exists.
+
+**Example usage:** `mem = get_situation_memory(cfg.memory_store_path); mem.get_memories("current situation", n_matches=2)`
+
+---
+
+## Class: `FinancialSituationMemory`
+
+**Purpose:** In-memory BM25 index over (situation, recommendation) pairs; supports save/load to JSON. Constructor accepts optional `_config` (reserved for API compatibility; unused).
+
+---
+
+## Method: `FinancialSituationMemory.add_situations(self, situations_and_advice: List[Tuple[str, str]]) -> None`
+
+**Purpose:** Append pairs and rebuild the BM25 index.
+
+---
+
+## Method: `FinancialSituationMemory.get_memories(self, current_situation: str, n_matches: int = 1) -> List[dict]`
+
+**Purpose:** Return top-n matches. Each dict has `matched_situation`, `recommendation`, `similarity_score`.
+
+---
+
+## Method: `FinancialSituationMemory.clear(self) -> None`
+
+**Purpose:** Clear all documents and recommendations; reset index.
+
+---
+
+## Method: `FinancialSituationMemory.save(self, path: str | os.PathLike[str]) -> None`
+
+**Purpose:** Write (situation, recommendation) pairs to JSON; creates parent dirs if needed.
+
+---
+
+## Method: `FinancialSituationMemory.load(self, path: str | os.PathLike[str]) -> None`
+
+**Purpose:** Load pairs from JSON and rebuild BM25 index; no-op if file does not exist.
+
+---
+
+## Method: `FinancialSituationMemory.load_from_dir(self, memory_store_path: str) -> None`
+
+**Purpose:** Load from `memory_store_path/situation_memory.json` if present; no-op if missing.
+
+---
+
 # main.py
 
-**Purpose:** Entry point. Load config and (in full implementation) create MessageBus, ConversationManager, SafetyGateway, MCP client/server, agents, and start API and agent runners. Currently: load_config and print ready message.
+**Purpose:** Entry point. Load config, initialize situation memory via get_situation_memory(memory_store_path), and (in full implementation) create MessageBus, ConversationManager, SafetyGateway, MCP client/server, agents, and start API and agent runners.
 
 ---
 
@@ -1015,7 +1080,7 @@ result = mcp_client.call_tool("file_tool.read_file", {"path": "CHANGELOG.md"})
 
 ## Class: `MCPServer`
 
-**Docstring:** `Registers tool handlers and dispatches incoming tool calls. Tools (vector_tool, kg_tool, market_tool, analyst_tool, sql_tool, file_tool) are implemented as handlers; dispatch invokes them and returns results.`
+**Docstring:** `Registers tool handlers and dispatches incoming tool calls. Tools (vector_tool, kg_tool, market_tool, analyst_tool, sql_tool, file_tool) are implemented as handlers; dispatch invokes them and returns results. Use register_default_tools() to register file_tool and market_tool (including fundamentals, news, stock data, indicators).`
 
 ---
 
@@ -1042,6 +1107,12 @@ server.register_tool("read_file", lambda payload: read_file(payload["path"]))
 ```python
 result = server.dispatch("read_file", {"path": "CHANGELOG.md"})
 ```
+
+---
+
+## Method: `MCPServer.register_default_tools(self) -> None`
+
+**Purpose:** Register all default tools. Each handler receives the MCP payload dict and decomposes it into **explicit parameters** for the underlying function (e.g. get_stock_data(symbol, start_date, end_date)). Required params (**symbol**, path, **as_of_date**, **limit**, etc.) must be present in the payload. Call after creating the server.
 
 ---
 
@@ -1145,7 +1216,7 @@ rels = get_relations("FUND_X")
 
 # mcp/tools/market_tool.py
 
-**Purpose:** MCP tool for market data and web search via Tavily and Yahoo. All returns must include `timestamp`. Config: TAVILY_API_KEY, YAHOO_BASE_URL.
+**Purpose:** MCP tool for market data, web search, company fundamentals, financials, and news. Stubs: fetch, fetch_bulk, search_web (Tavily/Yahoo). Implemented (yfinance) functions take **explicit parameters** (e.g. get_stock_data(symbol, start_date, end_date), get_fundamentals(symbol), get_news(symbol, limit, start_date=None, end_date=None), get_global_news(as_of_date, look_back_days, limit)). MCP handlers decompose payload into these args. All returns include `timestamp`. On failure, tools log via `logging` and return `{"error": str}`. Config: TAVILY_API_KEY, YAHOO_BASE_URL for fetch/search.
 
 ---
 
@@ -1181,7 +1252,7 @@ assert "timestamp" in data
 
 # mcp/tools/analyst_tool.py
 
-**Purpose:** MCP tool to POST analysis requests to the custom Analyst API. Payload and response schema are defined by that API. Config: ANALYST_API_URL, optional ANALYST_API_KEY.
+**Purpose:** MCP tool for quantitative/statistical analysis. run_analysis(payload): POST to custom Analyst API (payload dict). get_indicators(symbol, indicator, **as_of_date**, look_back_days): **explicit parameters**; technical indicators (e.g. SMA) from OHLCV via yfinance. MCP handler decomposes payload into these args. Returns include `timestamp`. On failure, get_indicators logs via `logging` and returns `{"error": str}`. Config: ANALYST_API_URL, optional ANALYST_API_KEY.
 
 ---
 
@@ -1195,6 +1266,19 @@ assert "timestamp" in data
 ```python
 result = run_analysis({"returns": [0.01, -0.02], "horizon": 12, "n_sims": 1000})
 # result["sharpe"], result["max_drawdown"], result["distribution"]
+```
+
+---
+
+## Function: `get_indicators(payload: dict) -> dict`
+
+**Purpose:** Compute technical indicators (e.g. SMA) from OHLCV via yfinance; return content and timestamp.
+
+**Docstring:** Payload is decomposed into symbol, indicator (sma_50, sma_200, close_50_sma, close_200_sma), **as_of_date** (yyyy-mm-dd), look_back_days (int). Returns `{"content": str, "timestamp": str}` or `{"error": str}`.
+
+**Example usage:**
+```python
+result = get_indicators({"symbol": "AAPL", "indicator": "sma_50", "as_of_date": "2024-01-15", "look_back_days": 10})
 ```
 
 ---

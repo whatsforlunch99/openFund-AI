@@ -1,13 +1,15 @@
 """Vector search via Milvus (MCP tool)."""
 
-from typing import Dict, List, Optional
+from __future__ import annotations
+
+from typing import Optional
 
 
 def search(
     query: str,
     top_k: int,
-    filter: Optional[Dict] = None,
-) -> List[dict]:
+    filter: Optional[dict] = None,
+) -> list[dict]:
     """
     Semantic search over Milvus collection.
 
@@ -22,7 +24,7 @@ def search(
     raise NotImplementedError
 
 
-def index_documents(docs: List[dict]) -> dict:
+def index_documents(docs: list[dict]) -> dict:
     """
     Index or upsert documents into the Milvus collection.
 

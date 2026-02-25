@@ -1,10 +1,12 @@
 """FIPA-ACL message type for agent-to-agent communication."""
 
+from __future__ import annotations
+
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Dict, Optional, Union
-import uuid
+from typing import Any, Optional
 
 
 class Performative(StrEnum):
@@ -38,10 +40,10 @@ class ACLMessage:
         timestamp: Optional send time.
     """
 
-    performative: Union[Performative, str]
+    performative: Performative | str
     sender: str
     receiver: str
-    content: Dict[str, Any]
+    content: dict[str, Any]
     conversation_id: Optional[str] = None
     reply_to: Optional[str] = None
     in_reply_to: Optional[str] = None
@@ -56,7 +58,7 @@ class ACLMessage:
         if self.timestamp is None:
             self.timestamp = datetime.utcnow()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Return a JSON-serializable dict for persistence (D2).
 
@@ -65,7 +67,11 @@ class ACLMessage:
         memory/<user_id>/conversations.json.
         """
         return {
-            "performative": self.performative.value if hasattr(self.performative, "value") else str(self.performative),
+            "performative": (
+                self.performative.value
+                if hasattr(self.performative, "value")
+                else str(self.performative)
+            ),
             "sender": self.sender,
             "receiver": self.receiver,
             "content": self.content,

@@ -1,10 +1,10 @@
 """Responder agent: confidence evaluation, termination, and output formatting."""
 
-from typing import Any, Optional
+from typing import Any
 
-from agents.base_agent import BaseAgent
 from a2a.acl_message import ACLMessage
 from a2a.message_bus import MessageBus
+from agents.base_agent import BaseAgent
 
 
 class ResponderAgent(BaseAgent):

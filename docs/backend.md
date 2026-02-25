@@ -48,7 +48,7 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 - **Create vs get:** No conversation_id → create new conversation; conversation_id present → get existing (404 if missing).
 - **Sufficiency:** Orchestrator decides when gathered information is sufficient (threshold configurable; stub always 1.0).
 - **Confidence:** Responder uses confidence to decide terminate vs request refinement; Analyst may request more data below its threshold.
-- **Persistence:** One JSON file per user at `memory/<user_id>/conversations.json`; anonymous at `memory/anonymous/conversations.json`. Written on create and on register_reply. Root dir: `MEMORY_STORE_PATH` (default `memory/`).
+- **Persistence:** One JSON file per user at `memory/<user_id>/conversations.json`; anonymous at `memory/anonymous/conversations.json`. Written on create and on register_reply. Root dir: `MEMORY_STORE_PATH` (default `memory/`). **Situation memory:** A single BM25-backed store of (situation, recommendation) pairs is persisted at `{MEMORY_STORE_PATH}/situation_memory.json`; optional—loaded on startup via `get_situation_memory(memory_store_path)` when the `memory` module (and `rank_bm25`) is available; otherwise startup continues without it.
 
 ---
 
@@ -66,6 +66,7 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 - **Unknown conversation:** 404.
 - **Timeout:** 408; body includes status "timeout", conversation_id, response null.
 - **E2E timeout (e.g. --e2e-once):** Configurable (default 30s via `E2E_TIMEOUT_SECONDS`). Stub runs treat timeout as non-fatal (exit 0).
+- **MCP tool errors:** Handlers return `{"error": "..."}`; market_tool and analyst_tool log exceptions (e.g. `logger.exception`) before returning so failures are visible in logs. Missing required payload keys (e.g. `path` for read_file) return a clear error message.
 
 ---
 
@@ -82,13 +83,13 @@ All external data via MCP tools only:
 | SQL            | PostgreSQL  | sql_tool — DATABASE_URL |
 | Files          | —           | file_tool (read_file) |
 
-Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). Analyst API stub: request `{ "returns", "horizon" }`; response `{ "sharpe", "max_drawdown", "distribution" }`. Embedding: sentence-transformers/all-MiniLM-L6-v2, 384 dims; config: EMBEDDING_MODEL, EMBEDDING_DIM.
+Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). All MCP tools accept a **payload** dict; required parameters (e.g. **symbol**, path, **as_of_date**, start_date, end_date, **limit**) must be passed in by the caller—no UI or client-side defaults. Payload keys: use **symbol** for the security identifier (ticker accepted for backward compatibility); **limit** for max items (e.g. get_news, get_global_news); **as_of_date** for reference date (curr_date accepted for backward compatibility). Analyst API stub: request `{ "returns", "horizon" }`; response `{ "sharpe", "max_drawdown", "distribution" }`. analyst_tool.get_indicators: symbol, indicator, as_of_date, look_back_days. Embedding: sentence-transformers/all-MiniLM-L6-v2, 384 dims; config: EMBEDDING_MODEL, EMBEDDING_DIM.
 
 ---
 
 ## Configuration (env)
 
-- **Persistence:** MEMORY_STORE_PATH (default `memory/`).
+- **Persistence:** MEMORY_STORE_PATH (default `memory/`). Situation memory file: `{MEMORY_STORE_PATH}/situation_memory.json`.
 - **Timeouts:** E2E_TIMEOUT_SECONDS (default 30).
 - **Thresholds:** PLANNER_SUFFICIENCY_THRESHOLD (default 0.6), ANALYST_CONFIDENCE_THRESHOLD (default 0.6), RESPONDER_CONFIDENCE_THRESHOLD (default 0.75).
 - **MCP/backends:** MILVUS_URI, MILVUS_COLLECTION; NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD; TAVILY_API_KEY, YAHOO_BASE_URL; ANALYST_API_URL, ANALYST_API_KEY; DATABASE_URL; EMBEDDING_MODEL, EMBEDDING_DIM.

@@ -1,0 +1,11 @@
+---
+description: New skills must be placed in .cursor/skills/ so Cursor Desktop applies them
+alwaysApply: true
+---
+
+# Skills placement
+
+- **New skills** (installed, created, or copied into the project) must be placed in **`.cursor/skills/`** so Cursor Desktop discovers and applies them.
+- Each skill is a folder under `.cursor/skills/<skill-name>/` with a **SKILL.md** file (and any optional supporting files).
+- Do **not** put skills only in `.agents/skills/` or other locations — Cursor reads from `.cursor/skills/` only. If a skill is added elsewhere (e.g. `.agents/skills/`), copy or move it to `.cursor/skills/<skill-name>/`.
+- When installing from a lockfile or CLI that writes to `.agents/skills/`, also copy the new skill(s) into `.cursor/skills/` so they appear in Cursor settings.

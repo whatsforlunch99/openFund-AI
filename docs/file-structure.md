@@ -16,8 +16,10 @@ OpenFund-AI/
 ├── mcp/             # MCPClient, MCPServer, tools
 ├── config/          # Config, load_config
 ├── main.py
+├── CHANGELOG.md     # User-visible and notable changes (see progress.md)
+├── memory/          # (runtime) Conversation persistence; see backend.md § Persistence
 ├── tests/
-│   └── test-stages.py   # Single test file; tests grouped by stage
+│   └── test-stages.py   # Stage tests as functions test_stage_X_Y; run: pytest tests/test-stages.py -v or -k stage_1_2
 └── docs/
     ├── user-flow.md
     ├── prd.md
@@ -196,7 +198,7 @@ Attributes:
 
 **Example usage:**
 ```python
-state = ConversationState(id="abc", user_id="u1", initial_query="...", messages=[], status="active", final_response=None, created_at=..., completion_event=threading.Event())
+state = ConversationState(conversation_id="abc", user_id="u1", initial_query="...", messages=[], status="active", final_response=None, created_at=..., completion_event=threading.Event())
 ```
 
 ---
@@ -206,6 +208,8 @@ state = ConversationState(id="abc", user_id="u1", initial_query="...", messages=
 **Purpose:** Create conversations, look up state, register replies, and broadcast STOP.
 
 **Docstring:** `Tracks conversations and sends STOP broadcasts via the message bus. Responsibilities: create conversation, get state, register replies, broadcast STOP.`
+
+**Persistence:** Conversation state is written to `MEMORY_STORE_PATH` (see [backend.md](backend.md)) on create and on register_reply.
 
 ---
 
@@ -1167,35 +1171,7 @@ result = run_query("SELECT * FROM funds WHERE id = :id", {"id": "X"})
 
 # tests/test-stages.py
 
-**Purpose:** Single test file for staged implementation. Tests are grouped by stage (e.g. TestStage1ConfigAndMain). Each stage’s tests are functions within this file; run with `pytest tests/test-stages.py -v` or `-k stage_1`.
-
----
-
-## Class: `TestStage1ConfigAndMain`
-
-**Purpose:** Stage 1 runnable checkpoint: config loads and main prints ready message.
-
-**Docstring:** `Runnable: PYTHONPATH=. python main.py prints ready message and exits 0.`
-
----
-
-## Method: `TestStage1ConfigAndMain.test_load_config_returns_config(self) -> None`
-
-**Purpose:** Assert load_config() returns a Config instance with expected attributes.
-
-**Docstring:** `load_config() returns a Config instance populated from env.`
-
-**Example usage:** `pytest tests/test-stages.py::TestStage1ConfigAndMain::test_load_config_returns_config -v`
-
----
-
-## Method: `TestStage1ConfigAndMain.test_main_prints_ready_message(self) -> None`
-
-**Purpose:** Assert main() prints "OpenFund-AI ready (config loaded)" (by capturing stdout).
-
-**Docstring:** `main() prints 'OpenFund-AI ready (config loaded)'.`
-
-**Example usage:** `pytest tests/test-stages.py::TestStage1ConfigAndMain::test_main_prints_ready_message -v`
+**Purpose:** Single test file for staged implementation. Tests are **standalone functions** named `test_stage_X_Y` (e.g. `test_stage_1_1`, `test_stage_1_2`, `test_stage_2_1`). Run full suite: `pytest tests/test-stages.py -v`. Run a subset: `pytest tests/test-stages.py -k stage_1_2 -v`. Per-stage assertions and commands: see [progress.md](progress.md) and [test_plan.md](test_plan.md).
 
 ---
 
@@ -1205,4 +1181,4 @@ result = run_query("SELECT * FROM funds WHERE id = :id", {"id": "X"})
 - All external data (Milvus, Neo4j, Tavily, Yahoo, Analyst API) is accessed **only via MCP** (no direct DB/API access from agents).
 - **Termination** is decided only by **Responder**; it calls `conversation_manager.broadcast_stop(conversation_id)`.
 - **Planner** decides who to call (Librarian, WebSearcher, Analyst or combination) and whether information is sufficient; when sufficient, sends to Responder; when not, sends refined requests to the appropriate agent(s).
-- **Tests:** One file `tests/test-stages.py`; tests for each stage are functions (or a class) within that file.
+- **Tests:** One file `tests/test-stages.py`; tests are functions named `test_stage_X_Y` (see [test_plan.md](test_plan.md)).

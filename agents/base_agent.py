@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from a2a.acl_message import ACLMessage
+from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 
 
@@ -29,12 +29,15 @@ class BaseAgent(ABC):
         Start the agent event loop.
 
         Continuously receives messages for this agent and delegates
-        to handle_message.
+        to handle_message. Exits on STOP.
         """
         while True:
             message = self.bus.receive(self.name)
-            if message:
-                self.handle_message(message)
+            if message is None:
+                continue
+            if message.performative == Performative.STOP:
+                break
+            self.handle_message(message)
 
     @abstractmethod
     def handle_message(self, message: ACLMessage) -> None:

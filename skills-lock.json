@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "changelog-automation": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "802b14ccd3a9305555bd52554414c31c87c07f09fb7566be6e1ece3316c91e98"
+    },
+    "requesting-code-review": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "computedHash": "93a837ba79c3c3f0b3e503fd9d8b54c638337d73d200c1af3bca9607264bf0e0"
+    }
+  }
+}

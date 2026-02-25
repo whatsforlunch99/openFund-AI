@@ -24,6 +24,14 @@ class Config:
         mcp_server_endpoint: MCP server endpoint (e.g. URL or stdio).
         llm_api_key: Optional LLM provider API key.
         llm_model: Optional model name.
+        memory_store_path: Root dir for conversation persistence (default memory/).
+        e2e_timeout_seconds: E2E timeout in seconds (default 30).
+        database_url: PostgreSQL connection URL for sql_tool.
+        embedding_model: Model name for embeddings.
+        embedding_dim: Embedding dimension.
+        planner_sufficiency_threshold: Planner sufficiency threshold (default 0.6).
+        analyst_confidence_threshold: Analyst confidence threshold (default 0.6).
+        responder_confidence_threshold: Responder confidence threshold (default 0.75).
     """
 
     milvus_uri: str = ""
@@ -39,6 +47,14 @@ class Config:
     mcp_server_endpoint: str = ""
     llm_api_key: Optional[str] = None
     llm_model: Optional[str] = None
+    memory_store_path: str = "memory"
+    e2e_timeout_seconds: int = 30
+    database_url: str = ""
+    embedding_model: str = ""
+    embedding_dim: int = 0
+    planner_sufficiency_threshold: float = 0.6
+    analyst_confidence_threshold: float = 0.6
+    responder_confidence_threshold: float = 0.75
 
 
 def load_config() -> Config:
@@ -46,11 +62,24 @@ def load_config() -> Config:
     Load configuration from environment variables.
 
     Reads MILVUS_*, NEO4J_*, TAVILY_API_KEY, YAHOO_*, ANALYST_API_*,
-    MCP server endpoint, and optional LLM/feature flags.
+    MCP server endpoint, MEMORY_STORE_PATH, E2E_TIMEOUT_SECONDS,
+    DATABASE_URL, EMBEDDING_*, thresholds, and optional LLM/feature flags.
 
     Returns:
         Config instance populated from env.
     """
+    def _int(key: str, default: int) -> int:
+        try:
+            return int(os.getenv(key, str(default)))
+        except ValueError:
+            return default
+
+    def _float(key: str, default: float) -> float:
+        try:
+            return float(os.getenv(key, str(default)))
+        except ValueError:
+            return default
+
     return Config(
         milvus_uri=os.getenv("MILVUS_URI", ""),
         milvus_collection=os.getenv("MILVUS_COLLECTION", ""),
@@ -65,4 +94,12 @@ def load_config() -> Config:
         mcp_server_endpoint=os.getenv("MCP_SERVER_ENDPOINT", ""),
         llm_api_key=os.getenv("LLM_API_KEY") or None,
         llm_model=os.getenv("LLM_MODEL") or None,
+        memory_store_path=os.getenv("MEMORY_STORE_PATH", "memory"),
+        e2e_timeout_seconds=_int("E2E_TIMEOUT_SECONDS", 30),
+        database_url=os.getenv("DATABASE_URL", ""),
+        embedding_model=os.getenv("EMBEDDING_MODEL", ""),
+        embedding_dim=_int("EMBEDDING_DIM", 0),
+        planner_sufficiency_threshold=_float("PLANNER_SUFFICIENCY_THRESHOLD", 0.6),
+        analyst_confidence_threshold=_float("ANALYST_CONFIDENCE_THRESHOLD", 0.6),
+        responder_confidence_threshold=_float("RESPONDER_CONFIDENCE_THRESHOLD", 0.75),
     )

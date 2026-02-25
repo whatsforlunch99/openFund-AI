@@ -20,9 +20,11 @@ class ResponderAgent(BaseAgent):
         name: str,
         message_bus: MessageBus,
         output_rail: Any = None,
+        conversation_manager: Any = None,
     ) -> None:
         super().__init__(name, message_bus)
         self.output_rail = output_rail
+        self.conversation_manager = conversation_manager
 
     def handle_message(self, message: ACLMessage) -> None:
         """

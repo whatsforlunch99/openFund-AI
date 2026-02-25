@@ -6,7 +6,7 @@ Work breakdown (slices/stages), runnable verification commands, solved repeated 
 
 ## Work breakdown — slices and stages
 
-Development proceeds in **slices**; each slice is a runnable checkpoint. Tests live in `tests/test-stages.py`. Run full suite: `pytest tests/test-stages.py -v`.
+Development proceeds in **slices**; each slice is a runnable checkpoint. Tests live in `tests/test-stages.py`. Run full suite: `pytest tests/test-stages.py -v`. PRD allows one or more rounds; current slices deliver **one round** for MVP; multi-round Planner is an optional follow-up.
 
 ### Slice summary
 
@@ -59,4 +59,11 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend
 
 ---
 
-## Solved repeated errors
+## PRD coverage and risks
+
+**PRD coverage:** The plan meets the PRD for MVP. All functional requirements (FR1–FR7), constraints (C1–C3), and acceptance criteria (AC1–AC5) are covered by slices 1–10 and the contracts in [backend.md](backend.md) and [user-flow.md](user-flow.md). The PRD column in [project-status.md](project-status.md) maps each capability to the relevant FR/AC.
+
+**Risks and dependencies:**
+- **Slice order:** Ensure stage 2.1 (file_tool) is green before slice 3; SafetyGateway (6) before REST (7). Slices 3–5 depend on MCP and agents; 7–9 on the API layer.
+- **MCP/backends unavailable:** Use mocks for vector_tool, kg_tool, sql_tool, and market_tool (slices 4–5). Timeout behavior (408) and E2E timeout config are in backend.md.
+- **Phase 2:** LLM integration (decompose_task, sufficiency) is Stage 10.2 / Phase 2; see project-status.md.

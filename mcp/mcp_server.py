@@ -23,7 +23,7 @@ class MCPServer:
             name: Tool name (e.g. 'vector_tool.search').
             handler: Callable that accepts payload and returns result dict.
         """
-        raise NotImplementedError
+        self._handlers[name] = handler
 
     def dispatch(self, tool_name: str, payload: dict) -> dict:
         """

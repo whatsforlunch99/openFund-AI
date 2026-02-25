@@ -4,6 +4,15 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+class SafetyError(Exception):
+    """Raised when validation or guardrails fail. Mapped to HTTP 400."""
+
+    def __init__(self, reason: str, code: Optional[str] = None) -> None:
+        self.reason = reason
+        self.code = code
+        super().__init__(reason)
+
+
 @dataclass
 class ValidationResult:
     """Result of validate_input."""

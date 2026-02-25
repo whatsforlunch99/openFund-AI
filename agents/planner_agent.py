@@ -12,11 +12,18 @@ class TaskStep:
     Single step in a decomposed task chain.
 
     Attributes:
+        agent: Target agent: "librarian" | "websearcher" | "analyst".
         action: Step type (e.g. retrieve_fund_facts, answer_question).
-        params: Optional parameters for the step.
+        params: Optional parameters for the step (forwarded as ACLMessage content extras).
     """
 
-    def __init__(self, action: str, params: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        agent: str,
+        action: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.agent = agent
         self.action = action
         self.params = params or {}
 

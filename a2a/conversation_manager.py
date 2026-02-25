@@ -1,6 +1,8 @@
 """Conversation state and STOP broadcast for A2A flows."""
 
-from typing import Dict, List, Optional
+import threading
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from a2a.acl_message import ACLMessage
 from a2a.message_bus import MessageBus
@@ -8,26 +10,38 @@ from a2a.message_bus import MessageBus
 
 class ConversationState:
     """
-    Immutable snapshot of a conversation's state.
+    Snapshot of one conversation for API blocking and persistence.
 
     Attributes:
-        conversation_id: Unique conversation id.
-        user_id: Optional user identifier.
-        messages: Ordered list of ACL messages in this conversation.
-        terminated: Whether Responder has broadcast STOP.
+        id: Conversation UUID (conversation_id).
+        user_id: User identifier; empty string if anonymous.
+        initial_query: Original user query.
+        messages: Append-only log of ACLMessage dicts.
+        status: "active" | "complete" | "error".
+        final_response: Set by register_reply when Responder delivers answer; None until then.
+        created_at: Creation datetime.
+        completion_event: threading.Event; set when final_response is written; callers block with event.wait(timeout=...).
     """
 
     def __init__(
         self,
         conversation_id: str,
-        user_id: str = "",
-        messages: Optional[List[ACLMessage]] = None,
-        terminated: bool = False,
+        user_id: str,
+        initial_query: str,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        status: str = "active",
+        final_response: Optional[str] = None,
+        created_at: Optional[datetime] = None,
+        completion_event: Optional[threading.Event] = None,
     ) -> None:
-        self.conversation_id = conversation_id
+        self.id = conversation_id
         self.user_id = user_id
+        self.initial_query = initial_query
         self.messages = list(messages) if messages else []
-        self.terminated = terminated
+        self.status = status
+        self.final_response = final_response
+        self.created_at = created_at if created_at is not None else datetime.utcnow()
+        self.completion_event = completion_event if completion_event is not None else threading.Event()
 
 
 class ConversationManager:

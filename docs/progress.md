@@ -47,7 +47,7 @@ Development proceeds in **slices**; each slice is a runnable checkpoint. Tests l
 | 10.1 | E2E | — | `python main.py --e2e-once` |
 | 10.2 | Optional | — | POST /chat with NL (manual) |
 
-Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend.md). Test assertions per stage: see `tests/test-stages.py` and the test plan coverage (previously in test_plan.md; logic unchanged).
+Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend.md), and [test_plan.md](test_plan.md). Test assertions per stage: see `tests/test-stages.py`.
 
 ---
 

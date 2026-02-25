@@ -209,7 +209,35 @@ def test_stage_1_3() -> None:
 
 def test_stage_2_1() -> None:
     """Stage 2.1: MCP server and client, file_tool.read_file."""
-    pytest.skip("Stage 2.1 not implemented yet")
+    try:
+        from mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.tools import file_tool
+    except ImportError as e:
+        pytest.skip(f"MCP or file_tool not available: {e}")
+
+    server = MCPServer()
+    server.register_tool(
+        "file_tool.read_file",
+        lambda payload: file_tool.read_file(payload["path"]),
+    )
+    client = MCPClient(server)
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write("hello stage 2.1")
+        path = f.name
+    try:
+        result = client.call_tool("file_tool.read_file", {"path": path})
+        assert isinstance(result, dict)
+        assert "content" in result
+        assert result["content"] == "hello stage 2.1"
+        assert result.get("path") == path
+    finally:
+        os.unlink(path)
+
+    missing_result = client.call_tool("file_tool.read_file", {"path": "/nonexistent/file.txt"})
+    assert isinstance(missing_result, dict)
+    assert "error" in missing_result or "content" not in missing_result or missing_result.get("content") is None
 
 
 def test_stage_3_1() -> None:

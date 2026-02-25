@@ -36,4 +36,10 @@ class MCPServer:
         Returns:
             Result dict from the tool. Handles errors and timeouts.
         """
-        raise NotImplementedError
+        handler = self._handlers.get(tool_name)
+        if handler is None:
+            return {"error": f"Unknown tool: {tool_name}"}
+        try:
+            return handler(payload)
+        except Exception as e:
+            return {"error": str(e)}

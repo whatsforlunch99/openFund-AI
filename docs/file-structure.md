@@ -8,24 +8,73 @@ Directory layout, module boundaries, file responsibilities, and per-function (na
 
 ```
 OpenFund-AI/
-├── agents/          # Planner, Librarian, WebSearcher, Analyst, Responder
-├── a2a/             # ACLMessage, MessageBus, ConversationManager
-├── api/             # REST and WebSocket (Layer 1)
-├── safety/          # SafetyGateway (Layer 2)
-├── output/          # OutputRail (Layer 6)
-├── mcp/             # MCPClient, MCPServer, tools
-├── config/          # Config, load_config
+├── agents/
+│   ├── __init__.py
+│   ├── base_agent.py
+│   ├── planner_agent.py
+│   ├── librarian_agent.py
+│   ├── websearch_agent.py
+│   ├── analyst_agent.py
+│   └── responder_agent.py
+├── a2a/
+│   ├── __init__.py
+│   ├── acl_message.py
+│   ├── message_bus.py
+│   └── conversation_manager.py
+├── api/
+│   ├── __init__.py
+│   ├── rest.py
+│   └── websocket.py
+├── safety/
+│   ├── __init__.py
+│   └── safety_gateway.py
+├── output/
+│   ├── __init__.py
+│   └── output_rail.py
+├── mcp/
+│   ├── __init__.py
+│   ├── mcp_client.py
+│   ├── mcp_server.py
+│   └── tools/
+│       ├── __init__.py
+│       ├── file_tool.py
+│       ├── vector_tool.py
+│       ├── kg_tool.py
+│       ├── market_tool.py
+│       ├── analyst_tool.py
+│       └── sql_tool.py
+├── config/
+│   ├── __init__.py
+│   └── config.py
 ├── main.py
-├── CHANGELOG.md     # User-visible and notable changes (see progress.md)
-├── memory/          # (runtime) Conversation persistence; see backend.md § Persistence
+├── CHANGELOG.md
+├── README.md
+├── pyproject.toml
+├── .gitignore
+├── memory/
+├── .cursor/
+│   ├── agents/
+│   │   └── write-test-review-workflow.md
+│   ├── rules/
+│   │   ├── operating-principles.mdc
+│   │   ├── test-stage-management.mdc
+│   │   ├── docs-structure.mdc
+│   │   ├── skills-placement.mdc
+│   │   └── simple-readable-code.mdc
+│   └── skills/
+│       ├── requesting-code-review/
+│       │   ├── SKILL.md
+│       │   └── code-reviewer.md
+│       └── changelog-automation/
+│           └── SKILL.md
 ├── tests/
-│   └── test-stages.py   # Stage tests as functions test_stage_X_Y; run: pytest tests/test-stages.py -v or -k stage_1_2
+│   └── test-stages.py
 └── docs/
     ├── user-flow.md
     ├── prd.md
     ├── backend.md
     ├── frontend.md
-    ├── file-structure.md (this file)
+    ├── file-structure.md
     ├── test_plan.md
     ├── progress.md
     └── project-status.md

@@ -7,7 +7,7 @@ Application behavioral flow from the user perspective. See [prd.md](prd.md) for 
 ## Entry points
 
 - **Chat (new conversation):** User submits a query with optional user ID and profile. No conversation ID.
-- **Chat (continue conversation):** User submits with an existing conversation ID to continue or get status.
+- **Chat (existing conversation):** User submits with an existing conversation ID to poll/get status for that conversation.
 - **Get conversation:** User requests current state of a conversation by ID.
 
 ---
@@ -71,7 +71,7 @@ Invalid or unknown `user_profile` is rejected before processing.
 
 # OpenFund-AI — Use Case Flows by Target Audience
 
-This document describes, for each target audience, a **sample input** and the **sequence of function calls** from API entry to final response. It aligns with [clarification.md](clarification.md) (hub-and-spoke, performatives, persistence, timeouts) and the function-level spec in [claude-v2.md](claude-v2.md).
+This document describes, for each target audience, a **sample input** and the **sequence of function calls** from API entry to final response. It aligns with [prd.md](prd.md), [backend.md](backend.md), and the function-level contracts in [file-structure.md](file-structure.md).
 
 ---
 
@@ -109,7 +109,7 @@ Optional: `conversation_id` omitted for a new conversation.
 ## Function call sequence (in order)
 
 1. **API (REST)**  
-   - Request hits `POST /chat` handler (inside FastAPI app from `api/rest.create_app(bus, manager, safety, mcp_client)`).  
+   - Request hits `POST /chat` handler in the FastAPI app created by `api/rest.create_app()`.  
    - Handler validates body (query required; user_profile one of beginner | long_term | analyst; user_id optional, default `""`).
 
 2. **SafetyGateway.process_user_input(raw_input)**  
@@ -122,11 +122,11 @@ Optional: `conversation_id` omitted for a new conversation.
    - If present: `ConversationManager.get_conversation(conversation_id)`; if None → 404.
 
 4. **Send to Planner**  
-   - Build `ACLMessage(performative=REQUEST, sender="api", receiver="planner", content={ "query": processed.text, "conversation_id": conversation_id, "user_profile": "beginner" })`.  
+   - Build `ACLMessage(performative="request", sender="api", receiver="planner", content={ "query": processed.text, "conversation_id": conversation_id, "user_profile": "beginner" })`.  
    - `MessageBus.send(message)`.
 
 5. **Block for completion**  
-   - Get `ConversationState` for `conversation_id`; call `state.completion_event.wait(timeout=E2E_TIMEOUT_SECONDS)` (default 30s).  
+   - Get `ConversationState` for `conversation_id`; call `state.completion_event.wait(timeout=<configured_timeout_seconds>)` (default 30s).  
    - On timeout: return HTTP 408 `{ "status": "timeout", "conversation_id": "...", "response": null }`.  
    - When unblocked: read `state.final_response`; return 200 `{ "conversation_id", "status", "response": state.final_response }`.
 
@@ -139,29 +139,29 @@ Optional: `conversation_id` omitted for a new conversation.
 7. **Planner decides round:** For this round, Planner chooses **one or more** of Librarian, WebSearcher, Analyst (e.g. via `decompose_task` or sufficiency logic). It may send to all three, to two, or to one, depending on the query and current information.  
    - **PlannerAgent.decompose_task(query)** (or equivalent) returns a list of `TaskStep`s; each step targets one agent (`librarian` | `websearcher` | `analyst`).  
    - For each chosen step: `PlannerAgent.create_research_request(query, step, context)` where `context` holds all information gathered so far (empty on first round).  
-   - **MessageBus.send(REQUEST)** for each chosen agent (one or more of librarian, websearcher, analyst), each with same conversation_id and round-specific query/step in content.
+   - **MessageBus.send("request")** for each chosen agent (one or more of librarian, websearcher, analyst), each with the same conversation_id and round-specific query/step in content.
 
 8. **Chosen agents run (this round); each replies INFORM to Planner.**  
-   - **LibrarianAgent.handle_message(message)** (if chosen): `retrieve_documents` → `MCPClient.call_tool("vector_tool.search", ...)`; `retrieve_knowledge_graph` → `MCPClient.call_tool("kg_tool.query_graph", ...)`; `MCPClient.call_tool("sql_tool.run_query", ...)`; `combine_results(docs, graph_data)`; **MessageBus.send(INFORM)** to planner.  
-   - **WebSearcherAgent.handle_message(message)** (if chosen): `fetch_market_data`, `fetch_sentiment`, `fetch_regulatory` via market_tool; all returns include `timestamp`; **MessageBus.send(INFORM)** to planner.  
-   - **AnalystAgent.handle_message(message)** (if chosen): receives structured_data/market_data (from context or prior round); `analyze(...)`; optionally `MCPClient.call_tool("analyst_tool.run_analysis", ...)`; **MessageBus.send(INFORM)** to planner.
+   - **LibrarianAgent.handle_message(message)** (if chosen): `retrieve_documents` → `MCPClient.call_tool("vector_tool.search", ...)`; `retrieve_knowledge_graph` → `MCPClient.call_tool("kg_tool.query_graph", ...)`; `MCPClient.call_tool("sql_tool.run_query", ...)`; `combine_results(docs, graph_data)`; **MessageBus.send("inform")** to planner.  
+   - **WebSearcherAgent.handle_message(message)** (if chosen): `fetch_market_data`, `fetch_sentiment`, `fetch_regulatory` via market_tool; all returns include `timestamp`; **MessageBus.send("inform")** to planner.  
+   - **AnalystAgent.handle_message(message)** (if chosen): receives structured_data/market_data (from context or prior round); `analyze(...)`; optionally `MCPClient.call_tool("analyst_tool.run_analysis", ...)`; **MessageBus.send("inform")** to planner.
 
 9. **PlannerAgent** (after collecting INFORM replies for this round)  
    - Aggregates results from whichever agents replied this round with all prior-round data.  
-   - Decides **sufficiency** (e.g. score ≥ `PLANNER_SUFFICIENCY_THRESHOLD`).  
-   - **If sufficient:** **MessageBus.send(REQUEST)** to `responder` with consolidated payload (including `user_profile`, `conversation_id`).  
+   - Decides **sufficiency** according to planner policy/heuristics.  
+   - **If sufficient:** **MessageBus.send("request")** to `responder` with consolidated payload (including `user_profile`, `conversation_id`).  
    - **If not sufficient:** starts a **new round**: generates **new queries** from **all current information** at hand, then goes back to step 7 (choose one or more agents again, send REQUEST(s), wait for INFORM(s), re-evaluate sufficiency). Repeat until sufficient, then send to Responder.
 
 10. **ResponderAgent.handle_message(message)**  
     - Receives REQUEST with consolidated analysis and `message.content["user_profile"]` = `"beginner"`, `message.content["conversation_id"]`.  
-    - `ResponderAgent.evaluate_confidence(analysis)` → stub 0.8.  
-    - `ResponderAgent.should_terminate(confidence)` → True if confidence ≥ `RESPONDER_CONFIDENCE_THRESHOLD` (0.75).  
+    - `ResponderAgent.evaluate_confidence(analysis)` computes confidence from the analysis payload.  
+    - `ResponderAgent.should_terminate(confidence)` decides whether to finalize or request refinement.  
     - **When terminating:** Responder sends the final reply to the user (not to Planner): formats, checks compliance, registers the reply so the API can return it, then broadcasts STOP so all agents (including Planner) know the conversation is complete.  
       - `ResponderAgent.format_response(analysis, user_profile)` → internally `OutputRail.format_for_user(draft_text, "beginner")` (conclusion-first, analogies, risk wording).  
       - `OutputRail.check_compliance(final_text)` → `ComplianceResult`.  
-      - `ConversationManager.register_reply(conversation_id, INFORM with final_response)`; implementation sets `state.final_response` and `state.completion_event.set()` (API returns this to the user).  
-      - `ConversationManager.broadcast_stop(conversation_id)` → `MessageBus.broadcast(STOP)` so all agent threads exit; this is the only signal Responder sends to Planner (conversation complete).  
-    - **When not terminating:** build refinement REQUEST to Planner and `MessageBus.send(REQUEST)` to planner.
+      - `ConversationManager.register_reply(conversation_id, ACLMessage(... performative="inform" ... final_response ...))`; implementation sets `state.final_response` and `state.completion_event.set()` (API returns this to the user).  
+      - `ConversationManager.broadcast_stop(conversation_id)` → `MessageBus.broadcast(ACLMessage(performative="stop", ...))` so all agent threads exit; this is the conversation-complete signal.  
+    - **When not terminating:** build refinement request to Planner and `MessageBus.send("request")` to planner.
 
 11. **API** (blocking caller)  
     - Unblocks on `completion_event.set()`.  
@@ -209,5 +209,4 @@ The **function call sequence is the same** as in §1 (steps 1–11). Only the fo
 | 6–9 | agents | **Planner rounds:** choose one or more of Librarian, WebSearcher, Analyst; send REQUEST(s); collect INFORM(s); if insufficient, new round with new queries from all current info; when sufficient → Responder | ✓ | ✓ | ✓ |
 | 10 | agents + output | Responder.evaluate_confidence, should_terminate; format_response → **OutputRail.format_for_user(_, user_profile)**; check_compliance; register_reply; broadcast_stop | beginner wording | long_term wording | analyst wording |
 | 11 | api/rest | Return { conversation_id, status, response } | ✓ | ✓ | ✓ |
-
 

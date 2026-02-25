@@ -46,7 +46,7 @@ Development proceeds in **slices**; each slice is a runnable checkpoint. Tests l
 | 7.1 | 7 | `test_stage_7_1` (optional) | curl POST /chat; GET /conversations/{id} |
 | 8.1 | 8 | `test_stage_8_1` | `pytest tests/test-stages.py -k stage_8_1 -v` |
 | 9.1 | 9 | `test_stage_9_1` (optional) | WebSocket client; GET |
-| 10.1 | E2E | — | `python main.py --e2e-once` |
+| 10.1 | E2E | — | `PYTHONPATH=. python main.py --e2e-once` |
 | 10.2 | Optional | — | POST /chat with NL (manual) |
 
 Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend.md), and [test_plan.md](test_plan.md). Test assertions per stage: see `tests/test-stages.py`.
@@ -57,7 +57,10 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend
 
 *(Record recurring issues and their fixes here so the same mistakes are not repeated.)*
 
-- *(None recorded yet.)*
+- **Python 3.9 and StrEnum:** `enum.StrEnum` exists from 3.11. Use `class Performative(str, Enum)` in `a2a/acl_message.py` for 3.9 compatibility.
+- **Slice 3 implemented:** InMemoryMessageBus, ConversationManager (create/get/register_reply/broadcast_stop + persistence), PlannerAgent (one step → librarian, forwards INFORM → responder), LibrarianAgent (file_tool), ResponderAgent (stub), `main.py --e2e-once`.
+
+- **MCP `register_default_tools` failing when pandas missing:** `register_default_tools()` imported all tools in one block; if `analyst_tool` (or `market_tool`) failed to import (e.g. missing pandas), stage 2.1/2.2 tests failed. Fix: import `file_tool` first and register it; register `market_tool` and `analyst_tool` only inside try/except ImportError so optional tools are skipped when deps are missing.
 
 ---
 
@@ -69,3 +72,4 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend
 - **Slice order:** Ensure stage 2.1 (file_tool) is green before slice 3; SafetyGateway (6) before REST (7). Slices 3–5 depend on MCP and agents; 7–9 on the API layer.
 - **MCP/backends unavailable:** Use mocks for vector_tool, kg_tool, sql_tool, and market_tool (slices 4–5). Timeout behavior (408) and E2E timeout config are in backend.md.
 - **Phase 2:** LLM integration (decompose_task, sufficiency) is Stage 10.2 / Phase 2; see project-status.md.
+- **Slice 3 implementation:** Planner handles INFORM from librarian and forwards to Responder with `final_response`; `main.py --e2e-once` uses a temp file as the query path so file_tool.read_file succeeds and one conversation completes (exit 0). E2E timeout is non-fatal per backend.md.

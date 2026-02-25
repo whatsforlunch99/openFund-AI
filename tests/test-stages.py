@@ -389,17 +389,143 @@ def test_stage_2_3_situation_memory_load_from_dir_missing() -> None:
 
 def test_stage_3_1() -> None:
     """Stage 3.1: PlannerAgent (Slice 3 subset)."""
-    pytest.skip("Stage 3.1 not implemented yet")
+    try:
+        from a2a.acl_message import ACLMessage, Performative
+        from a2a.message_bus import InMemoryMessageBus
+        from agents.planner_agent import PlannerAgent, TaskStep
+    except ImportError as e:
+        pytest.skip(f"Stage 3.1 deps not available: {e}")
+
+    bus = InMemoryMessageBus()
+    bus.register_agent("planner")
+    planner = PlannerAgent("planner", bus)
+
+    steps = planner.decompose_task("What is fund X?")
+    assert isinstance(steps, list)
+    assert len(steps) >= 1
+    step = steps[0]
+    assert isinstance(step, TaskStep)
+    assert step.agent in ("librarian", "websearcher", "analyst")
+    assert isinstance(step.action, str)
+    assert len(step.action) > 0
+
+    msg = planner.create_research_request("What is fund X?", step)
+    assert isinstance(msg, ACLMessage)
+    assert msg.performative == Performative.REQUEST
+    assert msg.receiver == step.agent
+    assert msg.sender == "planner"
+    assert isinstance(msg.content, dict)
+
+    bus.register_agent("librarian")
+    start = ACLMessage(
+        performative=Performative.REQUEST,
+        sender="api",
+        receiver="planner",
+        content={"query": "What is fund X?", "conversation_id": str(uuid.uuid4())},
+    )
+    bus.send(start)
+    received = bus.receive("planner", timeout=0.5)
+    assert received is not None
+    planner.handle_message(received)
+    request_to_lib = bus.receive("librarian", timeout=0.5)
+    assert request_to_lib is not None
+    assert request_to_lib.performative == Performative.REQUEST
 
 
 def test_stage_3_2() -> None:
-    """Stage 3.2: LibrarianAgent (Slice 3 subset)."""
-    pytest.skip("Stage 3.2 not implemented yet")
+    """Stage 3.2: LibrarianAgent (Slice 3 subset) — file_tool.read_file."""
+    try:
+        from a2a.acl_message import ACLMessage, Performative
+        from a2a.message_bus import InMemoryMessageBus
+        from agents.librarian_agent import LibrarianAgent
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"Stage 3.2 deps not available: {e}")
+
+    server = MCPServer()
+    server.register_tool(
+        "file_tool.read_file",
+        lambda p: (
+            {"content": "hello from file", "path": p["path"]}
+            if "path" in p
+            else {"error": "Missing path"}
+        ),
+    )
+    client = MCPClient(server)
+    bus = InMemoryMessageBus()
+    bus.register_agent("librarian")
+    bus.register_agent("planner")
+    librarian = LibrarianAgent("librarian", bus, mcp_client=client)
+
+    cid = str(uuid.uuid4())
+    req = ACLMessage(
+        performative=Performative.REQUEST,
+        sender="planner",
+        receiver="librarian",
+        content={"query": "read file", "path": "/tmp/test.txt"},
+        conversation_id=cid,
+        reply_to="planner",
+    )
+    bus.send(req)
+    librarian.handle_message(req)
+    reply = bus.receive("planner", timeout=0.5)
+    assert reply is not None
+    assert reply.performative == Performative.INFORM
+    assert reply.sender == "librarian"
+    assert isinstance(reply.content, dict)
+    assert "content" in reply.content or "result" in reply.content or "data" in reply.content
+    if "content" in reply.content:
+        assert reply.content["content"] == "hello from file"
 
 
 def test_stage_3_3() -> None:
-    """Stage 3.3: ResponderAgent (Slice 3 subset)."""
-    pytest.skip("Stage 3.3 not implemented yet")
+    """Stage 3.3: ResponderAgent (Slice 3 subset) — stub registers reply and broadcasts STOP."""
+    try:
+        from a2a.acl_message import ACLMessage, Performative
+        from a2a.conversation_manager import ConversationManager
+        from a2a.message_bus import InMemoryMessageBus
+        from agents.responder_agent import ResponderAgent
+    except ImportError as e:
+        pytest.skip(f"Stage 3.3 deps not available: {e}")
+
+    bus = InMemoryMessageBus()
+    bus.register_agent("responder")
+    bus.register_agent("planner")
+    bus.register_agent("observer")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        prev = os.environ.get("MEMORY_STORE_PATH")
+        os.environ["MEMORY_STORE_PATH"] = tmp
+        try:
+            mgr = ConversationManager(bus)
+            cid = mgr.create_conversation("u1", "Query")
+            responder = ResponderAgent(
+                "responder", bus, conversation_manager=mgr
+            )
+
+            inform = ACLMessage(
+                performative=Performative.INFORM,
+                sender="planner",
+                receiver="responder",
+                content={"final_response": "Here is your answer.", "conversation_id": cid},
+                conversation_id=cid,
+            )
+            responder.handle_message(inform)
+
+            state = mgr.get_conversation(cid)
+            assert state is not None
+            assert state.final_response == "Here is your answer."
+            assert state.status == "complete"
+
+            stop_msg = bus.receive("observer", timeout=0.5)
+            assert stop_msg is not None
+            assert stop_msg.performative == Performative.STOP
+        finally:
+            if prev is not None:
+                os.environ["MEMORY_STORE_PATH"] = prev
+            else:
+                os.environ.pop("MEMORY_STORE_PATH", None)
 
 
 def test_stage_4_1() -> None:

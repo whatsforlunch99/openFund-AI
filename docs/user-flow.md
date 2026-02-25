@@ -4,6 +4,12 @@ Application behavioral flow from the user perspective. See [prd.md](prd.md) for 
 
 ---
 
+## Current implementation (Slice 3)
+
+The codebase currently implements **one round** without REST: `python main.py --e2e-once` runs a single conversation (api → planner → librarian (file_tool.read_file) → responder). The planner sends one REQUEST to the librarian; the librarian replies with INFORM; the planner forwards to the responder with final_response; the responder calls register_reply and broadcast_stop. No POST /chat or GET /conversations yet; full flow below applies once Slices 6–7+ are implemented.
+
+---
+
 ## Entry points
 
 - **Chat (new conversation):** User submits a query with optional user ID and profile. No conversation ID.

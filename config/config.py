@@ -7,8 +7,7 @@ from typing import Optional
 
 @dataclass
 class Config:
-    """
-    Application configuration from env vars.
+    """Application configuration from env vars.
 
     Attributes:
         milvus_uri: Milvus connection (or host/port).
@@ -58,8 +57,7 @@ class Config:
 
 
 def load_config() -> Config:
-    """
-    Load configuration from environment variables.
+    """Load configuration from environment variables.
 
     Reads MILVUS_*, NEO4J_*, TAVILY_API_KEY, YAHOO_*, ANALYST_API_*,
     MCP server endpoint, MEMORY_STORE_PATH, E2E_TIMEOUT_SECONDS,

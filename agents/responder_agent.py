@@ -2,14 +2,13 @@
 
 from typing import Any
 
-from a2a.acl_message import ACLMessage
+from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 
 
 class ResponderAgent(BaseAgent):
-    """
-    Evaluates sufficiency and terminates or continues the research loop.
+    """Evaluates sufficiency and terminates or continues the research loop.
 
     Uses OutputRail for compliance check and user-profile formatting.
     Only this agent may trigger STOP broadcast.
@@ -27,19 +26,28 @@ class ResponderAgent(BaseAgent):
         self.conversation_manager = conversation_manager
 
     def handle_message(self, message: ACLMessage) -> None:
-        """
-        Receive analysis; evaluate_confidence; if not should_terminate
-        send request_refinement else run OutputRail and send final
-        response; optionally broadcast_stop.
+        """Stub (Slice 3): register reply and broadcast STOP.
+
+        On INFORM with final_response and conversation_id, registers the reply
+        (updates state + sets completion_event) and broadcasts STOP so all
+        agents exit their run() loop for this conversation.
 
         Args:
-            message: The received ACL message (analysis payload).
+            message: The received ACL message (expected INFORM with final_response).
         """
-        raise NotImplementedError
+        if message.performative != Performative.INFORM:
+            return
+        content = message.content or {}
+        conversation_id = content.get("conversation_id") or message.conversation_id
+        final_response = content.get("final_response")
+        if not conversation_id or final_response is None:
+            return
+        if self.conversation_manager:
+            self.conversation_manager.register_reply(conversation_id, message)
+            self.conversation_manager.broadcast_stop(conversation_id)
 
     def evaluate_confidence(self, analysis: dict) -> float:
-        """
-        Compute confidence score for the analysis output.
+        """Compute confidence score for the analysis output.
 
         Args:
             analysis: Analyst output dict.
@@ -50,8 +58,7 @@ class ResponderAgent(BaseAgent):
         raise NotImplementedError
 
     def should_terminate(self, confidence: float) -> bool:
-        """
-        Determine if the research loop should stop.
+        """Determine if the research loop should stop.
 
         Args:
             confidence: Current confidence score.
@@ -62,8 +69,7 @@ class ResponderAgent(BaseAgent):
         raise NotImplementedError
 
     def format_response(self, analysis: dict, user_profile: str) -> str:
-        """
-        Turn analysis dict into user-facing text via OutputRail.
+        """Turn analysis dict into user-facing text via OutputRail.
 
         Args:
             analysis: Analyst output.
@@ -75,8 +81,7 @@ class ResponderAgent(BaseAgent):
         raise NotImplementedError
 
     def request_refinement(self, reason: str) -> ACLMessage:
-        """
-        Build message back to Planner for another research cycle.
+        """Build message back to Planner for another research cycle.
 
         Args:
             reason: Why refinement is needed.

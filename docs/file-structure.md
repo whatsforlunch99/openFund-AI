@@ -87,7 +87,13 @@ OpenFund-AI/
 
 # a2a/acl_message.py
 
-**Purpose:** Define the FIPA-ACL message type used for all agent-to-agent communication. Provides a dataclass with performative, sender, receiver, content, and optional conversation threading and timestamp.
+**Purpose:** Define the FIPA-ACL message type used for all agent-to-agent communication. Provides Performative enum (`(str, Enum)` for Python 3.9) and ACLMessage dataclass with performative, sender, receiver, content, and optional conversation threading and timestamp.
+
+---
+
+## Class: `Performative` (str, Enum)
+
+**Purpose:** FIPA-ACL performatives (B1). Uses `(str, Enum)` for Python 3.9 compatibility (StrEnum is 3.11+). Values: REQUEST, INFORM, STOP, FAILURE, ACK, REFUSE, CANCEL.
 
 ---
 
@@ -128,9 +134,7 @@ print(msg.conversation_id)  # UUID string
 
 ## Method: `ACLMessage.__post_init__(self) -> None`
 
-**Purpose:** Assign default conversation_id (UUID) and timestamp if not provided.
-
-**Docstring:** `Assign a unique conversation ID if not provided.`
+**Purpose:** Normalize performative (string → Performative enum), assign default conversation_id (UUID) and timestamp if not provided.
 
 **Example usage:** Called automatically when constructing `ACLMessage`; no direct call needed.
 
@@ -224,6 +228,14 @@ bus.broadcast(ACLMessage(performative="stop", sender="responder", receiver="*", 
 
 ---
 
+## Class: `InMemoryMessageBus(MessageBus)`
+
+**Purpose:** In-memory implementation: one queue per registered agent. send() delivers only to the named receiver; broadcast() puts a copy in every agent's queue. Used by main and tests.
+
+**Methods:** register_agent(name), send(message), receive(agent_name, timeout), broadcast(message). See MessageBus for contracts.
+
+---
+
 # a2a/conversation_manager.py
 
 **Purpose:** Track conversation state (create, get, register replies) and send STOP via the message bus so agents stop processing a conversation.
@@ -236,7 +248,7 @@ bus.broadcast(ACLMessage(performative="stop", sender="responder", receiver="*", 
 
 **Docstring:**
 ```text
-Conversation state for API blocking and persistence.
+Snapshot of one conversation for API blocking and persistence.
 Attributes:
     id: Conversation UUID (conversation_id).
     user_id: User identifier; empty string if anonymous.
@@ -245,7 +257,7 @@ Attributes:
     status: "active" | "complete" | "error".
     final_response: Set by register_reply when Responder delivers answer; None until then.
     created_at: Creation datetime.
-    completion_event: threading.Event; set when final_response is written; callers block with event.wait(timeout=...).
+    completion_event: threading.Event set when final_response is written; callers block with event.wait(timeout=...).
 ```
 
 **Example usage:**
@@ -261,7 +273,7 @@ state = ConversationState(conversation_id="abc", user_id="u1", initial_query="..
 
 **Docstring:** `Tracks conversations and sends STOP broadcasts via the message bus. Responsibilities: create conversation, get state, register replies, broadcast STOP.`
 
-**Persistence:** Conversation state is written to `MEMORY_STORE_PATH` (see [backend.md](backend.md)) on create and on register_reply.
+**Persistence:** Conversation state is written to `MEMORY_STORE_PATH/<user_id>/conversations.json` (see [backend.md](backend.md)) on create and on register_reply. Anonymous user_id maps to `anonymous/`. ConversationManager maintains _memory_root and uses _user_dir, _save_user internally.
 
 ---
 
@@ -381,7 +393,7 @@ mgr.broadcast_stop(cid)
 
 **Purpose:** Run the agent loop: repeatedly receive messages for this agent and call handle_message.
 
-**Docstring:** `Start the agent event loop. Continuously receives messages for this agent and delegates to handle_message.`
+**Docstring:** `Start the agent event loop. Continuously receives messages for this agent and delegates to handle_message. Exits cleanly when a STOP message is received (e.g. after Responder calls broadcast_stop).`
 
 **Example usage:** Typically run in a thread: `threading.Thread(target=agent.run, daemon=True).start()`
 
@@ -433,9 +445,9 @@ step = TaskStep(agent="librarian", action="retrieve_fund_facts", params={"fund":
 
 ## Method: `PlannerAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Parse incoming message, call decompose_task and create_research_request, send ACLMessages to the chosen agent(s); handle STOP.
+**Purpose:** Slice 3: On STOP, return. On INFORM from librarian, forward to responder with final_response and conversation_id. On REQUEST from api, call decompose_task (one step to librarian), optionally merge path from content (E2E), create_research_request, send to step.agent.
 
-**Docstring:** `Handle incoming messages directed to the Planner. Parse content, call decompose_task, create and send research requests via the bus; handle STOP. Args: message: The received ACL message.`
+**Docstring:** `Handle incoming messages directed to the Planner. STOP: ignore. INFORM from librarian: forward to responder. REQUEST from api: decompose_task, create_research_request, send to step.agent. Args: message: The received ACL message.`
 
 **Example usage:** Invoked by the base run() loop when a message for the planner arrives.
 
@@ -443,15 +455,15 @@ step = TaskStep(agent="librarian", action="retrieve_fund_facts", params={"fund":
 
 ## Method: `PlannerAgent.decompose_task(self, query: str) -> List[TaskStep]`
 
-**Purpose:** Turn the user query into an ordered list of task steps (e.g. retrieve_fund_facts then answer_question).
+**Purpose:** Slice 3: Return a single TaskStep to librarian (action read_file, params include query). Full implementation (multiple steps, websearcher, analyst) in later slices.
 
 **Docstring:**
 ```text
-Produce a ReAct-style task chain from the user query.
+Produce a ReAct-style task chain from the user query. Slice 3: single step to librarian only.
 Args:
     query: Raw user investment query.
 Returns:
-    Ordered list of task steps.
+    Ordered list of task steps (e.g. one step to librarian).
 ```
 
 **Example usage:**
@@ -499,13 +511,13 @@ result = planner.resolve_conflicts({"librarian": d1, "analyst": d2})
 
 # agents/librarian_agent.py
 
-**Purpose:** Answer data retrieval requests using MCP vector_tool (Milvus) and kg_tool (Neo4j); combine results and send reply back (to Planner or as specified by protocol).
+**Purpose:** Answer data retrieval requests via MCP. Slice 3: file_tool.read_file only. Later slices add vector_tool (Milvus), kg_tool (Neo4j), sql_tool; combine_results.
 
 ---
 
 ## Class: `LibrarianAgent(BaseAgent)`
 
-**Purpose:** Retrieve documents and knowledge-graph data via MCP only; no direct DB access.
+**Purpose:** Retrieve documents and knowledge-graph data via MCP only; no direct DB access. Slice 3 uses file_tool.read_file; content may have path or query.
 
 **Docstring:** `Retrieves structured data from knowledge graph and vector database. Uses MCP vector_tool (Milvus) and kg_tool (Neo4j); does not access databases directly.`
 
@@ -513,9 +525,9 @@ result = planner.resolve_conflicts({"librarian": d1, "analyst": d2})
 
 ## Method: `LibrarianAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Parse request, call retrieve_documents and retrieve_knowledge_graph via MCP, combine_results, send reply ACLMessage.
+**Purpose:** Slice 3: Read path or query from content, call MCP file_tool.read_file, send INFORM back to reply_to (Planner) with file content or error.
 
-**Docstring:** `Process data retrieval requests. Parse request, call MCP vector_tool and kg_tool, combine_results, send reply ACL message. Args: message: The received ACL message.`
+**Docstring:** `Process data retrieval requests. Slice 3: file_tool.read_file only. Content may have path or query. Call MCP, send INFORM to reply_to. Args: message: The received ACL message.`
 
 ---
 
@@ -692,9 +704,9 @@ sr = agent.sharpe_ratio([0.01, -0.02, 0.015], 0.02)
 
 ## Method: `ResponderAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Receive analysis; evaluate_confidence; if not should_terminate send request_refinement to Planner; else format_response via OutputRail, check_compliance, send final response, broadcast_stop.
+**Purpose:** Slice 3 stub: On INFORM with final_response and conversation_id, register the reply (updates state and sets completion_event) and broadcast STOP so all agents exit their run() loop. Full flow (evaluate_confidence, format_response, OutputRail) is later slices.
 
-**Docstring:** `Receive analysis; evaluate_confidence; if not should_terminate send request_refinement else run OutputRail and send final response; optionally broadcast_stop. Args: message: The received ACL message (analysis payload).`
+**Docstring:** `Stub (Slice 3): register reply and broadcast STOP. On INFORM with final_response and conversation_id, registers the reply and broadcasts STOP. Args: message: The received ACL message (expected INFORM with final_response).`
 
 ---
 
@@ -1028,20 +1040,29 @@ cfg = load_config()
 
 # main.py
 
-**Purpose:** Entry point. Load config, initialize situation memory via get_situation_memory(memory_store_path), and (in full implementation) create MessageBus, ConversationManager, SafetyGateway, MCP client/server, agents, and start API and agent runners.
+**Purpose:** Entry point. If `--e2e-once` in sys.argv: run one E2E conversation via _run_e2e_once() (planner → librarian (file_tool) → responder) and exit 0. Otherwise load config, optionally initialize situation memory via get_situation_memory(memory_store_path), and (in full implementation) create MessageBus, ConversationManager, SafetyGateway, MCP client/server, agents, and start API and agent runners.
+
+---
+
+## Function: `_run_e2e_once() -> None`
+
+**Purpose:** Run one E2E conversation (Slice 3): wire InMemoryMessageBus, ConversationManager, MCPServer (file_tool only), PlannerAgent, LibrarianAgent, ResponderAgent; start agent threads; create temp file, send REQUEST to planner with path; block on completion_event; print final response and exit 0.
 
 ---
 
 ## Function: `main() -> None`
 
-**Purpose:** Initialize the stack: at minimum load config and print readiness; in full build wire bus, manager, safety, MCP, agents, and start FastAPI and agent threads.
+**Purpose:** If --e2e-once: call _run_e2e_once() and return. Otherwise load config, optionally load situation memory, print readiness. Full stack (FastAPI, agent threads) is wired in later slices.
 
-**Docstring:** `Initialize and start the OpenFund-AI stack. Creates MessageBus (e.g. in-memory); calls bus.register_agent(name) for each agent (planner, librarian, websearcher, analyst, responder) at startup before any messages are sent; creates ConversationManager, SafetyGateway, MCP client (with config); instantiates all agents with bus and MCP client; starts FastAPI (REST + WebSocket) and agent runners; optionally starts MCP server.`
+**Docstring:** `Initialize and start the OpenFund-AI stack. If --e2e-once in sys.argv, runs one E2E conversation and exits. Otherwise loads config, optionally get_situation_memory(memory_store_path), prints "OpenFund-AI ready (config loaded)". Full wiring (MessageBus, agents, REST, WebSocket) in later slices.`
 
 **Example usage:**
 ```bash
 PYTHONPATH=. python main.py
 # Prints: OpenFund-AI ready (config loaded)
+
+PYTHONPATH=. python main.py --e2e-once
+# Runs one conversation (planner → librarian → responder), prints E2E complete: <content>, exit 0
 ```
 
 ---

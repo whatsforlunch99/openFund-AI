@@ -6,6 +6,7 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ### Added
 
+- **Slice 3 (Stages 3.1–3.3):** ACLMessage, BaseAgent, PlannerAgent (one step to librarian), LibrarianAgent (file_tool.read_file), ResponderAgent (stub: register_reply + broadcast_stop). Planner handles INFORM from librarian and sends INFORM to Responder with `final_response` and `conversation_id`. Tests: `test_stage_3_1`, `test_stage_3_2`, `test_stage_3_3`. E2E: `python main.py --e2e-once` runs one conversation (planner → librarian → responder) and exits 0; uses temp file for file_tool so response is successful.
 - **Situation memory (Stage 2.3):** BM25-based `FinancialSituationMemory` for (situation, recommendation) pairs; persistence at `{MEMORY_STORE_PATH}/situation_memory.json`. API: `add_situations`, `get_memories`, `clear`, `save(path)`, `load(path)`, `load_from_dir(memory_store_path)`. Shared instance via `get_situation_memory(memory_store_path)`; initialized in `main()`. Dependency: `rank_bm25`. Tests: `test_stage_2_3_situation_memory`, `test_stage_2_3_situation_memory_load_from_dir_missing`.
 - **Stage 2.1:** MCP server and client with `file_tool.read_file`: `MCPServer.dispatch`, `MCPClient(server).call_tool("file_tool.read_file", {"path": "..."})`, and `file_tool.read_file(path)` implemented; test_stage_2_1 passes.
 - **TradingAgents tools integration:** New MCP tools (yfinance-backed) integrated into **original** tool modules: `market_tool` now includes get_stock_data, get_indicators (SMA), get_fundamentals, get_balance_sheet, get_cashflow, get_income_statement, get_insider_transactions, get_news, get_global_news. Registration via `MCPServer.register_default_tools()`. No separate fundamental_tool/news_tool/register_tools files. Dependencies: yfinance, pandas, python-dateutil. Test `test_stage_2_2_trading_tools` verifies market_tool endpoints.
@@ -19,7 +20,7 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ### Fixed
 
-- (none yet)
+- **MCP server:** `register_default_tools()` now imports `file_tool` first and registers optional tools (`market_tool`, `analyst_tool`) only when their imports succeed, so stage 2.1/2.2 tests pass in environments where pandas (or other optional deps) are not installed.
 
 ### Removed
 

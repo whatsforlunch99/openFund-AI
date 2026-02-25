@@ -38,7 +38,7 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 ## Data models
 
 - **Conversation state:** id (UUID), user_id, initial_query, messages (append-only log), status ("active" | "complete" | "error"), final_response (set when response is delivered), created_at, completion_event (for blocking wait).
-- **Message (ACL):** performative, sender, receiver, content, conversation_id, reply_to, in_reply_to, timestamp. Performatives: REQUEST, INFORM, STOP, FAILURE, ACK, REFUSE, CANCEL.
+- **Message (ACL):** performative, sender, receiver, content, conversation_id, reply_to, in_reply_to, timestamp. Performatives: REQUEST, INFORM, STOP, FAILURE, ACK, REFUSE, CANCEL. Performative type is `(str, Enum)` for Python 3.9 compatibility (StrEnum is 3.11+).
 - **Task step (orchestration):** agent ("librarian" | "websearcher" | "analyst"), action, params (forwarded in message content).
 
 ---

@@ -5,14 +5,15 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum
 from typing import Any, Optional
 
 
-class Performative(StrEnum):
-    """
-    FIPA-ACL performatives (B1). Complete set for current stages.
-    New values added only when a stage explicitly requires them.
+class Performative(str, Enum):
+    """FIPA-ACL performatives (B1).
+
+    Uses (str, Enum) for Python 3.9 compatibility (StrEnum is 3.11+).
+    Values are string names so they serialize cleanly.
     """
 
     REQUEST = "REQUEST"
@@ -26,8 +27,7 @@ class Performative(StrEnum):
 
 @dataclass
 class ACLMessage:
-    """
-    FIPA-ACL message exchanged between agents.
+    """FIPA-ACL message exchanged between agents.
 
     Attributes:
         performative: Communication intent (Performative enum per B1).
@@ -50,7 +50,7 @@ class ACLMessage:
     timestamp: Optional[datetime] = None
 
     def __post_init__(self) -> None:
-        """Normalize performative to Performative enum; assign conversation_id and timestamp if not provided."""
+        """Normalize performative to enum; set conversation_id and timestamp if missing."""
         if isinstance(self.performative, str):
             self.performative = Performative(self.performative.upper())
         if not self.conversation_id:
@@ -59,12 +59,13 @@ class ACLMessage:
             self.timestamp = datetime.utcnow()
 
     def to_dict(self) -> dict[str, Any]:
-        """
-        Return a JSON-serializable dict for persistence (D2).
+        """Return a JSON-serializable dict for persistence (D2).
 
-        Converts performative to string and timestamp to ISO format so
-        json.dumps() can serialize state.messages when persisting to
-        memory/<user_id>/conversations.json.
+        Converts performative to string and timestamp to ISO format for
+        serialization to memory/<user_id>/conversations.json.
+
+        Returns:
+            Dict suitable for json.dumps (e.g. in state.messages).
         """
         return {
             "performative": (

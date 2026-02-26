@@ -8,6 +8,9 @@ from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 
+# Same allowed values as api/rest.py; normalize so Responder/OutputRail get consistent profile.
+VALID_USER_PROFILES = ("beginner", "long_term", "analyst")
+
 
 class TaskStep:
     """Single step in a decomposed task chain.
@@ -40,6 +43,7 @@ class PlannerAgent(BaseAgent):
         super().__init__(name, message_bus)
         self._round_pending: dict[str, set[str]] = {}  # conversation_id -> agents we're waiting for
         self._collected: dict[str, dict[str, Any]] = {}  # conversation_id -> { agent: content }
+        self._user_profile_by_conversation: dict[str, str] = {}  # conversation_id -> user_profile
 
     def handle_message(self, message: ACLMessage) -> None:
         """Handle incoming messages directed to the Planner.
@@ -64,23 +68,37 @@ class PlannerAgent(BaseAgent):
             self._round_pending[conversation_id].discard(message.sender)
             if not self._round_pending[conversation_id]:
                 final = self._format_final(self._collected[conversation_id])
+                user_profile = self._user_profile_by_conversation.get(conversation_id, "beginner")
                 self.bus.send(
                     ACLMessage(
                         performative=Performative.INFORM,
                         sender=self.name,
                         receiver="responder",
-                        content={"final_response": final, "conversation_id": conversation_id},
+                        content={
+                            "final_response": final,
+                            "conversation_id": conversation_id,
+                            "user_profile": user_profile,
+                        },
                         conversation_id=conversation_id,
                     )
                 )
                 del self._round_pending[conversation_id]
                 del self._collected[conversation_id]
+                self._user_profile_by_conversation.pop(conversation_id, None)
             return
 
         # New request from API: send REQUEST to all three agents (one round)
         query = content.get("query", "")
         if not query:
             return
+        raw_profile = content.get("user_profile") or "beginner"
+        if isinstance(raw_profile, str):
+            profile = raw_profile.strip().lower()
+        else:
+            profile = "beginner"
+        if profile not in VALID_USER_PROFILES:
+            profile = "beginner"
+        self._user_profile_by_conversation[conversation_id] = profile
         steps = self.decompose_task(query)
         if not steps:
             return

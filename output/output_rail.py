@@ -3,6 +3,14 @@
 from dataclasses import dataclass
 from typing import Optional
 
+# Block list for explicit buy/sell advice in output (aligned with safety_gateway where relevant).
+OUTPUT_BLOCKED_PHRASES: tuple[str, ...] = (
+    "buy this stock now",
+    "sell immediately",
+    "guaranteed return",
+    "insider tip",
+)
+
 
 @dataclass
 class ComplianceResult:
@@ -29,7 +37,16 @@ class OutputRail:
         Returns:
             ComplianceResult with passed flag and optional reason.
         """
-        raise NotImplementedError
+        if not text or not text.strip():
+            return ComplianceResult(passed=True)
+        lower = text.lower()
+        for phrase in OUTPUT_BLOCKED_PHRASES:
+            if phrase in lower:
+                return ComplianceResult(
+                    passed=False,
+                    reason=f"Output contains disallowed phrase: {phrase!r}",
+                )
+        return ComplianceResult(passed=True)
 
     def format_for_user(self, text: str, user_profile: str) -> str:
         """
@@ -42,4 +59,16 @@ class OutputRail:
         Returns:
             Formatted string for the user.
         """
-        raise NotImplementedError
+        profile = (user_profile or "").strip().lower()
+        if profile not in ("beginner", "long_term", "analyst"):
+            profile = "beginner"
+
+        if profile == "beginner":
+            disclaimer = "This is not investment advice."
+            return f"{text.strip()}\n\n{disclaimer}"
+        if profile == "long_term":
+            line = "Consider a long-term horizon and disciplined rebalancing."
+            return f"{text.strip()}\n\n{line}"
+        if profile == "analyst":
+            return f"Analysis: {text.strip()}"
+        return text.strip()

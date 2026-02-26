@@ -26,11 +26,13 @@ class ResponderAgent(BaseAgent):
         self.conversation_manager = conversation_manager
 
     def handle_message(self, message: ACLMessage) -> None:
-        """Stub (Slice 3): register reply and broadcast STOP.
+        """Register reply and broadcast STOP.
 
-        On INFORM with final_response and conversation_id, registers the reply
-        (updates state + sets completion_event) and broadcasts STOP so all
-        agents exit their run() loop for this conversation.
+        On INFORM with final_response and conversation_id: get user_profile from
+        content (default "beginner"). If output_rail is set: format via
+        format_for_user, check_compliance; if not passed append disclaimer;
+        register reply with formatted final_response then broadcast STOP.
+        If output_rail is None, register with original final_response.
 
         Args:
             message: The received ACL message (expected INFORM with final_response).
@@ -42,9 +44,32 @@ class ResponderAgent(BaseAgent):
         final_response = content.get("final_response")
         if not conversation_id or final_response is None:
             return
-        # Register reply (updates state, sets completion_event); then broadcast STOP (backend: only Responder may STOP)
+        user_profile = content.get("user_profile") or "beginner"
+        if isinstance(user_profile, str):
+            user_profile = user_profile.strip() or "beginner"
+        else:
+            user_profile = "beginner"
+
+        if self.output_rail is not None:
+            draft = self.output_rail.format_for_user(
+                final_response if isinstance(final_response, str) else str(final_response),
+                user_profile,
+            )
+            comp = self.output_rail.check_compliance(draft)
+            if not comp.passed:
+                draft = f"{draft}\n\nThis is not investment advice."
+            final_response = draft
+
+        reply_content = {"final_response": final_response, "conversation_id": conversation_id}
+        reply_msg = ACLMessage(
+            performative=Performative.INFORM,
+            sender=self.name,
+            receiver="api",
+            content=reply_content,
+            conversation_id=conversation_id,
+        )
         if self.conversation_manager:
-            self.conversation_manager.register_reply(conversation_id, message)
+            self.conversation_manager.register_reply(conversation_id, reply_msg)
             self.conversation_manager.broadcast_stop(conversation_id)
 
     def evaluate_confidence(self, analysis: dict) -> float:

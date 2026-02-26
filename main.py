@@ -29,6 +29,7 @@ def _run_e2e_once() -> None:
     from agents.websearch_agent import WebSearcherAgent
     from mcp.mcp_client import MCPClient
     from mcp.mcp_server import MCPServer
+    from output.output_rail import OutputRail
 
     cfg = load_config()
     bus = InMemoryMessageBus()
@@ -43,7 +44,12 @@ def _run_e2e_once() -> None:
     librarian = LibrarianAgent("librarian", bus, mcp_client=client)
     websearcher = WebSearcherAgent("websearcher", bus, mcp_client=client)
     analyst = AnalystAgent("analyst", bus, mcp_client=client)
-    responder = ResponderAgent("responder", bus, conversation_manager=mgr)
+    responder = ResponderAgent(
+        "responder",
+        bus,
+        conversation_manager=mgr,
+        output_rail=OutputRail(),
+    )
 
     for agent in (planner, librarian, websearcher, analyst, responder):
         t = threading.Thread(target=agent.run, daemon=True)
@@ -67,6 +73,7 @@ def _run_e2e_once() -> None:
                 content={
                     "query": "What is in the project?",
                     "conversation_id": cid,
+                    "user_profile": "beginner",
                     "path": e2e_path,
                 },
                 conversation_id=cid,

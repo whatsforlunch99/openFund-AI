@@ -915,12 +915,67 @@ def test_stage_6_1() -> None:
 
 def test_stage_7_1() -> None:
     """Stage 7.1: REST API (POST /chat, GET /conversations)."""
-    pytest.skip("Stage 7.1 not implemented yet")
+    from fastapi.testclient import TestClient
+
+    from api.rest import create_app
+
+    # Short timeout so test does not hang; real flow with temp file for librarian
+    app = create_app(timeout_seconds=5)
+    client = TestClient(app)
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write("Fund X is a sample fund.")
+        path = f.name
+    try:
+        r = client.post(
+            "/chat",
+            json={
+                "query": "What is fund X?",
+                "user_profile": "beginner",
+                "path": path,
+            },
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "conversation_id" in data
+        assert "status" in data
+        assert "response" in data
+        cid = data["conversation_id"]
+
+        r2 = client.get(f"/conversations/{cid}")
+        assert r2.status_code == 200, r2.text
+        state = r2.json()
+        assert state.get("id") == cid
+        assert "user_id" in state
+        assert state.get("initial_query") == "What is fund X?"
+        assert "messages" in state
+        assert state.get("status") in ("active", "complete", "error")
+        assert "final_response" in state
+        assert "created_at" in state
+    finally:
+        os.unlink(path)
 
 
 def test_stage_8_1() -> None:
-    """Stage 8.1: OutputRail."""
-    pytest.skip("Stage 8.1 not implemented yet")
+    """Stage 8.1: OutputRail format_for_user and check_compliance."""
+    from output.output_rail import OutputRail
+
+    rail = OutputRail()
+    text = "Fund X returned 5%."
+
+    # (a) format_for_user differs by profile: beginner gets disclaimer, analyst gets "Analysis:" prefix
+    beginner_out = rail.format_for_user(text, "beginner")
+    analyst_out = rail.format_for_user(text, "analyst")
+    assert "This is not investment advice" in beginner_out
+    assert beginner_out != analyst_out
+    assert analyst_out.startswith("Analysis:")
+    assert "Fund X returned 5%" in analyst_out
+
+    # (b) check_compliance: safe text passes; buy/sell advice fails
+    assert rail.check_compliance("Fund X is stable.").passed is True
+    comp = rail.check_compliance("Buy this stock now.")
+    assert comp.passed is False
+    assert comp.reason is not None
 
 
 def test_stage_9_1() -> None:

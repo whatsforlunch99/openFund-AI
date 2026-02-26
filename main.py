@@ -6,9 +6,9 @@ from config.config import load_config
 
 
 def _run_e2e_once() -> None:
-    """Run one E2E conversation (Slice 3): api → planner → librarian (file_tool) → responder.
+    """Run one E2E conversation (Slice 5): api → planner → librarian + websearcher + analyst → responder.
 
-    Wires bus, manager, MCP server (file_tool only), agents; starts agent threads;
+    Wires bus, manager, MCP server (default tools), all five agents; starts agent threads;
     creates a temp file and passes its path so librarian can read it; blocks on
     completion_event then exits 0.
     """
@@ -19,35 +19,30 @@ def _run_e2e_once() -> None:
     from a2a.acl_message import ACLMessage, Performative
     from a2a.conversation_manager import ConversationManager
     from a2a.message_bus import InMemoryMessageBus
+    from agents.analyst_agent import AnalystAgent
     from agents.librarian_agent import LibrarianAgent
     from agents.planner_agent import PlannerAgent
     from agents.responder_agent import ResponderAgent
+    from agents.websearch_agent import WebSearcherAgent
     from mcp.mcp_client import MCPClient
     from mcp.mcp_server import MCPServer
 
     cfg = load_config()
     bus = InMemoryMessageBus()
-    for name in ("planner", "librarian", "responder"):
+    for name in ("planner", "librarian", "websearcher", "analyst", "responder"):
         bus.register_agent(name)
 
     mgr = ConversationManager(bus)
     server = MCPServer()
-    from mcp.tools import file_tool
-
-    server.register_tool(
-        "file_tool.read_file",
-        lambda p: (
-            file_tool.read_file(p["path"])
-            if "path" in p
-            else {"error": "Missing required parameter 'path'"}
-        ),
-    )
+    server.register_default_tools()
     client = MCPClient(server)
     planner = PlannerAgent("planner", bus)
     librarian = LibrarianAgent("librarian", bus, mcp_client=client)
+    websearcher = WebSearcherAgent("websearcher", bus, mcp_client=client)
+    analyst = AnalystAgent("analyst", bus, mcp_client=client)
     responder = ResponderAgent("responder", bus, conversation_manager=mgr)
 
-    for agent in (planner, librarian, responder):
+    for agent in (planner, librarian, websearcher, analyst, responder):
         t = threading.Thread(target=agent.run, daemon=True)
         t.start()
 
@@ -60,6 +55,7 @@ def _run_e2e_once() -> None:
         state = mgr.get_conversation(cid)
         assert state is not None
 
+        # Send REQUEST to planner; planner sends to librarian, websearcher, analyst (Slice 5)
         bus.send(
             ACLMessage(
                 performative=Performative.REQUEST,
@@ -75,6 +71,7 @@ def _run_e2e_once() -> None:
         )
 
         timeout = cfg.e2e_timeout_seconds
+        # Block until Responder sets final_response and signals completion (backend: completion_event)
         state.completion_event.wait(timeout=timeout)
         if state.final_response:
             print(

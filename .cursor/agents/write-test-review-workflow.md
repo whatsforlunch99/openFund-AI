@@ -1,6 +1,6 @@
 ---
 name: write-test-review-workflow
-description: Orchestrates the Write → Test → Review pipeline for each implementation stage. Use when starting a new stage from docs/progress.md, when the user asks to run the stage workflow, or when formalizing work for a stage. Delegates to planner, architect, tdd-guide, code-reviewer, build-error-resolver, e2e-runner, refactor-cleaner, and doc-updater at the right steps; requires human confirmation before commit.
+description: Orchestrates the Write → Test → Review pipeline for each implementation stage. Use when starting a new stage from docs/progress.md, when the user asks to run the stage workflow, or when formalizing work for a stage. Phase 3 uses **requesting-code-review** to request review (dispatch code-reviewer) and **receiving-code-review** to act on feedback (verify, clarify, push back when wrong, implement one at a time). Delegates to planner, architect, tdd-guide, code-reviewer, build-error-resolver, e2e-runner, refactor-cleaner, and doc-updater at the right steps; requires human confirmation before commit.
 ---
 
 # Write → Test → Review Workflow Agent
@@ -20,10 +20,10 @@ You orchestrate the **per-stage workflow** for this project. Run it for one stag
 | Phase 2 — build fails | **build-error-resolver** | When build or import check fails; fix then re-run step until pass. |
 | Phase 2 — tests fail | **tdd-guide** | When test suite fails; get test-first guidance, fix, re-run until pass. |
 | Phase 2 — E2E (e.g. Stage 10.1) | **e2e-runner** | When running or validating critical user flows. |
-| Phase 3 — code review | **code-reviewer** | After Phase 2 passes; use Task tool with `superpowers:code-reviewer` and the template at [.cursor/skills/requesting-code-review/code-reviewer.md](.cursor/skills/requesting-code-review/code-reviewer.md). |
+| Phase 3 — code review | **requesting-code-review** + **receiving-code-review** | **Request:** Use the **requesting-code-review** skill: get SHAs, dispatch code-reviewer via Task tool (`superpowers:code-reviewer`) with template at [.cursor/skills/requesting-code-review/code-reviewer.md](.cursor/skills/requesting-code-review/code-reviewer.md). **Act on feedback:** Use the **receiving-code-review** skill: read/understand/verify/evaluate before implementing; clarify unclear items first; push back with technical reasoning when feedback is wrong or out of scope; implement one item at a time and test each; no performative agreement. |
 | After behavior/contract changes | **doc-updater** | To keep docs/file-structure.md, backend.md, progress.md in sync. |
 
-**How to delegate in Cursor:** Use the **Task** tool to launch the appropriate subagent (e.g. `superpowers:code-reviewer` for code review). For agents listed in [.claude/rules/common/agents.md](.claude/rules/common/agents.md) (planner, architect, tdd-guide, build-error-resolver, e2e-runner, refactor-cleaner, doc-updater), invoke them when the workflow reaches the step above; use the same Task/subagent mechanism if available, or follow the workflow and apply the agent’s role (e.g. “act as planner for this step”).
+**How to delegate in Cursor:** Use the **Task** tool to launch the appropriate subagent (e.g. `superpowers:code-reviewer` for code review). For **Phase 3**, follow the **requesting-code-review** skill when requesting review and the **receiving-code-review** skill when classifying and acting on feedback. For agents listed in [.claude/rules/common/agents.md](.claude/rules/common/agents.md) (planner, architect, tdd-guide, build-error-resolver, e2e-runner, refactor-cleaner, doc-updater), invoke them when the workflow reaches the step above; use the same Task/subagent mechanism if available, or follow the workflow and apply the agent’s role (e.g. “act as planner for this step”).
 
 ---
 
@@ -55,10 +55,12 @@ Do not proceed to Phase 3 until Phase 2 is fully green.
 
 ## Phase 3: Review (loop until no necessary issues)
 
-1. **Get commit range:** `BASE_SHA=$(git rev-parse HEAD~1); HEAD_SHA=$(git rev-parse HEAD)`
-2. **Request review:** Delegate to **code-reviewer** via Task tool (`superpowers:code-reviewer`). Fill the template at [.cursor/skills/requesting-code-review/code-reviewer.md](.cursor/skills/requesting-code-review/code-reviewer.md) with WHAT_WAS_IMPLEMENTED, PLAN_REFERENCE, BASE_SHA, HEAD_SHA, DESCRIPTION.
-3. **Classify feedback:** Necessary = Critical or Important (must fix). Optional = Minor (can defer). If a comment is out of scope or incorrect, document reasoning and skip; otherwise treat as necessary.
-4. **Review loop:** **While** any Critical/Important remain (or assessment not *Ready to merge*): (a) Fix each necessary issue, (b) Re-run Phase 2 at least 2.1, 2.3, 2.4, (c) Re-request **code-reviewer**, (d) Classify again. Exit when no Critical/Important remain or assessment is *Ready to merge* / *With fixes* (Minor only).
+Use the **requesting-code-review** skill to request review and the **receiving-code-review** skill when acting on feedback.
+
+1. **Get commit range:** Per **requesting-code-review**: `BASE_SHA=$(git rev-parse HEAD~1); HEAD_SHA=$(git rev-parse HEAD)` (or `origin/main` for BASE_SHA).
+2. **Request review:** Follow **requesting-code-review**. Delegate to **code-reviewer** via Task tool (`superpowers:code-reviewer`). Fill the template at [.cursor/skills/requesting-code-review/code-reviewer.md](.cursor/skills/requesting-code-review/code-reviewer.md) with WHAT_WAS_IMPLEMENTED, PLAN_REFERENCE (or PLAN_OR_REQUIREMENTS), BASE_SHA, HEAD_SHA, DESCRIPTION.
+3. **Classify feedback (receiving-code-review):** Read and understand each item. Verify against the codebase before implementing. Necessary = Critical or Important (must fix). Optional = Minor (can defer). If a comment is unclear, ask for clarification before implementing. If feedback is out of scope or technically incorrect, push back with reasoning and document; otherwise treat as necessary.
+4. **Review loop (receiving-code-review):** **While** any Critical/Important remain (or assessment not *Ready to merge*): (a) Implement one necessary issue at a time and test each; (b) Re-run Phase 2 at least 2.1, 2.3, 2.4; (c) Re-request review per **requesting-code-review**; (d) Classify again per **receiving-code-review**. Exit when no Critical/Important remain or assessment is *Ready to merge* / *With fixes* (Minor only). No performative agreement; state fixes factually.
 5. **Docs:** If behavior or contracts changed, delegate to **doc-updater**.
 
 ---
@@ -78,7 +80,7 @@ Do not proceed to Phase 3 until Phase 2 is fully green.
 
 - Before starting a stage: Read progress.md, prd.md, file-structure.
 - After writing code: Run Phase 2 and **loop each step until pass**.
-- After Phase 2 passes: Run Phase 3 **review loop** until no necessary issues remain.
+- After Phase 2 passes: Run Phase 3 **review loop**: use **requesting-code-review** to request review, **receiving-code-review** to classify and act on feedback until no necessary issues remain.
 - After review loop exits: **Human confirmation** — do not commit until the user approves.
 - Before merge to main: Phase 2 passed + Phase 3 exited + **human confirmed** → then commit/push/merge.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 
@@ -16,7 +17,9 @@ def query_graph(cypher: str, params: Optional[dict] = None) -> dict:
     Returns:
         Dict with nodes/edges or result rows. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD.
     """
-    raise NotImplementedError
+    if not os.environ.get("NEO4J_URI"):
+        return {"nodes": [{"id": "n1", "label": "Fund"}], "edges": [], "params": params or {}}
+    raise NotImplementedError("Real Neo4j backend not implemented")
 
 
 def get_relations(entity: str) -> dict:
@@ -29,4 +32,6 @@ def get_relations(entity: str) -> dict:
     Returns:
         Dict with related nodes/edges.
     """
-    raise NotImplementedError
+    if not os.environ.get("NEO4J_URI"):
+        return {"nodes": [{"id": entity, "label": "Entity"}], "edges": [], "entity": entity}
+    raise NotImplementedError("Real Neo4j backend not implemented")

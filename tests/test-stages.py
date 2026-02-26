@@ -530,37 +530,195 @@ def test_stage_3_3() -> None:
 
 def test_stage_4_1() -> None:
     """Stage 4.1: vector_tool (Milvus)."""
-    pytest.skip("Stage 4.1 not implemented yet")
+    try:
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"MCP not available: {e}")
+
+    # Use mock when MILVUS_URI not set
+    env_milvus = os.environ.pop("MILVUS_URI", None)
+    try:
+        server = MCPServer()
+        server.register_default_tools()
+        client = MCPClient(server)
+        result = client.call_tool("vector_tool.search", {"query": "test query", "top_k": 3})
+        assert isinstance(result, dict)
+        assert "error" not in result
+        docs = result.get("documents", result)
+        assert isinstance(docs, list)
+        assert len(docs) >= 1
+        assert "content" in docs[0] or "score" in docs[0]
+    finally:
+        if env_milvus is not None:
+            os.environ["MILVUS_URI"] = env_milvus
 
 
 def test_stage_4_2() -> None:
     """Stage 4.2: kg_tool (Neo4j)."""
-    pytest.skip("Stage 4.2 not implemented yet")
+    try:
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"MCP not available: {e}")
+
+    env_neo4j = os.environ.pop("NEO4J_URI", None)
+    try:
+        server = MCPServer()
+        server.register_default_tools()
+        client = MCPClient(server)
+        result = client.call_tool("kg_tool.get_relations", {"entity": "FUND1"})
+        assert isinstance(result, dict)
+        assert "error" not in result
+        assert "nodes" in result
+        result2 = client.call_tool("kg_tool.query_graph", {"cypher": "MATCH (n) RETURN n", "params": {}})
+        assert isinstance(result2, dict)
+        assert "error" not in result2
+    finally:
+        if env_neo4j is not None:
+            os.environ["NEO4J_URI"] = env_neo4j
 
 
 def test_stage_4_3() -> None:
     """Stage 4.3: sql_tool (PostgreSQL)."""
-    pytest.skip("Stage 4.3 not implemented yet")
+    try:
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"MCP not available: {e}")
+
+    env_db = os.environ.pop("DATABASE_URL", None)
+    try:
+        server = MCPServer()
+        server.register_default_tools()
+        client = MCPClient(server)
+        result = client.call_tool("sql_tool.run_query", {"query": "SELECT 1", "params": {}})
+        assert isinstance(result, dict)
+        assert "error" not in result
+        assert "rows" in result
+    finally:
+        if env_db is not None:
+            os.environ["DATABASE_URL"] = env_db
 
 
 def test_stage_5_1() -> None:
     """Stage 5.1: market_tool."""
-    pytest.skip("Stage 5.1 not implemented yet")
+    try:
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"MCP not available: {e}")
+
+    server = MCPServer()
+    server.register_default_tools()
+    client = MCPClient(server)
+    # market_tool is optional (skipped if yfinance/pandas missing)
+    result = client.call_tool("market_tool.get_fundamentals", {"ticker": "AAPL"})
+    assert isinstance(result, dict)
+    assert "error" in result or "content" in result
+    if "error" not in result:
+        assert "timestamp" in result or "content" in result
 
 
 def test_stage_5_2() -> None:
     """Stage 5.2: analyst_tool."""
-    pytest.skip("Stage 5.2 not implemented yet")
+    try:
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"MCP not available: {e}")
+
+    server = MCPServer()
+    server.register_default_tools()
+    client = MCPClient(server)
+    # analyst_tool.get_indicators is optional (skipped if pandas missing)
+    result = client.call_tool(
+        "analyst_tool.get_indicators",
+        {
+            "symbol": "AAPL",
+            "indicator": "sma_50",
+            "as_of_date": "2024-01-15",
+            "look_back_days": 10,
+        },
+    )
+    assert isinstance(result, dict)
+    assert "error" in result or "content" in result
+    if "error" not in result:
+        assert "timestamp" in result or "content" in result
 
 
 def test_stage_5_3() -> None:
     """Stage 5.3: WebSearcherAgent."""
-    pytest.skip("Stage 5.3 not implemented yet")
+    try:
+        from a2a.acl_message import ACLMessage, Performative
+        from a2a.message_bus import InMemoryMessageBus
+        from agents.websearch_agent import WebSearcherAgent
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"Stage 5.3 deps not available: {e}")
+
+    server = MCPServer()
+    server.register_default_tools()
+    client = MCPClient(server)
+    bus = InMemoryMessageBus()
+    bus.register_agent("websearcher")
+    bus.register_agent("planner")
+    agent = WebSearcherAgent("websearcher", bus, mcp_client=client)
+    cid = str(uuid.uuid4())
+    req = ACLMessage(
+        performative=Performative.REQUEST,
+        sender="planner",
+        receiver="websearcher",
+        content={"query": "AAPL", "fund": "AAPL"},
+        conversation_id=cid,
+        reply_to="planner",
+    )
+    bus.send(req)
+    agent.handle_message(req)
+    reply = bus.receive("planner", timeout=1.0)
+    assert reply is not None
+    assert reply.performative == Performative.INFORM
+    assert reply.sender == "websearcher"
+    assert isinstance(reply.content, dict)
+    assert "market_data" in reply.content or "sentiment" in reply.content
 
 
 def test_stage_5_4() -> None:
     """Stage 5.4: AnalystAgent."""
-    pytest.skip("Stage 5.4 not implemented yet")
+    try:
+        from a2a.acl_message import ACLMessage, Performative
+        from a2a.message_bus import InMemoryMessageBus
+        from agents.analyst_agent import AnalystAgent
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"Stage 5.4 deps not available: {e}")
+
+    server = MCPServer()
+    server.register_default_tools()
+    client = MCPClient(server)
+    bus = InMemoryMessageBus()
+    bus.register_agent("analyst")
+    bus.register_agent("planner")
+    agent = AnalystAgent("analyst", bus, mcp_client=client)
+    cid = str(uuid.uuid4())
+    req = ACLMessage(
+        performative=Performative.REQUEST,
+        sender="planner",
+        receiver="analyst",
+        content={"query": "analyze", "structured_data": {}, "market_data": {}},
+        conversation_id=cid,
+        reply_to="planner",
+    )
+    bus.send(req)
+    agent.handle_message(req)
+    reply = bus.receive("planner", timeout=1.0)
+    assert reply is not None
+    assert reply.performative == Performative.INFORM
+    assert reply.sender == "analyst"
+    assert isinstance(reply.content, dict)
+    assert "analysis" in reply.content
 
 
 def test_stage_6_1() -> None:

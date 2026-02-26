@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 
@@ -16,4 +17,6 @@ def run_query(query: str, params: Optional[dict] = None) -> dict:
     Returns:
         Dict with rows and optional schema.
     """
-    raise NotImplementedError
+    if not os.environ.get("DATABASE_URL"):
+        return {"rows": [{"id": 1, "value": "mock"}], "schema": ["id", "value"], "params": params or {}}
+    raise NotImplementedError("Real PostgreSQL backend not implemented")

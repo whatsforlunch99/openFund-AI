@@ -42,6 +42,7 @@ class ResponderAgent(BaseAgent):
         final_response = content.get("final_response")
         if not conversation_id or final_response is None:
             return
+        # Register reply (updates state, sets completion_event); then broadcast STOP (backend: only Responder may STOP)
         if self.conversation_manager:
             self.conversation_manager.register_reply(conversation_id, message)
             self.conversation_manager.broadcast_stop(conversation_id)

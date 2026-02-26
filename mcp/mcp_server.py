@@ -43,13 +43,14 @@ class MCPServer:
         try:
             return handler(payload)
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": str(e)}  # backend: MCP tool errors return {"error": "..."}
 
     def register_default_tools(self) -> None:
-        """Register all default MCP tools (file_tool.read_file and market_tool.*).
+        """Register all default MCP tools (file_tool, vector/kg/sql, then optional market/analyst).
 
-        Handlers decompose payload dict into explicit parameters for each tool.
-        Optional tools (market_tool, analyst_tool) are skipped if imports fail.
+        Handlers decompose payload dict into explicit parameters per backend.md.
+        file_tool first; vector_tool, kg_tool, sql_tool always registered; market_tool
+        and analyst_tool skipped if imports fail (e.g. missing pandas) so stage 2.1/2.2 pass.
         """
         from mcp.tools import file_tool
 
@@ -60,6 +61,43 @@ class MCPServer:
                 if "path" in p
                 else {"error": "Missing required parameter 'path'"}
             ),
+        )
+        from mcp.tools import vector_tool
+        self.register_tool(
+            "vector_tool.search",
+            lambda p: (
+                {"documents": vector_tool.search(
+                    p.get("query") or "",
+                    p.get("top_k", 5),
+                    p.get("filter"),
+                )}
+                if "query" in p
+                else {"error": "Missing required parameter 'query'"}
+            ),
+        )
+        from mcp.tools import kg_tool
+        self.register_tool(
+            "kg_tool.query_graph",
+            lambda p: kg_tool.query_graph(
+                p.get("cypher") or "",
+                p.get("params"),
+            ),
+        )
+        self.register_tool(
+            "kg_tool.get_relations",
+            lambda p: kg_tool.get_relations(p.get("entity") or "")
+            if "entity" in p
+            else {"error": "Missing required parameter 'entity'"},
+        )
+        from mcp.tools import sql_tool
+        self.register_tool(
+            "sql_tool.run_query",
+            lambda p: sql_tool.run_query(
+                p.get("query") or "",
+                p.get("params"),
+            )
+            if "query" in p
+            else {"error": "Missing required parameter 'query'"},
         )
         try:
             from mcp.tools import market_tool

@@ -25,6 +25,17 @@ OpenFund-AI/
 │   ├── __init__.py
 │   ├── rest.py
 │   └── websocket.py
+├── demo/
+│   ├── __init__.py
+│   ├── __main__.py       # Single-command entry: python -m demo (start API + chat)
+│   ├── demo_data.py      # Static MCP responses (NVDA/Nvidia)
+│   ├── demo_client.py    # DemoMCPClient: real sql/kg/vector when env set; file/market/analyst static
+│   └── demo_chat.py      # Interactive CLI chat (python -m demo.demo_chat)
+├── data/
+│   ├── __init__.py
+│   ├── __main__.py       # Entry point for python -m data
+│   ├── cli.py            # CLI: populate, sql, neo4j, milvus index/delete
+│   └── populate.py       # Seed demo data into Postgres, Neo4j, Milvus
 ├── safety/
 │   ├── __init__.py
 │   └── safety_gateway.py
@@ -55,6 +66,9 @@ OpenFund-AI/
 ├── memory/
 │   ├── __init__.py
 │   └── situation_memory.py
+├── util/
+│   ├── __init__.py
+│   └── trace_log.py
 ├── main.py
 ├── CHANGELOG.md
 ├── README.md
@@ -135,6 +149,18 @@ print(msg.conversation_id)  # UUID string
 **Purpose:** Return a JSON-serializable dict for persistence. Converts performative to string and timestamp to ISO format for serialization to memory/<user_id>/conversations.json.
 
 **Returns:** Dict suitable for json.dumps (e.g. in state.messages).
+
+---
+
+# util/trace_log.py
+
+**Purpose:** Human-readable trace logging for request flow (stage, input, output, next transition). Used by API and SafetyGateway for debugging and onboarding.
+
+---
+
+## Function: `trace(step: int, stage: str, *, in_=None, out=None, next_="") -> None`
+
+**Purpose:** Log one trace step in a readable block. No return value; logs via logger.info.
 
 ---
 
@@ -242,7 +268,7 @@ bus.broadcast(ACLMessage(performative="stop", sender="responder", receiver="*", 
 
 ## Class: `ConversationState`
 
-**Purpose:** Snapshot of one conversation. Holds id, user_id, initial_query, messages, status, final_response, created_at, and completion_event for API blocking and persistence.
+**Purpose:** Snapshot of one conversation. Holds id, user_id, initial_query, messages, status, final_response, created_at, completion_event, and flow_events for API blocking, persistence, and UI flow steps.
 
 **Docstring:**
 ```text
@@ -256,12 +282,19 @@ Attributes:
     final_response: Set by register_reply when Responder delivers answer; None until then.
     created_at: Creation datetime.
     completion_event: threading.Event set when final_response is written; callers block with event.wait(timeout=...).
+    flow_events: Append-only list of flow step dicts for UI (e.g. {"step": "...", "message": "...", "detail": {...}}).
 ```
 
 **Example usage:**
 ```python
 state = ConversationState(conversation_id="abc", user_id="u1", initial_query="...", messages=[], status="active", final_response=None, created_at=..., completion_event=threading.Event())
 ```
+
+---
+
+## Method: `ConversationState.append_flow(self, event: dict[str, Any]) -> None`
+
+**Purpose:** Append a flow step (thread-safe). event must have at least 'step' and 'message'; optional 'detail'.
 
 ---
 
@@ -272,6 +305,18 @@ state = ConversationState(conversation_id="abc", user_id="u1", initial_query="..
 **Docstring:** `Tracks conversations and sends STOP broadcasts via the message bus. Responsibilities: create conversation, get state, register replies, broadcast STOP.`
 
 **Persistence:** Conversation state is written to `MEMORY_STORE_PATH/<user_id>/conversations.json` (see [backend.md](backend.md)) on create and on register_reply. Anonymous user_id maps to `anonymous/`. ConversationManager maintains _memory_root and uses _user_dir, _save_user internally.
+
+---
+
+## Method: `ConversationManager.append_flow(self, conversation_id: str, event: dict[str, Any]) -> None`
+
+**Purpose:** Append a flow step for a conversation (for UI). No-op if conversation not found or state has no append_flow.
+
+---
+
+## Method: `ConversationManager.get_flow_events(self, conversation_id: str) -> list[dict[str, Any]]`
+
+**Purpose:** Return a copy of the conversation's flow_events (thread-safe when state has _flow_lock). Returns [] if not found.
 
 ---
 
@@ -771,7 +816,7 @@ bus.send(refinement_msg)
 
 ## Function: `create_app(*, bus=None, manager=None, safety_gateway=None, mcp_client=None, agents=None, timeout_seconds=None) -> FastAPI`
 
-**Purpose:** Build and return the FastAPI application with POST /chat, GET /conversations/{id}, and WebSocket /ws. Shared state (bus, manager, safety_gateway, mcp_client, agents, e2e_timeout_seconds) is stored on app.state. If not provided, state is created at startup (same wiring as main._run_e2e_once). Optional args allow dependency injection for tests.
+**Purpose:** Build and return the FastAPI application with POST /chat, GET /conversations/{id}, GET /demo, POST /register, and WebSocket /ws. Shared state on app.state: bus, manager, safety_gateway, e2e_timeout_seconds, demo_mode. mcp_client and agents are created at startup but not stored on app.state. If not provided, state is created at startup (same wiring as main._run_e2e_once). Optional args allow dependency injection for tests.
 
 **Docstring:** `Build and return a FastAPI app with POST /chat and GET /conversations/{id}. Shared state is stored on app.state. If not provided, created at startup. Optional dependency injection for testing. Args: bus, manager, safety_gateway, mcp_client, agents, timeout_seconds. Returns: FastAPI app instance.`
 
@@ -823,6 +868,70 @@ state = get_conversation("uuid-here")
 **Docstring:** `Handle WebSocket /ws connection. Same flow as POST /chat: receive one JSON message (query required; optional conversation_id, user_profile, user_id, path), validate, run SafetyGateway.process_user_input, create or get conversation, send REQUEST to planner, wait on completion_event, then send one event (response, timeout, or error) and close. Args: websocket: WebSocket connection (accept() called by route); bus, manager, safety_gateway, timeout_seconds: from app.state.`
 
 **Example usage:** Called by FastAPI @app.websocket("/ws") after accept().
+
+---
+
+# demo/
+
+**Purpose:** Demo mode: static MCP responses and interactive CLI chat. Used when `OPENFUND_DEMO=1` or `python main.py --demo`. All demo-related code lives under this package.
+
+---
+
+## demo/__main__.py
+
+**Purpose:** Single-command entry for `python -m demo`: starts the API server in demo mode in the background, waits for readiness (GET /demo), then runs the interactive chat client; on quit/exit the server is stopped.
+
+---
+
+## demo/demo_data.py
+
+**Purpose:** Static response dicts for MCP tools (file_tool.read_file, vector_tool.search, kg_tool.get_relations, market_tool.*, analyst_tool.*, sql_tool.run_query). Single timestamp and NVDA/Nvidia content for consistency. Used by DemoMCPClient.
+
+**Constants:** `DEMO_TIMESTAMP`, `FILE_READ_RESPONSE`, `VECTOR_SEARCH_RESPONSE`, `KG_GET_RELATIONS_RESPONSE`, market/analyst/sql responses, `DEMO_RESPONSES` (tool_name → response dict).
+
+---
+
+## demo/demo_client.py
+
+**Purpose:** Demo MCP client: hybrid backends + static external APIs. When demo mode is on, SQL/KG/vector tools call real PostgreSQL, Neo4j, and Milvus when the corresponding env vars are set (e.g. after `python -m data populate`); file_tool, market_tool, and analyst_tool always return static data from DEMO_RESPONSES. No live LLM or external API calls.
+
+**Class:** `DemoMCPClient` — `call_tool(self, tool_name, payload)` delegates to real mcp.tools when env is set for sql_tool.run_query, kg_tool.get_relations, kg_tool.query_graph, vector_tool.search; otherwise returns DEMO_RESPONSES[tool_name] or a safe stub with timestamp.
+
+---
+
+## demo/demo_chat.py
+
+**Purpose:** Interactive CLI: prompt for name, POST /register, then chat loop (POST /chat) with flow and response display. Run with `python -m demo.demo_chat` or `python -m demo.demo_chat --base-url http://localhost:8000`.
+
+**Functions:** `check_demo_mode(base_url)`, `register(base_url, display_name)`, `chat(base_url, query, user_id, conversation_id)`, `main()`.
+
+---
+
+# data/
+
+**Purpose:** CLI entry point for backend data services. Create, update, and delete data in PostgreSQL, Neo4j, and Milvus. Run with `python -m data` (requires `pip install -e ".[backends]"` and corresponding env vars in `.env`). **Populate:** `python -m data populate` seeds all configured backends with demo data (NVDA/NVIDIA) matching `demo.demo_data`; see [data/populate.py](data/populate.py).
+
+---
+
+## data/cli.py
+
+**Purpose:** Argument parser and command handlers. Subcommands: `populate` (seed demo data into Postgres/Neo4j/Milvus via data.populate), `sql` (run SQL via mcp.tools.sql_tool), `neo4j` (run Cypher via mcp.tools.kg_tool), `milvus index` (index documents from JSON file via vector_tool.index_documents), `milvus delete` (delete by expr via vector_tool.delete_by_expr).
+
+**Usage:** `python -m data populate`, `python -m data sql "SELECT 1"`, `python -m data neo4j "MATCH (n) RETURN count(n)"`, `python -m data milvus index docs.json`, `python -m data milvus delete 'id in ["id1"]'`.
+
+---
+
+## data/populate.py
+
+**Purpose:** Seed PostgreSQL, Neo4j, and Milvus with demo data so real backends return the same logical content as `demo.demo_data` (funds table with NVDA row; Company/Sector/IN_SECTOR in Neo4j; two vector docs with source "demo"). Idempotent: Postgres ON CONFLICT, Neo4j MERGE, Milvus delete by source then index. Skips any backend whose env var is unset.
+
+**Functions:** `_load_dotenv()`, `populate_postgres() -> (bool, str)`, `populate_neo4j() -> (bool, str)`, `populate_milvus() -> (bool, str)`, `run_populate() -> int`.
+
+---
+
+## data/__main__.py
+
+**Purpose:** Entry point for `python -m data`; calls `data.cli.main()`.
 
 ---
 

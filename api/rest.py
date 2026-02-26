@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from fastapi import FastAPI, WebSocket
@@ -15,6 +16,7 @@ from a2a.conversation_manager import ConversationManager, ConversationState
 from a2a.message_bus import InMemoryMessageBus, MessageBus
 from api.websocket import handle_websocket as ws_handle_websocket
 from safety.safety_gateway import SafetyError, SafetyGateway
+from util.trace_log import trace
 
 logger = logging.getLogger(__name__)
 VALID_USER_PROFILES = ("beginner", "long_term", "analyst")
@@ -39,8 +41,12 @@ class ChatRequest(BaseModel):
     @field_validator("user_profile")
     @classmethod
     def normalize_user_profile(cls, v: str) -> str:
-        p = (v or "beginner").strip().lower()
-        return p if p in VALID_USER_PROFILES else "beginner"
+        p = (v or "").strip().lower()
+        if not p or p not in VALID_USER_PROFILES:
+            raise ValueError(
+                "user_profile must be one of: beginner, long_term, analyst"
+            )
+        return p
 
     @field_validator("user_id")
     @classmethod
@@ -56,6 +62,19 @@ class ChatRequest(BaseModel):
             return None
         s = str(v).strip()
         return s or None
+
+
+class RegisterRequest(BaseModel):
+    """POST /register body: optional display name for new user."""
+
+    display_name: str = ""
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        return str(v).strip() or "Guest"
 
 
 def create_app(
@@ -101,12 +120,17 @@ def create_app(
     if safety_gateway is None:
         safety_gateway = SafetyGateway()
     if mcp_client is None:
-        from mcp.mcp_client import MCPClient
-        from mcp.mcp_server import MCPServer
+        if cfg.demo:
+            from demo.demo_client import DemoMCPClient
 
-        server = MCPServer()
-        server.register_default_tools()
-        mcp_client = MCPClient(server)
+            mcp_client = DemoMCPClient()
+        else:
+            from mcp.mcp_client import MCPClient
+            from mcp.mcp_server import MCPServer
+
+            server = MCPServer()
+            server.register_default_tools()
+            mcp_client = MCPClient(server)
     if agents is None:
         from agents.analyst_agent import AnalystAgent
         from agents.librarian_agent import LibrarianAgent
@@ -116,11 +140,20 @@ def create_app(
         from llm.factory import get_llm_client
         from output.output_rail import OutputRail
 
-        llm_client = get_llm_client(cfg)
-        planner = PlannerAgent("planner", bus, llm_client=llm_client)
-        librarian = LibrarianAgent("librarian", bus, mcp_client=mcp_client)
-        websearcher = WebSearcherAgent("websearcher", bus, mcp_client=mcp_client)
-        analyst = AnalystAgent("analyst", bus, mcp_client=mcp_client)
+        # In demo mode use no LLM so planner uses fixed decomposition and static MCP data only
+        llm_client = None if cfg.demo else get_llm_client(cfg)
+        planner = PlannerAgent(
+            "planner", bus, llm_client=llm_client, conversation_manager=manager
+        )
+        librarian = LibrarianAgent(
+            "librarian", bus, mcp_client=mcp_client, conversation_manager=manager
+        )
+        websearcher = WebSearcherAgent(
+            "websearcher", bus, mcp_client=mcp_client, conversation_manager=manager
+        )
+        analyst = AnalystAgent(
+            "analyst", bus, mcp_client=mcp_client, conversation_manager=manager
+        )
         responder = ResponderAgent(
             "responder",
             bus,
@@ -132,11 +165,44 @@ def create_app(
             t = threading.Thread(target=agent.run, daemon=True)
             t.start()
 
-    app = FastAPI(title="OpenFund-AI REST API")
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI):
+        if getattr(app.state, "demo_mode", False):
+            logger.info(
+                "Demo mode: ON — backends (sql/kg/vector) when configured; file/market/analyst static"
+            )
+        else:
+            logger.info("Demo mode: OFF — using live MCP tools")
+        yield
+
+    app = FastAPI(title="OpenFund-AI REST API", lifespan=_lifespan)
     app.state.bus = bus
     app.state.manager = manager
     app.state.safety_gateway = safety_gateway
     app.state.e2e_timeout_seconds = effective_timeout
+    app.state.demo_mode = cfg.demo
+
+    @app.get("/demo")
+    def get_demo_mode() -> JSONResponse:
+        """Return whether the server is running in demo mode (static data)."""
+        return JSONResponse(
+            status_code=200, content={"demo": getattr(app.state, "demo_mode", False)}
+        )
+
+    @app.post("/register")
+    def post_register_endpoint(body: RegisterRequest) -> JSONResponse:
+        """POST /register: create a new user id and return a welcome message."""
+        import uuid
+
+        name = body.display_name or "Guest"
+        user_id = "user_" + uuid.uuid4().hex[:8]
+        return JSONResponse(
+            status_code=200,
+            content={
+                "user_id": user_id,
+                "message": f"New user created. Welcome, {name}! Use this user_id when sending queries.",
+            },
+        )
 
     @app.post("/chat")
     def post_chat_endpoint(body: ChatRequest) -> JSONResponse:
@@ -147,30 +213,56 @@ def create_app(
         conversation_id = body.conversation_id
         path = body.path
 
-        logger.info(
-            "[trace] step=1 stage=request_validated query_len=%s user_profile=%s user_id=%s conversation_id=%s",
-            len(query), user_profile, user_id or "(none)", conversation_id or "(new)",
+        trace(
+            1,
+            "request_validated",
+            in_={
+                "query_len": len(query),
+                "user_profile": user_profile,
+                "user_id": user_id or "(none)",
+                "conversation_id": conversation_id or "(new)",
+            },
+            out="validated body",
+            next_="safety check",
         )
 
         # 1. Validate and run safety (guardrails, PII masking)
         try:
             safety_gateway.process_user_input(query)
         except SafetyError as e:
-            logger.warning("[trace] step=2 stage=safety_failed reason=%s", e.reason)
+            trace(2, "safety_failed", out=f"reason={e.reason}", next_="return 400")
             return JSONResponse(status_code=400, content={"detail": e.reason})
 
-        logger.info("[trace] step=2 stage=safety_passed query_processed")
+        trace(
+            2,
+            "safety_passed",
+            in_={"query": "processed"},
+            out="ok",
+            next_="create or get conversation",
+        )
 
         # 2. Create new conversation or load existing by conversation_id
         if conversation_id:
             state = manager.get_conversation(conversation_id)
             if state is None:
-                logger.warning("[trace] step=4 stage=get_conversation not_found conversation_id=%s", conversation_id)
+                trace(
+                    4,
+                    "get_conversation",
+                    in_={"conversation_id": conversation_id},
+                    out="not_found",
+                    next_="return 404",
+                )
                 return JSONResponse(
                     status_code=404,
                     content={"detail": "Conversation not found"},
                 )
-            logger.info("[trace] step=4 stage=get_conversation found conversation_id=%s status=%s", conversation_id, state.status)
+            trace(
+                4,
+                "get_conversation",
+                in_={"conversation_id": conversation_id},
+                out=f"found status={state.status}",
+                next_="send to planner",
+            )
         else:
             conversation_id = manager.create_conversation(user_id, query)
             state = manager.get_conversation(conversation_id)
@@ -179,7 +271,25 @@ def create_app(
                     status_code=500,
                     content={"detail": "Failed to create conversation"},
                 )
-            logger.info("[trace] step=3 stage=conversation_created conversation_id=%s user_id=%s", conversation_id, user_id)
+            trace(
+                3,
+                "conversation_created",
+                in_={"user_id": user_id, "initial_query": query[:50]},
+                out=f"conversation_id={conversation_id}",
+                next_="append flow, then send to planner",
+            )
+            display = f" (welcome, user {user_id})" if user_id else ""
+            manager.append_flow(
+                conversation_id,
+                {
+                    "step": "user_created",
+                    "message": f"New conversation started.{display} You can ask your question below.",
+                    "detail": {
+                        "user_id": user_id or "anonymous",
+                        "conversation_id": conversation_id,
+                    },
+                },
+            )
 
         # 3. Send REQUEST to planner; planner will send to librarian, websearcher, analyst
         content = {
@@ -198,31 +308,62 @@ def create_app(
                 conversation_id=conversation_id,
             )
         )
-        logger.info("[trace] step=5 stage=request_sent_to_planner conversation_id=%s user_profile=%s", conversation_id, user_profile)
+        trace(
+            5,
+            "request_sent_to_planner",
+            in_={
+                "conversation_id": conversation_id,
+                "user_profile": user_profile,
+                "query_preview": query[:50],
+            },
+            out="sent",
+            next_="wait completion_event",
+        )
+        manager.append_flow(
+            conversation_id,
+            {
+                "step": "request_sent",
+                "message": f'Your query has been sent to the planner. Research steps will run next. Your query: "{query[:80]}{"..." if len(query) > 80 else ""}"',
+                "detail": {"query_preview": query[:100]},
+            },
+        )
 
         # 4. Block until responder sets final_response and completion_event, or timeout
         timeout = app.state.e2e_timeout_seconds
         signaled = state.completion_event.wait(timeout=timeout)
         if not signaled:
-            logger.warning("[trace] step=14 stage=timeout conversation_id=%s timeout=%s", conversation_id, timeout)
+            trace(
+                14,
+                "timeout",
+                in_={"conversation_id": conversation_id, "timeout_seconds": timeout},
+                out="no final_response",
+                next_="return 408",
+            )
             return JSONResponse(
                 status_code=408,
                 content={
                     "status": "timeout",
                     "conversation_id": conversation_id,
                     "response": None,
+                    "flow": manager.get_flow_events(conversation_id),
                 },
             )
-        logger.info(
-            "[trace] step=15 stage=response_ready conversation_id=%s status=%s response_len=%s",
-            conversation_id, state.status, len(state.final_response or ""),
+        trace(
+            15,
+            "response_ready",
+            in_={"conversation_id": conversation_id},
+            out=f"status={state.status} response_len={len(state.final_response or '')}",
+            next_="return 200",
         )
+        # Flow events for UI: planner/agent step messages (see docs/use-case-trace-beginner.md).
+        flow = manager.get_flow_events(conversation_id)
         return JSONResponse(
             status_code=200,
             content={
                 "conversation_id": conversation_id,
                 "status": state.status,
                 "response": state.final_response or "",
+                "flow": flow,
             },
         )
 
@@ -254,7 +395,7 @@ def create_app(
 
 
 def _state_to_json(state: ConversationState) -> dict[str, Any]:
-    """Serialize ConversationState to JSON (omit completion_event)."""
+    """Serialize ConversationState to JSON (omit completion_event and lock)."""
     return {
         "id": state.id,
         "user_id": state.user_id,
@@ -263,6 +404,7 @@ def _state_to_json(state: ConversationState) -> dict[str, Any]:
         "status": state.status,
         "final_response": state.final_response,
         "created_at": state.created_at.isoformat() if state.created_at else None,
+        "flow": getattr(state, "flow_events", []),
     }
 
 

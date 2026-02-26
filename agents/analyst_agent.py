@@ -1,11 +1,14 @@
 """Analyst agent: quantitative analysis via MCP analyst_tool (custom API)."""
 
+import logging
 import math
 from typing import Any
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
+
+logger = logging.getLogger(__name__)
 
 
 class AnalystAgent(BaseAgent):
@@ -33,6 +36,7 @@ class AnalystAgent(BaseAgent):
                 market_data, documents, graph, market.
         """
         content = message.content or {}
+        conversation_id = getattr(message, "conversation_id", "") or ""
         structured_data = (
             content.get("structured_data")
             or content.get("documents")
@@ -44,7 +48,17 @@ class AnalystAgent(BaseAgent):
             structured_data = {"data": structured_data}
         if not isinstance(market_data, dict):
             market_data = {"data": market_data}
+        logger.info(
+            "[trace] step=11 stage=analyst_request_received conversation_id=%s",
+            conversation_id,
+        )
         result = self.analyze(structured_data, market_data)
+        confidence = result.get("confidence")
+        keys = list(result.keys()) if isinstance(result, dict) else []
+        logger.info(
+            "[trace] step=11a stage=analyst_analyze_done conversation_id=%s confidence=%s keys=%s",
+            conversation_id, confidence, keys,
+        )
         reply_to = getattr(message, "reply_to", None) or message.sender
         reply = ACLMessage(
             performative=Performative.INFORM,
@@ -55,6 +69,7 @@ class AnalystAgent(BaseAgent):
             reply_to=message.sender,
         )
         self.bus.send(reply)
+        logger.info("[trace] step=11c stage=analyst_inform_sent conversation_id=%s", conversation_id)
 
     def analyze(self, structured_data: dict, market_data: dict) -> dict:
         """

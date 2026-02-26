@@ -1,9 +1,11 @@
 """Safety gateway: input validation, guardrails, PII masking (Layer 2)."""
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Optional
 
+logger = logging.getLogger(__name__)
 MAX_INPUT_LENGTH = 10_000
 
 # Phrases that indicate illegal investment advice (case-insensitive).
@@ -150,17 +152,26 @@ class SafetyGateway:
         # Validate length and charset; raise if invalid
         vr = self.validate_input(raw_input)
         if not vr.valid:
+            logger.debug("[trace] step=2a stage=validate_input result=invalid reason=%s", vr.reason)
             raise SafetyError(vr.reason or "Validation failed")
+        logger.debug("[trace] step=2a stage=validate_input result=valid")
 
         # Block disallowed phrases (e.g. investment advice)
         gr = self.check_guardrails(raw_input)
         if not gr.allowed:
+            logger.debug("[trace] step=2b stage=check_guardrails result=blocked reason=%s", gr.reason)
             raise SafetyError(gr.reason or "Guardrails blocked input")
+        logger.debug("[trace] step=2b stage=check_guardrails result=allowed")
 
         # Mask PII then return cleaned input and metadata
         masked_text = self.mask_pii(raw_input)
-        return ProcessedInput(
+        result = ProcessedInput(
             text=masked_text,
             raw_length=len(raw_input),
             masked=(masked_text != raw_input),
         )
+        logger.info(
+            "[trace] step=2c stage=process_user_input result=ProcessedInput raw_length=%s masked=%s",
+            result.raw_length, result.masked,
+        )
+        return result

@@ -1,10 +1,13 @@
 """Responder agent: confidence evaluation, termination, and output formatting."""
 
+import logging
 from typing import Any
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
+
+logger = logging.getLogger(__name__)
 
 
 class ResponderAgent(BaseAgent):
@@ -57,6 +60,10 @@ class ResponderAgent(BaseAgent):
             user_profile = user_profile.strip() or "beginner"
         else:
             user_profile = "beginner"
+        logger.info(
+            "[trace] step=13 stage=responder_inform_received conversation_id=%s user_profile=%s draft_len=%s",
+            conversation_id, user_profile, len(final_response) if isinstance(final_response, str) else 0,
+        )
 
         # Format by profile and check compliance; append disclaimer if blocked phrase found
         if self.output_rail is not None:
@@ -68,7 +75,9 @@ class ResponderAgent(BaseAgent):
                 ),
                 user_profile,
             )
+            logger.info("[trace] step=13a stage=responder_format_for_user conversation_id=%s draft_len=%s", conversation_id, len(draft))
             comp = self.output_rail.check_compliance(draft)
+            logger.info("[trace] step=13b stage=responder_check_compliance conversation_id=%s passed=%s", conversation_id, comp.passed)
             if not comp.passed:
                 draft = f"{draft}\n\nThis is not investment advice."
             final_response = draft
@@ -86,7 +95,9 @@ class ResponderAgent(BaseAgent):
             conversation_id=conversation_id,
         )
         if self.conversation_manager:
+            logger.debug("[trace] step=13c stage=responder_register_reply conversation_id=%s", conversation_id)
             self.conversation_manager.register_reply(conversation_id, reply_msg)
+            logger.debug("[trace] step=13d stage=responder_broadcast_stop conversation_id=%s", conversation_id)
             self.conversation_manager.broadcast_stop(conversation_id)
 
     def evaluate_confidence(self, analysis: dict) -> float:

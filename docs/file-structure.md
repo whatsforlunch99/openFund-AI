@@ -1,6 +1,6 @@
 # File-Structure Document
 
-Directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). See [backend.md](backend.md) for API and architecture, [prd.md](prd.md) for product intent, [user-flow.md](user-flow.md) for user flow.
+Directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). See [backend.md](backend.md) for API and architecture, [prd.md](prd.md) for product intent, [user-flow.md](user-flow.md) for user flow. This document covers the main application code only; the `data_prep/` folder is not included.
 
 ---
 
@@ -31,6 +31,12 @@ OpenFund-AI/
 ├── output/
 │   ├── __init__.py
 │   └── output_rail.py
+├── llm/
+│   ├── __init__.py
+│   ├── base.py
+│   ├── static_client.py
+│   ├── live_client.py
+│   └── factory.py
 ├── mcp/
 │   ├── __init__.py
 │   ├── mcp_client.py
@@ -54,22 +60,6 @@ OpenFund-AI/
 ├── README.md
 ├── pyproject.toml
 ├── .gitignore
-├── memory/
-├── .cursor/
-│   ├── agents/
-│   │   └── write-test-review-workflow.md
-│   ├── rules/
-│   │   ├── operating-principles.mdc
-│   │   ├── test-stage-management.mdc
-│   │   ├── docs-structure.mdc
-│   │   ├── skills-placement.mdc
-│   │   └── simple-readable-code.mdc
-│   └── skills/
-│       ├── requesting-code-review/
-│       │   ├── SKILL.md
-│       │   └── code-reviewer.md
-│       └── changelog-automation/
-│           └── SKILL.md
 ├── tests/
 │   └── test-stages.py
 └── docs/
@@ -137,6 +127,14 @@ print(msg.conversation_id)  # UUID string
 **Purpose:** Normalize performative (string → Performative enum), assign default conversation_id (UUID) and timestamp if not provided.
 
 **Example usage:** Called automatically when constructing `ACLMessage`; no direct call needed.
+
+---
+
+## Method: `ACLMessage.to_dict(self) -> dict[str, Any]`
+
+**Purpose:** Return a JSON-serializable dict for persistence. Converts performative to string and timestamp to ISO format for serialization to memory/<user_id>/conversations.json.
+
+**Returns:** Dict suitable for json.dumps (e.g. in state.messages).
 
 ---
 
@@ -437,17 +435,23 @@ step = TaskStep(agent="librarian", action="retrieve_fund_facts", params={"fund":
 
 ## Class: `PlannerAgent(BaseAgent)`
 
-**Purpose:** Decompose queries, create research requests, and route to Librarian/WebSearcher/Analyst or Responder based on sufficiency of information.
+**Purpose:** Decompose queries, create research requests, and route to Librarian/WebSearcher/Analyst; aggregate their INFORMs and send to Responder (Slice 5 one round). Uses optional llm_client for decompose_to_steps (Stage 10.2).
 
-**Docstring:** `Decomposes user queries into structured tasks and initiates conversations. Creates research requests for Librarian, WebSearcher, and Analyst.`
+**Docstring:** `Decomposes user queries into structured tasks and initiates conversations. Creates research requests for Librarian, WebSearcher, and Analyst. Slice 5: sends to all three in one round; aggregates INFORMs then forwards to Responder.`
+
+---
+
+## Method: `PlannerAgent.__init__(self, name: str, message_bus: MessageBus, llm_client: Optional[LLMClient] = None) -> None`
+
+**Purpose:** Initialize planner with name, bus, and optional LLM client for task decomposition. When llm_client is None, decompose_task returns fixed three steps.
 
 ---
 
 ## Method: `PlannerAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Slice 3: On STOP, return. On INFORM from librarian, forward to responder with final_response and conversation_id. On REQUEST from api, call decompose_task (one step to librarian), optionally merge path from content (E2E), create_research_request, send to step.agent.
+**Purpose:** Slice 5: On STOP, return. On INFORM from librarian/websearcher/analyst, aggregate in _collected; when all three have replied, _format_final and send INFORM to responder with final_response and user_profile. On REQUEST from api, validate user_profile, call decompose_task (uses llm_client when set), send REQUEST to all three agents (one round); merge path from content for E2E.
 
-**Docstring:** `Handle incoming messages directed to the Planner. STOP: ignore. INFORM from librarian: forward to responder. REQUEST from api: decompose_task, create_research_request, send to step.agent. Args: message: The received ACL message.`
+**Docstring:** `Handle incoming messages directed to the Planner. Handles STOP (ignore), INFORM from specialist agents (aggregate then forward to Responder), and REQUEST from API (send to all three agents). Args: message: The received ACL message (REQUEST from api, or INFORM from librarian/websearcher/analyst).`
 
 **Example usage:** Invoked by the base run() loop when a message for the planner arrives.
 
@@ -455,15 +459,15 @@ step = TaskStep(agent="librarian", action="retrieve_fund_facts", params={"fund":
 
 ## Method: `PlannerAgent.decompose_task(self, query: str) -> List[TaskStep]`
 
-**Purpose:** Slice 3: Return a single TaskStep to librarian (action read_file, params include query). Full implementation (multiple steps, websearcher, analyst) in later slices.
+**Purpose:** Produce a ReAct-style task chain from the user query. Uses llm_client.decompose_to_steps when available (Stage 10.2); otherwise returns a fixed one-round chain (librarian, websearcher, analyst). Returns ordered list of TaskSteps.
 
 **Docstring:**
 ```text
-Produce a ReAct-style task chain from the user query. Slice 3: single step to librarian only.
+Produce a ReAct-style task chain from the user query. Uses llm_client.decompose_to_steps when available; otherwise returns fixed three steps (librarian, websearcher, analyst).
 Args:
     query: Raw user investment query.
 Returns:
-    Ordered list of task steps (e.g. one step to librarian).
+    Ordered list of task steps (e.g. three steps: librarian, websearcher, analyst).
 ```
 
 **Example usage:**
@@ -511,13 +515,13 @@ result = planner.resolve_conflicts({"librarian": d1, "analyst": d2})
 
 # agents/librarian_agent.py
 
-**Purpose:** Answer data retrieval requests via MCP. Slice 3: file_tool.read_file only. Later slices add vector_tool (Milvus), kg_tool (Neo4j), sql_tool; combine_results.
+**Purpose:** Retrieve structured data from knowledge graph, vector DB, SQL, and files via MCP. Dispatches to file_tool (path), vector_tool (vector_query), kg_tool (fund/entity), sql_tool (sql_query) per content; combines results and sends INFORM to reply_to.
 
 ---
 
 ## Class: `LibrarianAgent(BaseAgent)`
 
-**Purpose:** Retrieve documents and knowledge-graph data via MCP only; no direct DB access. Slice 3 uses file_tool.read_file; content may have path or query.
+**Purpose:** Retrieve documents and knowledge-graph data via MCP only; no direct DB access. Content may include path, vector_query, fund/entity, sql_query; combine_results merges documents and graph for downstream.
 
 **Docstring:** `Retrieves structured data from knowledge graph and vector database. Uses MCP vector_tool (Milvus) and kg_tool (Neo4j); does not access databases directly.`
 
@@ -525,9 +529,9 @@ result = planner.resolve_conflicts({"librarian": d1, "analyst": d2})
 
 ## Method: `LibrarianAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Slice 3: Read path or query from content, call MCP file_tool.read_file, send INFORM back to reply_to (Planner) with file content or error.
+**Purpose:** Process data retrieval requests. Dispatch to file_tool (path), vector_tool (vector_query), kg_tool (fund/entity), sql_tool (sql_query) per content; combine results and send INFORM to reply_to. When only path is provided, reply is file result only (backward compat).
 
-**Docstring:** `Process data retrieval requests. Slice 3: file_tool.read_file only. Content may have path or query. Call MCP, send INFORM to reply_to. Args: message: The received ACL message.`
+**Docstring:** `Process data retrieval requests. Dispatches to file_tool (path), vector_tool (vector_query), kg_tool (fund/entity), sql_tool (sql_query) per content; combines results and sends INFORM to reply_to. Content may include path, vector_query, fund, entity, sql_query, top_k, sql_params.`
 
 ---
 
@@ -704,9 +708,9 @@ sr = agent.sharpe_ratio([0.01, -0.02, 0.015], 0.02)
 
 ## Method: `ResponderAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Slice 3 stub: On INFORM with final_response and conversation_id, register the reply (updates state and sets completion_event) and broadcast STOP so all agents exit their run() loop. Full flow (evaluate_confidence, format_response, OutputRail) is later slices.
+**Purpose:** On INFORM with final_response and conversation_id, get user_profile from content, format via OutputRail.format_for_user, check_compliance, register reply and broadcast STOP (Slice 8). Phase 2: evaluate_confidence, should_terminate, format_response, request_refinement not yet implemented.
 
-**Docstring:** `Stub (Slice 3): register reply and broadcast STOP. On INFORM with final_response and conversation_id, registers the reply and broadcasts STOP. Args: message: The received ACL message (expected INFORM with final_response).`
+**Docstring:** `On INFORM with final_response and conversation_id: get user_profile from content, format via OutputRail.format_for_user, check_compliance, register_reply, broadcast_stop. Args: message: The received ACL message (expected INFORM with final_response).`
 
 ---
 
@@ -755,15 +759,21 @@ bus.send(refinement_msg)
 
 # api/rest.py
 
-**Purpose:** Layer 1 — REST API. Provide FastAPI app with POST /chat and GET /conversations/{id}. Flow: validate body, SafetyGateway, create or get conversation, send to Planner, wait for response, return JSON.
+**Purpose:** REST API (Layer 1): chat and conversation endpoints. Builds FastAPI app with POST /chat, GET /conversations/{id}, and WebSocket /ws; shared state (bus, manager, safety_gateway, timeout) on app.state. Optional dependency injection for testing.
 
 ---
 
-## Function: `create_app() -> Any`
+## Class: `ChatRequest` (BaseModel)
 
-**Purpose:** Build and return the FastAPI application with chat, conversation, and WebSocket routes wired to shared state (bus, manager, safety, mcp_client).
+**Purpose:** POST /chat request body: query (required), user_profile (default "beginner"), user_id (default ""), conversation_id (optional), path (optional). Validators: query not empty, user_profile normalized to beginner|long_term|analyst, user_id/conversation_id normalized.
 
-**Docstring:** `Create FastAPI application with chat and conversation routes. Returns: FastAPI app instance.`
+---
+
+## Function: `create_app(*, bus=None, manager=None, safety_gateway=None, mcp_client=None, agents=None, timeout_seconds=None) -> FastAPI`
+
+**Purpose:** Build and return the FastAPI application with POST /chat, GET /conversations/{id}, and WebSocket /ws. Shared state (bus, manager, safety_gateway, mcp_client, agents, e2e_timeout_seconds) is stored on app.state. If not provided, state is created at startup (same wiring as main._run_e2e_once). Optional args allow dependency injection for tests.
+
+**Docstring:** `Build and return a FastAPI app with POST /chat and GET /conversations/{id}. Shared state is stored on app.state. If not provided, created at startup. Optional dependency injection for testing. Args: bus, manager, safety_gateway, mcp_client, agents, timeout_seconds. Returns: FastAPI app instance.`
 
 **Example usage:**
 ```python
@@ -775,19 +785,9 @@ app = create_app()
 
 ## Function: `post_chat(body: dict) -> dict`
 
-**Purpose:** Handle POST /chat: validate body, process_user_input, create or load conversation, send ACLMessage to Planner, wait for response, return response dict.
+**Purpose:** Programmatic handler for POST /chat flow. Raises NotImplementedError; use FastAPI TestClient with create_app() or the POST /chat endpoint for real requests.
 
-**Docstring:**
-```text
-Handle POST /chat (or POST /research).
-Flow: validate body -> SafetyGateway.process_user_input ->
-create/load conversation -> send ACLMessage to Planner ->
-wait for response (or stream) -> return.
-Args:
-    body: Request body with 'query'; optional 'conversation_id', 'user_profile'.
-Returns:
-    Response dict with conversation_id, message_id, status, response.
-```
+**Docstring:** `Handle POST /chat. Flow: validate body -> SafetyGateway.process_user_input -> create/load conversation -> send ACLMessage to Planner -> wait for response -> return. Args: body with query; optional conversation_id, user_profile. Returns: Response dict. Raises NotImplementedError — use TestClient or POST /chat endpoint.`
 
 **Example usage:**
 ```python
@@ -799,9 +799,9 @@ result = post_chat({"query": "fund X performance", "user_profile": "beginner"})
 
 ## Function: `get_conversation(conversation_id: str) -> Optional[dict]`
 
-**Purpose:** Handle GET /conversations/{id}: return conversation state or None.
+**Purpose:** Programmatic handler for GET /conversations/{id}. Raises NotImplementedError; use FastAPI TestClient with create_app() or the GET /conversations/{id} endpoint.
 
-**Docstring:** `Handle GET /conversations/{id}. Args: conversation_id: Conversation to fetch. Returns: Conversation state/messages or None if not found.`
+**Docstring:** `Handle GET /conversations/{id}. Args: conversation_id. Returns: Conversation state or None. Raises NotImplementedError — use TestClient or GET endpoint.`
 
 **Example usage:**
 ```python
@@ -955,7 +955,7 @@ final = rail.format_for_user(draft, "beginner")
 
 **Purpose:** Hold all config fields; used by MCP tools and agents.
 
-**Docstring:** Describes attributes (milvus_uri, milvus_collection, neo4j_*, tavily_api_key, yahoo_*, analyst_api_*, mcp_server_endpoint, llm_*).
+**Docstring:** Describes attributes (milvus_uri, milvus_collection, neo4j_*, tavily_api_key, yahoo_*, analyst_api_*, mcp_server_endpoint, llm_*, database_url, embedding_model, embedding_dim, memory_store_path, e2e_timeout_seconds, planner_sufficiency_threshold, analyst_confidence_threshold, responder_confidence_threshold).
 
 **Example usage:** `cfg = load_config(); print(cfg.milvus_uri)`
 
@@ -965,7 +965,7 @@ final = rail.format_for_user(draft, "beginner")
 
 **Purpose:** Read env with os.getenv and return a populated Config instance.
 
-**Docstring:** `Load configuration from environment variables. Reads MILVUS_*, NEO4J_*, TAVILY_API_KEY, YAHOO_*, ANALYST_API_*, MCP server endpoint, and optional LLM/feature flags. Returns: Config instance populated from env.`
+**Docstring:** `Load configuration from environment variables. Reads MILVUS_*, NEO4J_*, TAVILY_API_KEY, YAHOO_*, ANALYST_API_*, MCP server endpoint, DATABASE_URL, EMBEDDING_*, thresholds, and optional LLM/feature flags. Returns: Config instance populated from env.`
 
 **Example usage:**
 ```python
@@ -973,6 +973,90 @@ from config.config import load_config
 cfg = load_config()
 # cfg.analyst_api_url, cfg.neo4j_uri, etc.
 ```
+
+---
+
+# llm/base.py
+
+**Purpose:** Abstract interface for LLM-backed task decomposition. Defines the LLMClient protocol used by PlannerAgent when LLM_API_KEY is set (Stage 10.2).
+
+---
+
+## Class: `LLMClient` (Protocol)
+
+**Purpose:** Protocol for LLM clients used by Planner for task decomposition. When no API key is set, use StaticLLMClient (mock). When LLM_API_KEY is set, use a live client (e.g. OpenAI) if the optional dependency is installed.
+
+**Method: `decompose_to_steps(self, query: str) -> list[dict[str, Any]]`**
+
+**Purpose:** Turn a user query into a list of task steps. Each step is a dict with keys: agent (str), action (str), params (dict). Allowed agents: "librarian", "websearcher", "analyst".
+
+**Args:** query — Raw user investment query.
+
+**Returns:** List of step dicts, e.g. [{"agent": "librarian", "action": "read_file", "params": {"query": "..."}}].
+
+---
+
+# llm/static_client.py
+
+**Purpose:** Static mock LLM client: returns a fixed task decomposition (no API key). Use when LLM_API_KEY is not set so E2E and API run without an API key.
+
+---
+
+## Constant: `DEFAULT_STATIC_STEPS`
+
+**Purpose:** Default one-round steps (librarian read_file, websearcher fetch_market, analyst analyze); same as PlannerAgent fallback before LLM.
+
+---
+
+## Class: `StaticLLMClient`
+
+**Purpose:** Mock LLM client that returns a fixed list of steps.
+
+**Method: `__init__(self, steps: list[dict[str, Any]] | None = None) -> None`**
+
+**Purpose:** Initialize with optional custom steps; defaults to DEFAULT_STATIC_STEPS.
+
+**Method: `decompose_to_steps(self, query: str) -> list[dict[str, Any]]`**
+
+**Purpose:** Return static steps with query filled into params for each step.
+
+---
+
+# llm/live_client.py
+
+**Purpose:** Live LLM client (OpenAI). Used when LLM_API_KEY is set and openai is installed.
+
+---
+
+## Class: `LiveLLMClient`
+
+**Purpose:** OpenAI-backed LLM client for task decomposition.
+
+**Method: `__init__(self, api_key: str, model: str = "gpt-4o-mini") -> None`**
+
+**Purpose:** Store API key and model; lazy-initialize OpenAI client on first use.
+
+**Method: `decompose_to_steps(self, query: str) -> list[dict[str, Any]]`**
+
+**Purpose:** Call the LLM to decompose the query into steps; parse and validate. On failure or parse error, falls back to DEFAULT_STATIC_STEPS with query injected.
+
+**Method: `_parse_steps(self, text: str, query: str) -> list[dict[str, Any]]`**
+
+**Purpose:** Extract JSON array from LLM response (strip markdown code fence if present), validate agent names (librarian, websearcher, analyst), and return list of step dicts.
+
+---
+
+# llm/factory.py
+
+**Purpose:** Factory: return StaticLLMClient or LiveLLMClient based on config.
+
+---
+
+## Function: `get_llm_client(config: Config) -> LLMClient`
+
+**Purpose:** Return an LLM client for task decomposition. If config.llm_api_key is set and non-empty, attempts to use a live client (e.g. OpenAI); requires optional dependency: pip install openfund-ai[llm]. Otherwise returns StaticLLMClient (mock) so the app runs without an API key.
+
+**Returns:** LLMClient implementation (static mock or live when key + deps available).
 
 ---
 
@@ -1040,19 +1124,19 @@ cfg = load_config()
 
 # main.py
 
-**Purpose:** Entry point. If `--e2e-once` in sys.argv: run one E2E conversation via _run_e2e_once() (planner → librarian (file_tool) → responder) and exit 0. Otherwise load config, optionally initialize situation memory via get_situation_memory(memory_store_path), and (in full implementation) create MessageBus, ConversationManager, SafetyGateway, MCP client/server, agents, and start API and agent runners.
+**Purpose:** Entry point. If `--e2e-once` in sys.argv: run one E2E conversation via _run_e2e_once() (api → planner → librarian + websearcher + analyst → responder) and exit 0. Otherwise load config, optionally initialize situation memory via get_situation_memory(memory_store_path), and log readiness (FastAPI/agent wiring is in create_app when running the API).
 
 ---
 
 ## Function: `_run_e2e_once() -> None`
 
-**Purpose:** Run one E2E conversation (Slice 3): wire InMemoryMessageBus, ConversationManager, MCPServer (file_tool only), PlannerAgent, LibrarianAgent, ResponderAgent; start agent threads; create temp file, send REQUEST to planner with path; block on completion_event; print final response and exit 0.
+**Purpose:** Run one E2E conversation (Slice 5): wire InMemoryMessageBus, ConversationManager, MCPServer (register_default_tools), MCPClient, get_llm_client(cfg), all five agents (PlannerAgent with llm_client, LibrarianAgent, WebSearcherAgent, AnalystAgent, ResponderAgent with OutputRail); start agent threads; create temp file, send REQUEST to planner with path; block on completion_event; print final response and exit 0.
 
 ---
 
 ## Function: `main() -> None`
 
-**Purpose:** If --e2e-once: call _run_e2e_once() and return. Otherwise load config, optionally load situation memory, print readiness. Full stack (FastAPI, agent threads) is wired in later slices.
+**Purpose:** If --e2e-once: call _run_e2e_once() and return. Otherwise load config, optionally load situation memory, log "OpenFund-AI ready (config loaded)". REST/WebSocket and full agent stack are wired in api/rest.create_app() when the API is run (e.g. uvicorn).
 
 **Docstring:** `Initialize and start the OpenFund-AI stack. If --e2e-once in sys.argv, runs one E2E conversation and exits. Otherwise loads config, optionally get_situation_memory(memory_store_path), prints "OpenFund-AI ready (config loaded)". Full wiring (MessageBus, agents, REST, WebSocket) in later slices.`
 
@@ -1101,7 +1185,13 @@ result = mcp_client.call_tool("file_tool.read_file", {"path": "CHANGELOG.md"})
 
 ## Class: `MCPServer`
 
-**Docstring:** `Registers tool handlers and dispatches incoming tool calls. Tools (vector_tool, kg_tool, market_tool, analyst_tool, sql_tool, file_tool) are implemented as handlers; dispatch invokes them and returns results. Use register_default_tools() to register file_tool and market_tool (including fundamentals, news, stock data, indicators).`
+**Docstring:** `Registers tool handlers and dispatches incoming tool calls. Tools (file_tool, vector_tool, kg_tool, sql_tool, market_tool, analyst_tool) are implemented as handlers; dispatch invokes them and returns results. Use register_default_tools() to register all default tools (file_tool first, then vector/kg/sql, then market_tool and analyst_tool if imports succeed).`
+
+---
+
+## Method: `MCPServer.__init__(self) -> None`
+
+**Purpose:** Initialize empty handler registry (_handlers dict).
 
 ---
 
@@ -1122,7 +1212,7 @@ server.register_tool("read_file", lambda payload: read_file(payload["path"]))
 
 **Purpose:** Invoke the named tool’s handler with payload; return result dict or error dict on failure.
 
-**Docstring:** `Invoke the named tool with the given payload. Args: tool_name: Name of the tool to invoke. payload: Tool-specific parameters. Returns: Result dict from the tool. Handles errors and timeouts.`
+**Docstring:** `Invoke the named tool with the given payload. Args: tool_name: Name of the tool to invoke. payload: Tool-specific parameters. Returns: Result dict from the tool. Returns {"error": "..."} if tool unknown or handler raises.`
 
 **Example usage:**
 ```python
@@ -1133,7 +1223,7 @@ result = server.dispatch("read_file", {"path": "CHANGELOG.md"})
 
 ## Method: `MCPServer.register_default_tools(self) -> None`
 
-**Purpose:** Register all default tools. Each handler receives the MCP payload dict and decomposes it into **explicit parameters** for the underlying function (e.g. get_stock_data_yf(symbol, start_date, end_date)). Required params (**symbol**, path, **as_of_date**, **limit**, etc.) must be present in the payload. Also registers **vendor-agnostic** tools (market_tool.get_stock_data, market_tool.get_fundamentals, …, analyst_tool.get_indicators) that route to yfinance or Alpha Vantage via MCP_MARKET_VENDOR and MCP_INDICATOR_VENDOR. Call after creating the server.
+**Purpose:** Register file_tool first (read_file); then vector_tool.search, kg_tool.query_graph, kg_tool.get_relations, sql_tool.run_query. Then market_tool and analyst_tool only if imports succeed (optional deps e.g. pandas, yfinance). Each handler receives the MCP payload dict and passes required params to the underlying function. Vendor-agnostic tools (market_tool.get_stock_data, get_fundamentals, …, analyst_tool.get_indicators) route via MCP_MARKET_VENDOR and MCP_INDICATOR_VENDOR. Call after creating the server.
 
 ---
 

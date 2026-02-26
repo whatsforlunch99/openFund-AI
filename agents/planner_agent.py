@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 
+logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from llm.base import LLMClient
 
@@ -87,10 +89,18 @@ class PlannerAgent(BaseAgent):
                 return
             self._collected[conversation_id][message.sender] = content
             self._round_pending[conversation_id].discard(message.sender)
+            logger.info(
+                "[trace] step=12a stage=planner_inform_received conversation_id=%s sender=%s pending=%s",
+                conversation_id, message.sender, self._round_pending[conversation_id],
+            )
             if not self._round_pending[conversation_id]:
                 final = self._format_final(self._collected[conversation_id])
                 user_profile = self._user_profile_by_conversation.get(
                     conversation_id, "beginner"
+                )
+                logger.info(
+                    "[trace] step=12b stage=planner_format_final conversation_id=%s user_profile=%s final_len=%s",
+                    conversation_id, user_profile, len(final),
                 )
                 self.bus.send(
                     ACLMessage(
@@ -105,6 +115,7 @@ class PlannerAgent(BaseAgent):
                         conversation_id=conversation_id,
                     )
                 )
+                logger.info("[trace] step=12c stage=planner_sent_to_responder conversation_id=%s", conversation_id)
                 del self._round_pending[conversation_id]
                 del self._collected[conversation_id]
                 self._user_profile_by_conversation.pop(conversation_id, None)
@@ -114,6 +125,10 @@ class PlannerAgent(BaseAgent):
         query = content.get("query", "")
         if not query:
             return
+        logger.info(
+            "[trace] step=6 stage=planner_request_received conversation_id=%s query_len=%s",
+            conversation_id, len(query),
+        )
         raw_profile = content.get("user_profile") or "beginner"
         if isinstance(raw_profile, str):
             profile = raw_profile.strip().lower()
@@ -125,6 +140,10 @@ class PlannerAgent(BaseAgent):
         steps = self.decompose_task(query)
         if not steps:
             return
+        logger.info(
+            "[trace] step=7 stage=planner_handle_request conversation_id=%s query_len=%s user_profile=%s steps=%s",
+            conversation_id, len(query), profile, [s.agent for s in steps],
+        )
         self._round_pending[conversation_id] = {s.agent for s in steps}
         self._collected[conversation_id] = {}
         for step in steps:
@@ -137,6 +156,7 @@ class PlannerAgent(BaseAgent):
             req.conversation_id = conversation_id
             req.reply_to = self.name
             self.bus.send(req)
+        logger.info("[trace] step=7c stage=planner_sent_requests conversation_id=%s receivers=librarian,websearcher,analyst", conversation_id)
 
     def _format_final(self, collected: dict[str, Any]) -> str:
         """Turn collected agent outputs into a single string for Responder.

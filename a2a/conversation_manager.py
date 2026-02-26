@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import uuid
@@ -11,6 +12,8 @@ from typing import Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationState:
@@ -133,6 +136,10 @@ class ConversationManager:
         )
         self._conversations[cid] = state
         self._save_user(user_id)
+        logger.info(
+            "[trace] step=3 stage=create_conversation conversation_id=%s user_id=%s",
+            cid, user_id,
+        )
         return cid
 
     def get_conversation(self, conversation_id: str) -> Optional[ConversationState]:
@@ -166,6 +173,10 @@ class ConversationManager:
             state.final_response = content["final_response"]
             state.status = "complete"
             state.completion_event.set()  # Unblock POST /chat or --e2e-once waiting on event.wait()
+            logger.info(
+                "[trace] step=13e stage=register_reply conversation_id=%s status=complete response_len=%s",
+                conversation_id, len(state.final_response or ""),
+            )
         self._save_user(state.user_id)
 
     def broadcast_stop(self, conversation_id: str) -> None:
@@ -183,3 +194,4 @@ class ConversationManager:
             content={"conversation_id": conversation_id},
         )
         self._bus.broadcast(msg)
+        logger.info("[trace] step=13g stage=broadcast_stop conversation_id=%s", conversation_id)

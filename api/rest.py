@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any, Optional
 
@@ -15,6 +16,7 @@ from a2a.message_bus import InMemoryMessageBus, MessageBus
 from api.websocket import handle_websocket as ws_handle_websocket
 from safety.safety_gateway import SafetyError, SafetyGateway
 
+logger = logging.getLogger(__name__)
 VALID_USER_PROFILES = ("beginner", "long_term", "analyst")
 
 
@@ -145,20 +147,30 @@ def create_app(
         conversation_id = body.conversation_id
         path = body.path
 
+        logger.info(
+            "[trace] step=1 stage=request_validated query_len=%s user_profile=%s user_id=%s conversation_id=%s",
+            len(query), user_profile, user_id or "(none)", conversation_id or "(new)",
+        )
+
         # 1. Validate and run safety (guardrails, PII masking)
         try:
             safety_gateway.process_user_input(query)
         except SafetyError as e:
+            logger.warning("[trace] step=2 stage=safety_failed reason=%s", e.reason)
             return JSONResponse(status_code=400, content={"detail": e.reason})
+
+        logger.info("[trace] step=2 stage=safety_passed query_processed")
 
         # 2. Create new conversation or load existing by conversation_id
         if conversation_id:
             state = manager.get_conversation(conversation_id)
             if state is None:
+                logger.warning("[trace] step=4 stage=get_conversation not_found conversation_id=%s", conversation_id)
                 return JSONResponse(
                     status_code=404,
                     content={"detail": "Conversation not found"},
                 )
+            logger.info("[trace] step=4 stage=get_conversation found conversation_id=%s status=%s", conversation_id, state.status)
         else:
             conversation_id = manager.create_conversation(user_id, query)
             state = manager.get_conversation(conversation_id)
@@ -167,6 +179,7 @@ def create_app(
                     status_code=500,
                     content={"detail": "Failed to create conversation"},
                 )
+            logger.info("[trace] step=3 stage=conversation_created conversation_id=%s user_id=%s", conversation_id, user_id)
 
         # 3. Send REQUEST to planner; planner will send to librarian, websearcher, analyst
         content = {
@@ -185,11 +198,13 @@ def create_app(
                 conversation_id=conversation_id,
             )
         )
+        logger.info("[trace] step=5 stage=request_sent_to_planner conversation_id=%s user_profile=%s", conversation_id, user_profile)
 
         # 4. Block until responder sets final_response and completion_event, or timeout
         timeout = app.state.e2e_timeout_seconds
         signaled = state.completion_event.wait(timeout=timeout)
         if not signaled:
+            logger.warning("[trace] step=14 stage=timeout conversation_id=%s timeout=%s", conversation_id, timeout)
             return JSONResponse(
                 status_code=408,
                 content={
@@ -198,6 +213,10 @@ def create_app(
                     "response": None,
                 },
             )
+        logger.info(
+            "[trace] step=15 stage=response_ready conversation_id=%s status=%s response_len=%s",
+            conversation_id, state.status, len(state.final_response or ""),
+        )
         return JSONResponse(
             status_code=200,
             content={

@@ -1,6 +1,6 @@
 # Backend Document
 
-Server-side system behavior and architecture. See [prd.md](prd.md) for product intent and [file-structure.md](file-structure.md) for code organization.
+Server-side system behavior and architecture. See [prd.md](prd.md) for product intent and [file-structure.md](file-structure.md) for code organization (main application code; data_prep folder not covered there). For a step-by-step function trace of one beginner request through the system, see [use-case-trace-beginner.md](use-case-trace-beginner.md).
 
 ---
 
@@ -18,7 +18,7 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 ### REST
 
 - **POST /chat**  
-  - **Request body:** `query` (required), `user_profile` (beginner | long_term | analyst), `user_id` (optional, default `""`), `conversation_id` (optional).  
+  - **Request body:** `query` (required), `user_profile` (beginner | long_term | analyst), `user_id` (optional, default `""`), `conversation_id` (optional), `path` (optional, for file_tool).  
   - **Flow:** Validate body → safety (process_user_input) → create or get conversation → send to Planner → block on completion.  
   - **Success (200):** `{ "conversation_id", "status", "response" }`.  
   - **Timeout (408):** `{ "status": "timeout", "conversation_id", "response": null }`.  

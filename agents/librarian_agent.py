@@ -1,10 +1,13 @@
 """Librarian agent: vector and graph retrieval via MCP (Milvus, Neo4j)."""
 
+import logging
 from typing import Any
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
+
+logger = logging.getLogger(__name__)
 
 
 class LibrarianAgent(BaseAgent):
@@ -41,7 +44,7 @@ class LibrarianAgent(BaseAgent):
         if not self.mcp_client:
             return
         content = message.content or {}
-        # Extract requested sources; path may be under "query" when planner sends read_file
+        conversation_id = getattr(message, "conversation_id", "") or ""
         path = content.get("path")
         if not path and content.get("query"):
             path = content.get(
@@ -50,14 +53,21 @@ class LibrarianAgent(BaseAgent):
         vector_query = content.get("vector_query")
         fund = content.get("fund") or content.get("entity") or ""
         sql_query = content.get("sql_query") or content.get("sql") or ""
+        logger.info(
+            "[trace] step=8 stage=librarian_request_received conversation_id=%s path=%s fund=%s has_vector=%s has_sql=%s",
+            conversation_id, path or "(none)", fund or "(none)", bool(vector_query), bool(sql_query),
+        )
 
         # Call each requested tool and collect results
         parts = {}
         if path:
+            logger.debug("[trace] step=9a stage=librarian_read_file path=%s", path)
             result = self.mcp_client.call_tool("file_tool.read_file", {"path": path})
             parts["file"] = (
                 result if isinstance(result, dict) else {"content": str(result)}
             )
+            has_error = isinstance(parts["file"], dict) and "error" in parts["file"]
+            logger.info("[trace] step=9b stage=librarian_read_file_done path=%s error=%s", path, has_error)
         if vector_query:
             docs_result = self.mcp_client.call_tool(
                 "vector_tool.search",
@@ -109,6 +119,10 @@ class LibrarianAgent(BaseAgent):
             reply_to=message.sender,
         )
         self.bus.send(reply)
+        logger.info(
+            "[trace] step=9 stage=librarian_inform_sent conversation_id=%s reply_keys=%s",
+            conversation_id, list(reply_content.keys()) if isinstance(reply_content, dict) else "n/a",
+        )
 
     def retrieve_knowledge_graph(self, fund: str) -> dict:
         """Query knowledge graph for fund relationships via MCP kg_tool (Neo4j).

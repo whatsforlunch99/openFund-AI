@@ -67,7 +67,7 @@ class AnalystAgent(BaseAgent):
         """
         if self.mcp_client:
             api_result = self.mcp_client.call_tool(
-                "analyst_tool.get_indicators",
+                "analyst_tool.get_indicators_yf",
                 {
                     "symbol": "AAPL",
                     "indicator": "sma_50",
@@ -77,7 +77,7 @@ class AnalystAgent(BaseAgent):
             )
             if isinstance(api_result, dict) and "error" not in api_result:
                 return {"confidence": 0.7, "indicators": api_result, "distribution": {}}
-        # Stub when MCP unavailable or get_indicators not used
+        # Stub when MCP unavailable or get_indicators_yf not used
         return {"confidence": 0.6, "summary": "Stub analysis", "distribution": {}}
 
     def needs_more_data(self, analysis_result: dict) -> bool:
@@ -92,7 +92,7 @@ class AnalystAgent(BaseAgent):
         """
         return (analysis_result.get("confidence") or 0) < 0.5
 
-    def sharpe_ratio(self, returns: list, risk_free_rate: float) -> float:
+    def sharpe_ratio(self, returns: list[float], risk_free_rate: float) -> float:
         """
         Compute Sharpe ratio for a return series.
 
@@ -112,7 +112,7 @@ class AnalystAgent(BaseAgent):
             return 0.0
         return (avg - risk_free_rate) / std
 
-    def max_drawdown(self, returns: list) -> float:
+    def max_drawdown(self, returns: list[float]) -> float:
         """
         Compute maximum drawdown for a return series.
 
@@ -135,7 +135,7 @@ class AnalystAgent(BaseAgent):
 
     def monte_carlo_simulation(
         self,
-        returns: list,
+        returns: list[float],
         horizon: int,
         n_sims: int,
     ) -> dict:

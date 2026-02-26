@@ -6,6 +6,11 @@
       "sourceType": "github",
       "computedHash": "802b14ccd3a9305555bd52554414c31c87c07f09fb7566be6e1ece3316c91e98"
     },
+    "python-code-style": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "35ed0c437f33462187b0a89da8e5bfe9ac259dbc8731257c5445f1a5e1229acf"
+    },
     "receiving-code-review": {
       "source": "obra/superpowers",
       "sourceType": "github",

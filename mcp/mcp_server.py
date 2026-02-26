@@ -106,49 +106,49 @@ class MCPServer:
         # Skip optional tools if deps (e.g. pandas, yfinance) missing so stage 2.1/2.2 tests pass
         if market_tool is not None:
             self.register_tool(
-                "market_tool.get_stock_data",
-                lambda p: market_tool.get_stock_data(
+                "market_tool.get_stock_data_yf",
+                lambda p: market_tool.get_stock_data_yf(
                     p.get("symbol") or p.get("ticker") or "",
                     p.get("start_date") or "",
                     p.get("end_date") or "",
                 ),
             )
             self.register_tool(
-                "market_tool.get_fundamentals",
-                lambda p: market_tool.get_fundamentals(
+                "market_tool.get_fundamentals_yf",
+                lambda p: market_tool.get_fundamentals_yf(
                     p.get("ticker") or p.get("symbol") or ""
                 ),
             )
             self.register_tool(
-                "market_tool.get_balance_sheet",
-                lambda p: market_tool.get_balance_sheet(
+                "market_tool.get_balance_sheet_yf",
+                lambda p: market_tool.get_balance_sheet_yf(
                     p.get("ticker") or p.get("symbol") or "",
                     p.get("freq") or "quarterly",
                 ),
             )
             self.register_tool(
-                "market_tool.get_cashflow",
-                lambda p: market_tool.get_cashflow(
+                "market_tool.get_cashflow_yf",
+                lambda p: market_tool.get_cashflow_yf(
                     p.get("ticker") or p.get("symbol") or "",
                     p.get("freq") or "quarterly",
                 ),
             )
             self.register_tool(
-                "market_tool.get_income_statement",
-                lambda p: market_tool.get_income_statement(
+                "market_tool.get_income_statement_yf",
+                lambda p: market_tool.get_income_statement_yf(
                     p.get("ticker") or p.get("symbol") or "",
                     p.get("freq") or "quarterly",
                 ),
             )
             self.register_tool(
-                "market_tool.get_insider_transactions",
-                lambda p: market_tool.get_insider_transactions(
+                "market_tool.get_insider_transactions_yf",
+                lambda p: market_tool.get_insider_transactions_yf(
                     p.get("ticker") or p.get("symbol") or ""
                 ),
             )
             self.register_tool(
-                "market_tool.get_news",
-                lambda p: market_tool.get_news(
+                "market_tool.get_news_yf",
+                lambda p: market_tool.get_news_yf(
                     p.get("symbol") or p.get("ticker") or "",
                     (
                         p.get("limit")
@@ -160,11 +160,70 @@ class MCPServer:
                 ),
             )
             self.register_tool(
-                "market_tool.get_global_news",
-                lambda p: market_tool.get_global_news(
+                "market_tool.get_global_news_yf",
+                lambda p: market_tool.get_global_news_yf(
                     p.get("as_of_date") or p.get("curr_date") or "",
                     p.get("look_back_days") if "look_back_days" in p else None,
                     p.get("limit") if "limit" in p else None,
+                ),
+            )
+            # Vendor-agnostic tools (route to yfinance or alpha_vantage via config)
+            self.register_tool(
+                "market_tool.get_stock_data",
+                lambda p: market_tool._route_stock_data(
+                    p.get("symbol") or p.get("ticker") or "",
+                    p.get("start_date") or "",
+                    p.get("end_date") or "",
+                ),
+            )
+            self.register_tool(
+                "market_tool.get_fundamentals",
+                lambda p: market_tool._route_fundamentals(
+                    p.get("ticker") or p.get("symbol") or ""
+                ),
+            )
+            self.register_tool(
+                "market_tool.get_balance_sheet",
+                lambda p: market_tool._route_balance_sheet(
+                    p.get("ticker") or p.get("symbol") or "",
+                    p.get("freq") or "quarterly",
+                ),
+            )
+            self.register_tool(
+                "market_tool.get_cashflow",
+                lambda p: market_tool._route_cashflow(
+                    p.get("ticker") or p.get("symbol") or "",
+                    p.get("freq") or "quarterly",
+                ),
+            )
+            self.register_tool(
+                "market_tool.get_income_statement",
+                lambda p: market_tool._route_income_statement(
+                    p.get("ticker") or p.get("symbol") or "",
+                    p.get("freq") or "quarterly",
+                ),
+            )
+            self.register_tool(
+                "market_tool.get_news",
+                lambda p: market_tool._route_news(
+                    p.get("symbol") or p.get("ticker") or "",
+                    p.get("limit") if "limit" in p else p.get("count") if "count" in p else None,
+                    p.get("start_date"),
+                    p.get("end_date"),
+                ),
+            )
+            self.register_tool(
+                "market_tool.get_global_news",
+                lambda p: market_tool._route_global_news(
+                    p.get("as_of_date") or p.get("curr_date") or "",
+                    p.get("look_back_days") if "look_back_days" in p else 7,
+                    p.get("limit") if "limit" in p else 10,
+                ),
+            )
+            self.register_tool(
+                "market_tool.get_insider_transactions",
+                lambda p: market_tool._route_insider_transactions(
+                    p.get("ticker") or p.get("symbol") or ""
                 ),
             )
         try:
@@ -174,11 +233,20 @@ class MCPServer:
         # analyst_tool also optional (may pull in pandas etc.)
         if analyst_tool is not None:
             self.register_tool(
-                "analyst_tool.get_indicators",
-                lambda p: analyst_tool.get_indicators(
+                "analyst_tool.get_indicators_yf",
+                lambda p: analyst_tool.get_indicators_yf(
                     p.get("symbol") or p.get("ticker") or "",
                     p.get("indicator") or "",
                     p.get("as_of_date") or p.get("curr_date") or "",
                     p.get("look_back_days") if "look_back_days" in p else None,
+                ),
+            )
+            self.register_tool(
+                "analyst_tool.get_indicators",
+                lambda p: analyst_tool._route_indicators(
+                    p.get("symbol") or p.get("ticker") or "",
+                    p.get("indicator") or "",
+                    p.get("as_of_date") or p.get("curr_date") or "",
+                    p.get("look_back_days") if "look_back_days" in p else 30,
                 ),
             )

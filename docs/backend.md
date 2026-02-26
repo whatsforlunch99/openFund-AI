@@ -78,12 +78,12 @@ All external data via MCP tools only:
 |----------------|-------------|----------------|
 | Vector DB      | Milvus      | vector_tool — MILVUS_URI, MILVUS_COLLECTION |
 | Knowledge graph| Neo4j       | kg_tool — NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD |
-| Web / market   | Tavily, Yahoo | market_tool — TAVILY_API_KEY, YAHOO_BASE_URL |
-| Analyst        | Custom API  | analyst_tool — ANALYST_API_URL, ANALYST_API_KEY |
+| Web / market   | Tavily, Yahoo, Alpha Vantage | market_tool — TAVILY_API_KEY, YAHOO_BASE_URL; optional ALPHA_VANTAGE_API_KEY, MCP_MARKET_VENDOR |
+| Analyst        | Custom API, yfinance, Alpha Vantage | analyst_tool — ANALYST_API_URL, ANALYST_API_KEY; optional MCP_INDICATOR_VENDOR |
 | SQL            | PostgreSQL  | sql_tool — DATABASE_URL |
 | Files          | —           | file_tool (read_file) |
 
-Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). All MCP tools accept a **payload** dict; required parameters (e.g. **symbol**, path, **as_of_date**, start_date, end_date, **limit**) must be passed in by the caller—no UI or client-side defaults. Payload keys: use **symbol** for the security identifier (ticker accepted for backward compatibility); **limit** for max items (e.g. get_news, get_global_news); **as_of_date** for reference date (curr_date accepted for backward compatibility). Analyst API stub: request `{ "returns", "horizon" }`; response `{ "sharpe", "max_drawdown", "distribution" }`. analyst_tool.get_indicators: symbol, indicator, as_of_date, look_back_days. Embedding: sentence-transformers/all-MiniLM-L6-v2, 384 dims; config: EMBEDDING_MODEL, EMBEDDING_DIM.
+Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). All MCP tools accept a **payload** dict; required parameters (e.g. **symbol**, path, **as_of_date**, start_date, end_date, **limit**) must be passed in by the caller—no UI or client-side defaults. Payload keys: use **symbol** for the security identifier (ticker accepted for backward compatibility); **limit** for max items (e.g. get_news_yf, get_global_news_yf); **as_of_date** for reference date (curr_date accepted for backward compatibility). Analyst API stub: request `{ "returns", "horizon" }`; response `{ "sharpe", "max_drawdown", "distribution" }`. analyst_tool.get_indicators_yf and analyst_tool.get_indicators: symbol, indicator, as_of_date, look_back_days (get_indicators routes to yfinance/stockstats or Alpha Vantage via MCP_INDICATOR_VENDOR). **Vendor-agnostic tools** (route by config): market_tool.get_stock_data, market_tool.get_fundamentals, market_tool.get_balance_sheet, market_tool.get_cashflow, market_tool.get_income_statement, market_tool.get_news, market_tool.get_global_news, market_tool.get_insider_transactions; analyst_tool.get_indicators. Existing *_yf tools remain available. Embedding: sentence-transformers/all-MiniLM-L6-v2, 384 dims; config: EMBEDDING_MODEL, EMBEDDING_DIM.
 
 ---
 
@@ -92,6 +92,8 @@ Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). Al
 - **Persistence:** MEMORY_STORE_PATH (default `memory/`). Situation memory file: `{MEMORY_STORE_PATH}/situation_memory.json`.
 - **Timeouts:** E2E_TIMEOUT_SECONDS (default 30).
 - **Thresholds:** PLANNER_SUFFICIENCY_THRESHOLD (default 0.6), ANALYST_CONFIDENCE_THRESHOLD (default 0.6), RESPONDER_CONFIDENCE_THRESHOLD (default 0.75).
-- **MCP/backends:** MILVUS_URI, MILVUS_COLLECTION; NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD; TAVILY_API_KEY, YAHOO_BASE_URL; ANALYST_API_URL, ANALYST_API_KEY; DATABASE_URL; EMBEDDING_MODEL, EMBEDDING_DIM.
+- **MCP/backends:** MILVUS_URI, MILVUS_COLLECTION; NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD; TAVILY_API_KEY, YAHOO_BASE_URL; ANALYST_API_URL, ANALYST_API_KEY; DATABASE_URL; EMBEDDING_MODEL, EMBEDDING_DIM. **Vendor selection (market/analyst):** MCP_MARKET_VENDOR (default yfinance; or alpha_vantage); MCP_INDICATOR_VENDOR (default yfinance; or alpha_vantage). Optional: MCP_DATA_CACHE_DIR (cache dir for stockstats OHLCV); ALPHA_VANTAGE_API_KEY (required when using alpha_vantage vendor). **Path safety (file_tool):** Optional MCP_FILE_BASE_DIR; when set, read_file only allows paths under this directory (avoids path traversal). When unset, path is used as-is (trusted caller only).
+
+**MCP market/indicator vendor switching:** Set `MCP_MARKET_VENDOR=alpha_vantage` to use Alpha Vantage for market tools (stock data, fundamentals, news, insider transactions). Set `MCP_INDICATOR_VENDOR=alpha_vantage` to use Alpha Vantage for technical indicators. Default for both is `yfinance`. Invalid or unset values fall back to `yfinance`. On Alpha Vantage rate limit, the tools automatically fall back to yfinance.
 
 Work breakdown and runnable checkpoints: [progress.md](progress.md).

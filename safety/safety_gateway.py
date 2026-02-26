@@ -1,7 +1,17 @@
 """Safety gateway: input validation, guardrails, PII masking (Layer 2)."""
 
+import re
 from dataclasses import dataclass
 from typing import Optional
+
+MAX_INPUT_LENGTH = 10_000
+
+# Phrases that indicate illegal investment advice (case-insensitive).
+BLOCKED_PHRASES: tuple[str, ...] = (
+    "guaranteed return",
+    "buy this stock now",
+    "insider tip",
+)
 
 
 class SafetyError(Exception):
@@ -38,6 +48,19 @@ class ProcessedInput:
     masked: bool = False
 
 
+def _is_printable_or_whitespace(text: str) -> bool:
+    """Allow UTF-8 printable and common whitespace (tab, newline, carriage return, space)."""
+    for c in text:
+        if c in "\t\n\r ":
+            continue
+        if ord(c) < 32:
+            return False
+        # Allow printable (incl. high Unicode)
+        if ord(c) == 0x7F:
+            return False  # DEL
+    return True
+
+
 class SafetyGateway:
     """
     Single entry point before user input reaches the message bus.
@@ -56,7 +79,16 @@ class SafetyGateway:
         Returns:
             ValidationResult with valid flag and optional reason.
         """
-        raise NotImplementedError
+        if not text or not text.strip():
+            return ValidationResult(valid=False, reason="Input is empty or whitespace only")
+        if len(text) > MAX_INPUT_LENGTH:
+            return ValidationResult(
+                valid=False,
+                reason=f"Input exceeds maximum length of {MAX_INPUT_LENGTH} characters",
+            )
+        if not _is_printable_or_whitespace(text):
+            return ValidationResult(valid=False, reason="Input contains invalid characters")
+        return ValidationResult(valid=True)
 
     def check_guardrails(self, text: str) -> GuardrailResult:
         """
@@ -68,7 +100,14 @@ class SafetyGateway:
         Returns:
             GuardrailResult with allowed flag and optional reason.
         """
-        raise NotImplementedError
+        lower = text.lower()
+        for phrase in BLOCKED_PHRASES:
+            if phrase in lower:
+                return GuardrailResult(
+                    allowed=False,
+                    reason=f"Blocked phrase not allowed: {phrase!r}",
+                )
+        return GuardrailResult(allowed=True)
 
     def mask_pii(self, text: str) -> str:
         """
@@ -80,7 +119,22 @@ class SafetyGateway:
         Returns:
             Desensitized string.
         """
-        raise NotImplementedError
+        out = text
+        # Phone: digits with optional dashes/spaces/dots/parens (simple pattern)
+        out = re.sub(
+            r"\b(?:\d[\d\s\-\.]{8,14}\d|\d{3}[-.\s]?\d{3}[-.\s]?\d{4})\b",
+            "[PHONE]",
+            out,
+        )
+        # Email: local@domain
+        out = re.sub(
+            r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
+            "[EMAIL]",
+            out,
+        )
+        # SSN-like: xxx-xx-xxxx
+        out = re.sub(r"\b\d{3}-\d{2}-\d{4}\b", "[REDACTED]", out)
+        return out
 
     def process_user_input(self, raw_input: str) -> ProcessedInput:
         """
@@ -91,6 +145,17 @@ class SafetyGateway:
 
         Returns:
             ProcessedInput with cleaned text and metadata.
-            Raises or returns error state if validation/guardrails fail.
+            Raises SafetyError if validation or guardrails fail.
         """
-        raise NotImplementedError
+        vr = self.validate_input(raw_input)
+        if not vr.valid:
+            raise SafetyError(vr.reason or "Validation failed")
+        gr = self.check_guardrails(raw_input)
+        if not gr.allowed:
+            raise SafetyError(gr.reason or "Guardrails blocked input")
+        masked_text = self.mask_pii(raw_input)
+        return ProcessedInput(
+            text=masked_text,
+            raw_length=len(raw_input),
+            masked=(masked_text != raw_input),
+        )

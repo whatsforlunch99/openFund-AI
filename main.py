@@ -1,8 +1,11 @@
 """Entry point: wire MessageBus, agents, API, and optional MCP server."""
 
+import logging
 import sys
 
 from config.config import load_config
+
+logger = logging.getLogger(__name__)
 
 
 def _run_e2e_once() -> None:
@@ -74,14 +77,14 @@ def _run_e2e_once() -> None:
         # Block until Responder sets final_response and signals completion (backend: completion_event)
         state.completion_event.wait(timeout=timeout)
         if state.final_response:
-            print(
-                "E2E complete:",
+            logger.info(
+                "E2E complete: %s",
                 (state.final_response[:80] + "...")
                 if len(state.final_response) > 80
                 else state.final_response,
             )
         else:
-            print("E2E timeout (no final response within %ss)" % timeout)
+            logger.warning("E2E timeout (no final response within %ss)", timeout)
     finally:
         os.unlink(e2e_path)
     sys.exit(0)
@@ -95,6 +98,10 @@ def main() -> None:
     starts FastAPI (REST + WebSocket) and agent runners; optionally starts MCP server.
     If --e2e-once is in sys.argv, runs one E2E conversation and exits.
     """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
     if "--e2e-once" in sys.argv:
         _run_e2e_once()
         return
@@ -106,10 +113,8 @@ def main() -> None:
 
         get_situation_memory(cfg.memory_store_path)
     except ImportError as e:
-        import logging
-
-        logging.getLogger(__name__).info("Situation memory unavailable: %s", e)
-    print("OpenFund-AI ready (config loaded)")
+        logger.info("Situation memory unavailable: %s", e)
+    logger.info("OpenFund-AI ready (config loaded)")
 
 
 if __name__ == "__main__":

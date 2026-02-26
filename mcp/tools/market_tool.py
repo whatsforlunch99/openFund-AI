@@ -1,18 +1,124 @@
 """Market and web search via Tavily + Yahoo APIs (MCP tool).
 
-Also provides company fundamentals, financials, insider transactions, and news (yfinance).
+Also provides company fundamentals, financials, insider transactions, and news (yfinance and Alpha Vantage).
+Contains vendor config, Alpha Vantage HTTP/rate-limit/CSV helpers, yfinance and _av implementations, and _route_*.
 """
 
 from __future__ import annotations
 
+import json
 import logging
-from datetime import datetime
-from typing import Optional
+import os
+from datetime import datetime, timedelta
+from io import StringIO
+from typing import Optional, Union
 
+import pandas as pd
+import requests
 import yfinance as yf
 from dateutil.relativedelta import relativedelta
 
 logger = logging.getLogger(__name__)
+
+
+# --- Vendor config ---
+
+
+def get_market_vendor() -> str:
+    """Return 'yfinance' or 'alpha_vantage'. Default yfinance."""
+    v = (os.getenv("MCP_MARKET_VENDOR") or "yfinance").strip().lower()
+    return v if v in ("yfinance", "alpha_vantage") else "yfinance"
+
+
+def get_indicator_vendor() -> str:
+    """Return 'yfinance' or 'alpha_vantage'. Default yfinance."""
+    v = (os.getenv("MCP_INDICATOR_VENDOR") or "yfinance").strip().lower()
+    return v if v in ("yfinance", "alpha_vantage") else "yfinance"
+
+
+def get_data_cache_dir() -> str | None:
+    """Return MCP_DATA_CACHE_DIR if set, else None (no cache)."""
+    return os.getenv("MCP_DATA_CACHE_DIR") or None
+
+
+# --- Alpha Vantage common ---
+
+API_BASE_URL = "https://www.alphavantage.co/query"
+
+
+def get_api_key() -> str:
+    """Retrieve the API key for Alpha Vantage from environment variables."""
+    api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+    if not api_key:
+        raise ValueError("ALPHA_VANTAGE_API_KEY environment variable is not set.")
+    return api_key
+
+
+def format_datetime_for_api(date_input: Union[str, datetime]) -> str:
+    """Convert date to YYYYMMDDTHHMM format required by Alpha Vantage API."""
+    if isinstance(date_input, str):
+        if len(date_input) == 13 and "T" in date_input:
+            return date_input
+        try:
+            dt = datetime.strptime(date_input, "%Y-%m-%d")
+            return dt.strftime("%Y%m%dT0000")
+        except ValueError:
+            try:
+                dt = datetime.strptime(date_input, "%Y-%m-%d %H:%M")
+                return dt.strftime("%Y%m%dT%H%M")
+            except ValueError:
+                raise ValueError(f"Unsupported date format: {date_input}") from None
+    if isinstance(date_input, datetime):
+        return date_input.strftime("%Y%m%dT%H%M")
+    raise ValueError(f"Date must be string or datetime, got {type(date_input)}")
+
+
+class AlphaVantageRateLimitError(Exception):
+    """Raised when Alpha Vantage API rate limit is exceeded."""
+
+
+def _make_api_request(function_name: str, params: dict) -> Union[dict, str]:
+    """Make API request and return response text. Raises AlphaVantageRateLimitError on rate limit."""
+    api_params = params.copy()
+    api_params.update(
+        {
+            "function": function_name,
+            "apikey": get_api_key(),
+        }
+    )
+    response = requests.get(API_BASE_URL, params=api_params)
+    response.raise_for_status()
+    response_text = response.text
+
+    try:
+        response_json = json.loads(response_text)
+        if "Information" in response_json:
+            info_message = response_json["Information"]
+            if "rate limit" in info_message.lower() or "api key" in info_message.lower():
+                raise AlphaVantageRateLimitError(
+                    f"Alpha Vantage rate limit exceeded: {info_message}"
+                )
+    except json.JSONDecodeError:
+        pass
+
+    return response_text
+
+
+def _filter_csv_by_date_range(csv_data: str, start_date: str, end_date: str) -> str:
+    """Filter CSV to rows within the given date range."""
+    if not csv_data or not csv_data.strip():
+        return csv_data
+    try:
+        df = pd.read_csv(StringIO(csv_data))
+        date_col = df.columns[0]
+        df[date_col] = pd.to_datetime(df[date_col])
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
+        filtered_df = df[(df[date_col] >= start_dt) & (df[date_col] <= end_dt)]
+        return filtered_df.to_csv(index=False)
+    except Exception as e:
+        logger.warning("Failed to filter CSV by date range: %s", e)
+        return csv_data
 
 
 def _now_iso() -> str:
@@ -107,7 +213,10 @@ def search_web(query: str) -> list[dict]:
     raise NotImplementedError
 
 
-def get_stock_data(symbol: str, start_date: str, end_date: str) -> dict:
+# --- yfinance implementations ---
+
+
+def get_stock_data_yf(symbol: str, start_date: str, end_date: str) -> dict:
     """
     Historical OHLCV for a symbol (yfinance).
 
@@ -148,14 +257,14 @@ def get_stock_data(symbol: str, start_date: str, end_date: str) -> dict:
         header += f"# Total records: {len(data)}\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         return {"content": header + csv_string, "timestamp": _now_iso()}
     except Exception as e:
-        logger.exception("get_stock_data failed")
+        logger.exception("get_stock_data_yf failed")
         return {"error": str(e)}
 
 
 # --- Fundamentals (yfinance) ---
 
 
-def get_fundamentals(symbol: str) -> dict:
+def get_fundamentals_yf(symbol: str) -> dict:
     """
     Company fundamentals overview (sector, PE, margins, etc.).
 
@@ -213,11 +322,11 @@ def get_fundamentals(symbol: str) -> dict:
         )
         return {"content": content, "timestamp": _now_iso()}
     except Exception as e:
-        logger.exception("get_fundamentals failed")
+        logger.exception("get_fundamentals_yf failed")
         return {"error": str(e)}
 
 
-def get_balance_sheet(symbol: str, freq: str = "quarterly") -> dict:
+def get_balance_sheet_yf(symbol: str, freq: str = "quarterly") -> dict:
     """
     Balance sheet (annual or quarterly).
 
@@ -244,11 +353,11 @@ def get_balance_sheet(symbol: str, freq: str = "quarterly") -> dict:
         header = f"# Balance Sheet data for {symbol} ({freq})\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         return {"content": header + csv_string, "timestamp": _now_iso()}
     except Exception as e:
-        logger.exception("get_balance_sheet failed")
+        logger.exception("get_balance_sheet_yf failed")
         return {"error": str(e)}
 
 
-def get_cashflow(symbol: str, freq: str = "quarterly") -> dict:
+def get_cashflow_yf(symbol: str, freq: str = "quarterly") -> dict:
     """
     Cash flow statement (annual or quarterly).
 
@@ -275,11 +384,11 @@ def get_cashflow(symbol: str, freq: str = "quarterly") -> dict:
         header = f"# Cash Flow data for {symbol} ({freq})\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         return {"content": header + csv_string, "timestamp": _now_iso()}
     except Exception as e:
-        logger.exception("get_cashflow failed")
+        logger.exception("get_cashflow_yf failed")
         return {"error": str(e)}
 
 
-def get_income_statement(symbol: str, freq: str = "quarterly") -> dict:
+def get_income_statement_yf(symbol: str, freq: str = "quarterly") -> dict:
     """
     Income statement (annual or quarterly).
 
@@ -306,11 +415,11 @@ def get_income_statement(symbol: str, freq: str = "quarterly") -> dict:
         header = f"# Income Statement data for {symbol} ({freq})\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         return {"content": header + csv_string, "timestamp": _now_iso()}
     except Exception as e:
-        logger.exception("get_income_statement failed")
+        logger.exception("get_income_statement_yf failed")
         return {"error": str(e)}
 
 
-def get_insider_transactions(symbol: str) -> dict:
+def get_insider_transactions_yf(symbol: str) -> dict:
     """
     Insider transactions for a stock or fund.
 
@@ -335,14 +444,14 @@ def get_insider_transactions(symbol: str) -> dict:
         header = f"# Insider Transactions data for {symbol}\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         return {"content": header + csv_string, "timestamp": _now_iso()}
     except Exception as e:
-        logger.exception("get_insider_transactions failed")
+        logger.exception("get_insider_transactions_yf failed")
         return {"error": str(e)}
 
 
 # --- News (yfinance) ---
 
 
-def get_news(
+def get_news_yf(
     symbol: str,
     limit: int,
     start_date: Optional[str] = None,
@@ -412,11 +521,11 @@ def get_news(
         content = f"## {symbol} News{range_str}:\n\n" + "\n".join(lines)
         return {"content": content.strip(), "timestamp": _now_iso()}
     except Exception as e:
-        logger.exception("get_news failed")
+        logger.exception("get_news_yf failed")
         return {"error": str(e)}
 
 
-def get_global_news(as_of_date: str, look_back_days: int, limit: int) -> dict:
+def get_global_news_yf(as_of_date: str, look_back_days: int, limit: int) -> dict:
     """
     Global/macro market news (yfinance Search).
 
@@ -464,7 +573,7 @@ def get_global_news(as_of_date: str, look_back_days: int, limit: int) -> dict:
                         seen.add(title)
                         all_news.append(article)
             except Exception as e:
-                logger.debug("get_global_news query %r failed: %s", query, e)
+                logger.debug("get_global_news_yf query %r failed: %s", query, e)
                 continue
             if len(all_news) >= limit:
                 break
@@ -495,5 +604,241 @@ def get_global_news(as_of_date: str, look_back_days: int, limit: int) -> dict:
         )
         return {"content": content.strip(), "timestamp": _now_iso()}
     except Exception as e:
-        logger.exception("get_global_news failed")
+        logger.exception("get_global_news_yf failed")
         return {"error": str(e)}
+
+
+# --- Alpha Vantage implementations ---
+
+
+def _av_stock_csv(symbol: str, start_date: str, end_date: str) -> str:
+    """Return daily OHLCV (adjusted) CSV from Alpha Vantage, filtered to date range."""
+
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    today = datetime.now()
+    days_from_today_to_start = (today - start_dt).days
+    outputsize = "compact" if days_from_today_to_start < 100 else "full"
+    params = {
+        "symbol": symbol,
+        "outputsize": outputsize,
+        "datatype": "csv",
+    }
+    response = _make_api_request("TIME_SERIES_DAILY_ADJUSTED", params)
+    return _filter_csv_by_date_range(response, start_date, end_date)
+
+
+def get_stock_data_av(symbol: str, start_date: str, end_date: str) -> dict:
+    """
+    Historical OHLCV for a symbol (Alpha Vantage).
+
+    Returns:
+        {"content": str, "timestamp": str} or {"error": str}.
+    """
+    try:
+        out = _av_stock_csv(symbol, start_date, end_date)
+        return _wrap_content(out)
+    except AlphaVantageRateLimitError:
+        raise
+    except Exception as e:
+        logger.exception("get_stock_data_av failed")
+        return {"error": str(e)}
+
+
+def get_fundamentals_av(symbol: str) -> dict:
+    """Company overview (Alpha Vantage OVERVIEW). Returns {"content": str, "timestamp": str} or {"error": str}."""
+    try:
+        out = _make_api_request("OVERVIEW", {"symbol": symbol})
+        return _wrap_content(out)
+    except AlphaVantageRateLimitError:
+        raise
+    except Exception as e:
+        logger.exception("get_fundamentals_av failed")
+        return {"error": str(e)}
+
+
+def get_balance_sheet_av(
+    symbol: str, freq: str = "quarterly", curr_date: Optional[str] = None
+) -> dict:
+    """Balance sheet (Alpha Vantage). freq/curr_date unused. Returns {"content": str, "timestamp": str} or {"error": str}."""
+    try:
+        out = _make_api_request("BALANCE_SHEET", {"symbol": symbol})
+        return _wrap_content(out)
+    except AlphaVantageRateLimitError:
+        raise
+    except Exception as e:
+        logger.exception("get_balance_sheet_av failed")
+        return {"error": str(e)}
+
+
+def get_cashflow_av(
+    symbol: str, freq: str = "quarterly", curr_date: Optional[str] = None
+) -> dict:
+    """Cash flow (Alpha Vantage). freq/curr_date unused. Returns {"content": str, "timestamp": str} or {"error": str}."""
+    try:
+        out = _make_api_request("CASH_FLOW", {"symbol": symbol})
+        return _wrap_content(out)
+    except AlphaVantageRateLimitError:
+        raise
+    except Exception as e:
+        logger.exception("get_cashflow_av failed")
+        return {"error": str(e)}
+
+
+def get_income_statement_av(
+    symbol: str, freq: str = "quarterly", curr_date: Optional[str] = None
+) -> dict:
+    """Income statement (Alpha Vantage). freq/curr_date unused. Returns {"content": str, "timestamp": str} or {"error": str}."""
+    try:
+        out = _make_api_request("INCOME_STATEMENT", {"symbol": symbol})
+        return _wrap_content(out)
+    except AlphaVantageRateLimitError:
+        raise
+    except Exception as e:
+        logger.exception("get_income_statement_av failed")
+        return {"error": str(e)}
+
+
+def get_news_av(symbol: str, start_date: str, end_date: str) -> dict:
+    """Ticker news and sentiment (Alpha Vantage NEWS_SENTIMENT). Returns {"content": str, "timestamp": str} or {"error": str}."""
+    try:
+        params = {
+            "tickers": symbol,
+            "time_from": format_datetime_for_api(start_date),
+            "time_to": format_datetime_for_api(end_date),
+        }
+        out = _make_api_request("NEWS_SENTIMENT", params)
+        return _wrap_content(out)
+    except AlphaVantageRateLimitError:
+        raise
+    except Exception as e:
+        logger.exception("get_news_av failed")
+        return {"error": str(e)}
+
+
+def get_global_news_av(
+    as_of_date: str, look_back_days: int = 7, limit: int = 50
+) -> dict:
+    """Global/macro news (Alpha Vantage NEWS_SENTIMENT). Returns {"content": str, "timestamp": str} or {"error": str}."""
+    try:
+        curr_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
+        start_dt = curr_dt - timedelta(days=look_back_days)
+        start_date = start_dt.strftime("%Y-%m-%d")
+        params = {
+            "topics": "financial_markets,economy_macro,economy_monetary",
+            "time_from": format_datetime_for_api(start_date),
+            "time_to": format_datetime_for_api(as_of_date),
+            "limit": str(limit),
+        }
+        out = _make_api_request("NEWS_SENTIMENT", params)
+        return _wrap_content(out)
+    except AlphaVantageRateLimitError:
+        raise
+    except Exception as e:
+        logger.exception("get_global_news_av failed")
+        return {"error": str(e)}
+
+
+def get_insider_transactions_av(symbol: str) -> dict:
+    """Insider transactions (Alpha Vantage). Returns {"content": str, "timestamp": str} or {"error": str}."""
+    try:
+        out = _make_api_request("INSIDER_TRANSACTIONS", {"symbol": symbol})
+        return _wrap_content(out)
+    except AlphaVantageRateLimitError:
+        raise
+    except Exception as e:
+        logger.exception("get_insider_transactions_av failed")
+        return {"error": str(e)}
+
+
+# --- Vendor routing (yfinance | alpha_vantage) ---
+
+def _wrap_content(s: str) -> dict:
+    """Wrap string content in MCP result dict."""
+    return {"content": s, "timestamp": _now_iso()}
+
+
+def _route_stock_data(symbol: str, start_date: str, end_date: str) -> dict:
+    """Route get_stock_data to configured vendor; fallback to yfinance on AV rate limit."""
+    if get_market_vendor() == "alpha_vantage":
+        try:
+            return get_stock_data_av(symbol, start_date, end_date)
+        except AlphaVantageRateLimitError:
+            pass
+    return get_stock_data_yf(symbol, start_date, end_date)
+
+
+def _route_fundamentals(symbol: str) -> dict:
+    """Route get_fundamentals to configured vendor."""
+    if get_market_vendor() == "alpha_vantage":
+        try:
+            return get_fundamentals_av(symbol)
+        except AlphaVantageRateLimitError:
+            pass
+    return get_fundamentals_yf(symbol)
+
+
+def _route_balance_sheet(symbol: str, freq: str) -> dict:
+    """Route get_balance_sheet to configured vendor."""
+    if get_market_vendor() == "alpha_vantage":
+        try:
+            return get_balance_sheet_av(symbol, freq)
+        except AlphaVantageRateLimitError:
+            pass
+    return get_balance_sheet_yf(symbol, freq)
+
+
+def _route_cashflow(symbol: str, freq: str) -> dict:
+    """Route get_cashflow to configured vendor."""
+    if get_market_vendor() == "alpha_vantage":
+        try:
+            return get_cashflow_av(symbol, freq)
+        except AlphaVantageRateLimitError:
+            pass
+    return get_cashflow_yf(symbol, freq)
+
+
+def _route_income_statement(symbol: str, freq: str) -> dict:
+    """Route get_income_statement to configured vendor."""
+    if get_market_vendor() == "alpha_vantage":
+        try:
+            return get_income_statement_av(symbol, freq)
+        except AlphaVantageRateLimitError:
+            pass
+    return get_income_statement_yf(symbol, freq)
+
+
+def _route_news(
+    symbol: str,
+    limit: Optional[int],
+    start_date: Optional[str],
+    end_date: Optional[str],
+) -> dict:
+    """Route get_news to configured vendor. AV uses start/end; yf uses limit."""
+    if get_market_vendor() == "alpha_vantage" and start_date and end_date:
+        try:
+            return get_news_av(symbol, start_date, end_date)
+        except AlphaVantageRateLimitError:
+            pass
+    return get_news_yf(symbol, limit or 20, start_date, end_date)
+
+
+def _route_global_news(as_of_date: str, look_back_days: int, limit: int) -> dict:
+    """Route get_global_news to configured vendor."""
+    if get_market_vendor() == "alpha_vantage":
+        try:
+            return get_global_news_av(
+                as_of_date, look_back_days, limit or 50
+            )
+        except AlphaVantageRateLimitError:
+            pass
+    return get_global_news_yf(as_of_date, look_back_days, limit or 10)
+
+
+def _route_insider_transactions(symbol: str) -> dict:
+    """Route get_insider_transactions to configured vendor."""
+    if get_market_vendor() == "alpha_vantage":
+        try:
+            return get_insider_transactions_av(symbol)
+        except AlphaVantageRateLimitError:
+            pass
+    return get_insider_transactions_yf(symbol)

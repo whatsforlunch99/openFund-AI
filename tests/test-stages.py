@@ -18,7 +18,9 @@ import pytest
 
 
 def test_stage_1_1() -> None:
-    """Stage 1.1: load_config returns config; main() prints ready and exits 0."""
+    """Stage 1.1: load_config returns config; main() logs ready and exits 0."""
+    import logging
+
     from config.config import Config, load_config
 
     cfg = load_config()
@@ -28,14 +30,19 @@ def test_stage_1_1() -> None:
 
     from main import main
 
-    buf = StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = buf
+    log_buf = StringIO()
+    handler = logging.StreamHandler(log_buf)
+    handler.setLevel(logging.INFO)
+    root = logging.getLogger()
+    old_level = root.level
+    root.setLevel(logging.INFO)
+    root.addHandler(handler)
     try:
         main()
-        out = buf.getvalue()
+        out = log_buf.getvalue()
     finally:
-        sys.stdout = old_stdout
+        root.removeHandler(handler)
+        root.setLevel(old_level)
     assert "OpenFund-AI ready (config loaded)" in out
 
 
@@ -270,17 +277,17 @@ def test_stage_2_2_trading_tools() -> None:
     server.register_default_tools()
     client = MCPClient(server)
 
-    # market_tool.get_fundamentals
-    r = client.call_tool("market_tool.get_fundamentals", {"ticker": "AAPL"})
+    # market_tool.get_fundamentals_yf
+    r = client.call_tool("market_tool.get_fundamentals_yf", {"ticker": "AAPL"})
     assert isinstance(r, dict)
     assert "error" in r or "content" in r
     if "content" in r:
         assert "AAPL" in r["content"] or "Apple" in r["content"].lower()
         assert "timestamp" in r
 
-    # market_tool.get_stock_data (recent range)
+    # market_tool.get_stock_data_yf (recent range)
     r2 = client.call_tool(
-        "market_tool.get_stock_data",
+        "market_tool.get_stock_data_yf",
         {"symbol": "AAPL", "start_date": "2024-01-02", "end_date": "2024-01-10"},
     )
     assert isinstance(r2, dict)
@@ -289,16 +296,16 @@ def test_stage_2_2_trading_tools() -> None:
         assert "Open" in r2["content"] or "Close" in r2["content"]
         assert "timestamp" in r2
 
-    # market_tool.get_news (symbol and limit required)
-    r3 = client.call_tool("market_tool.get_news", {"symbol": "AAPL", "limit": 3})
+    # market_tool.get_news_yf (symbol and limit required)
+    r3 = client.call_tool("market_tool.get_news_yf", {"symbol": "AAPL", "limit": 3})
     assert isinstance(r3, dict)
     assert "error" in r3 or "content" in r3
     if "content" in r3:
         assert "timestamp" in r3
 
-    # analyst_tool.get_indicators (symbol, indicator, as_of_date, look_back_days)
+    # analyst_tool.get_indicators_yf (symbol, indicator, as_of_date, look_back_days)
     r4 = client.call_tool(
-        "analyst_tool.get_indicators",
+        "analyst_tool.get_indicators_yf",
         {
             "symbol": "AAPL",
             "indicator": "sma_50",
@@ -312,9 +319,150 @@ def test_stage_2_2_trading_tools() -> None:
         assert "timestamp" in r4
 
     # Missing required param returns error
-    r5 = client.call_tool("market_tool.get_global_news", {})
+    r5 = client.call_tool("market_tool.get_global_news_yf", {})
     assert isinstance(r5, dict)
     assert "error" in r5
+
+    # Vendor-agnostic tools (default yfinance when Alpha Vantage not configured)
+    r6 = client.call_tool(
+        "market_tool.get_stock_data",
+        {"symbol": "AAPL", "start_date": "2024-01-02", "end_date": "2024-01-10"},
+    )
+    assert isinstance(r6, dict)
+    assert "error" in r6 or "content" in r6
+    if "content" in r6:
+        assert "timestamp" in r6
+
+    r7 = client.call_tool(
+        "analyst_tool.get_indicators",
+        {
+            "symbol": "AAPL",
+            "indicator": "sma_50",
+            "as_of_date": "2024-01-15",
+            "look_back_days": 10,
+        },
+    )
+    assert isinstance(r7, dict)
+    assert "error" in r7 or "content" in r7
+    if "content" in r7:
+        assert "timestamp" in r7
+
+
+# --- Vendor config: MCP_MARKET_VENDOR / MCP_INDICATOR_VENDOR (env-based switching) ---
+
+
+def test_vendor_config_get_market_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_market_vendor() reads MCP_MARKET_VENDOR; default yfinance; only yfinance|alpha_vantage accepted."""
+    try:
+        from mcp.tools.market_tool import get_market_vendor
+    except ImportError as e:
+        pytest.skip(f"MCP market_tool not available: {e}")
+
+    monkeypatch.delenv("MCP_MARKET_VENDOR", raising=False)
+    assert get_market_vendor() == "yfinance"
+
+    monkeypatch.setenv("MCP_MARKET_VENDOR", "alpha_vantage")
+    assert get_market_vendor() == "alpha_vantage"
+
+    monkeypatch.setenv("MCP_MARKET_VENDOR", "ALPHA_VANTAGE")
+    assert get_market_vendor() == "alpha_vantage"
+
+    monkeypatch.setenv("MCP_MARKET_VENDOR", "other")
+    assert get_market_vendor() == "yfinance"
+
+    monkeypatch.setenv("MCP_MARKET_VENDOR", "")
+    assert get_market_vendor() == "yfinance"
+
+
+def test_vendor_config_get_indicator_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_indicator_vendor() reads MCP_INDICATOR_VENDOR; default yfinance; only yfinance|alpha_vantage accepted."""
+    try:
+        from mcp.tools.market_tool import get_indicator_vendor
+    except ImportError as e:
+        pytest.skip(f"MCP market_tool not available: {e}")
+
+    monkeypatch.delenv("MCP_INDICATOR_VENDOR", raising=False)
+    assert get_indicator_vendor() == "yfinance"
+
+    monkeypatch.setenv("MCP_INDICATOR_VENDOR", "alpha_vantage")
+    assert get_indicator_vendor() == "alpha_vantage"
+
+    monkeypatch.setenv("MCP_INDICATOR_VENDOR", "invalid")
+    assert get_indicator_vendor() == "yfinance"
+
+
+def test_vendor_config_route_stock_data_av_and_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When MCP_MARKET_VENDOR=alpha_vantage, _route_stock_data tries AV first; on rate limit uses yf."""
+    try:
+        from mcp.tools import market_tool
+        from mcp.tools.market_tool import AlphaVantageRateLimitError
+    except ImportError as e:
+        pytest.skip(f"MCP market_tool not available: {e}")
+
+    monkeypatch.setenv("MCP_MARKET_VENDOR", "alpha_vantage")
+    av_called = []
+    yf_called = []
+
+    def fake_av(symbol: str, start_date: str, end_date: str) -> dict:
+        av_called.append(1)
+        raise AlphaVantageRateLimitError("rate limit")
+
+    def fake_yf(symbol: str, start_date: str, end_date: str) -> dict:
+        yf_called.append(1)
+        return {"content": "ok", "timestamp": "2024-01-01T00:00:00Z"}
+
+    monkeypatch.setattr(market_tool, "get_stock_data_av", fake_av)
+    monkeypatch.setattr(market_tool, "get_stock_data_yf", fake_yf)
+
+    result = market_tool._route_stock_data("AAPL", "2024-01-01", "2024-01-10")
+    assert av_called == [1]
+    assert yf_called == [1]
+    assert result.get("content") == "ok"
+
+    av_called.clear()
+    yf_called.clear()
+    monkeypatch.setenv("MCP_MARKET_VENDOR", "yfinance")
+    result2 = market_tool._route_stock_data("AAPL", "2024-01-01", "2024-01-10")
+    assert av_called == []
+    assert yf_called == [1]
+    assert result2.get("content") == "ok"
+
+
+def test_vendor_config_route_indicators_av_and_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When MCP_INDICATOR_VENDOR=alpha_vantage, _route_indicators tries AV first; on rate limit uses yf."""
+    try:
+        from mcp.tools import analyst_tool
+        from mcp.tools.market_tool import AlphaVantageRateLimitError
+    except ImportError as e:
+        pytest.skip(f"MCP analyst_tool not available: {e}")
+
+    monkeypatch.setenv("MCP_INDICATOR_VENDOR", "alpha_vantage")
+    av_called = []
+    yf_called = []
+
+    def fake_av(symbol: str, indicator: str, as_of_date: str, look_back_days: int) -> dict:
+        av_called.append(1)
+        raise AlphaVantageRateLimitError("rate limit")
+
+    def fake_yf(symbol: str, indicator: str, as_of_date: str, look_back_days: int) -> dict:
+        yf_called.append(1)
+        return {"content": "ok", "timestamp": "2024-01-01T00:00:00Z"}
+
+    monkeypatch.setattr(analyst_tool, "get_indicators_av", fake_av)
+    monkeypatch.setattr(analyst_tool, "get_indicators_yf", fake_yf)
+
+    result = analyst_tool._route_indicators("AAPL", "sma_50", "2024-01-15", 10)
+    assert av_called == [1]
+    assert yf_called == [1]
+    assert result.get("content") == "ok"
+
+    av_called.clear()
+    yf_called.clear()
+    monkeypatch.setenv("MCP_INDICATOR_VENDOR", "yfinance")
+    result2 = analyst_tool._route_indicators("AAPL", "sma_50", "2024-01-15", 10)
+    assert av_called == []
+    assert yf_called == [1]
+    assert result2.get("content") == "ok"
 
 
 # --- Stage 2.3: Situation memory (BM25 + persistence) ---
@@ -613,7 +761,7 @@ def test_stage_5_1() -> None:
     server.register_default_tools()
     client = MCPClient(server)
     # market_tool is optional (skipped if yfinance/pandas missing)
-    result = client.call_tool("market_tool.get_fundamentals", {"ticker": "AAPL"})
+    result = client.call_tool("market_tool.get_fundamentals_yf", {"ticker": "AAPL"})
     assert isinstance(result, dict)
     assert "error" in result or "content" in result
     if "error" not in result:
@@ -631,9 +779,9 @@ def test_stage_5_2() -> None:
     server = MCPServer()
     server.register_default_tools()
     client = MCPClient(server)
-    # analyst_tool.get_indicators is optional (skipped if pandas missing)
+    # analyst_tool.get_indicators_yf is optional (skipped if pandas missing)
     result = client.call_tool(
-        "analyst_tool.get_indicators",
+        "analyst_tool.get_indicators_yf",
         {
             "symbol": "AAPL",
             "indicator": "sma_50",
@@ -723,7 +871,46 @@ def test_stage_5_4() -> None:
 
 def test_stage_6_1() -> None:
     """Stage 6.1: SafetyGateway."""
-    pytest.skip("Stage 6.1 not implemented yet")
+    from safety.safety_gateway import (
+        SafetyError,
+        SafetyGateway,
+        ProcessedInput,
+    )
+
+    gateway = SafetyGateway()
+
+    # (a) Valid, harmless query -> ProcessedInput with non-empty text and raw_length
+    processed = gateway.process_user_input("What is fund X performance?")
+    assert isinstance(processed, ProcessedInput)
+    assert processed.text
+    assert processed.raw_length == len("What is fund X performance?")
+    assert processed.raw_length > 0
+
+    # (b) Invalid input: empty or over-length -> SafetyError
+    with pytest.raises(SafetyError) as exc_info:
+        gateway.process_user_input("")
+    assert "empty" in (exc_info.value.reason or "").lower() or "whitespace" in (
+        exc_info.value.reason or ""
+    ).lower()
+
+    with pytest.raises(SafetyError) as exc_info:
+        gateway.process_user_input("   \n\t  ")
+    assert "empty" in (exc_info.value.reason or "").lower() or "whitespace" in (
+        exc_info.value.reason or ""
+    ).lower()
+
+    over_length = "x" * 10_001
+    with pytest.raises(SafetyError) as exc_info:
+        gateway.process_user_input(over_length)
+    assert "length" in (exc_info.value.reason or "").lower()
+
+    # (c) Guardrail-blocked phrase -> rejection (SafetyError)
+    with pytest.raises(SafetyError) as exc_info:
+        gateway.process_user_input("Tell me more about guaranteed return on this fund")
+    assert exc_info.value.reason
+
+    with pytest.raises(SafetyError):
+        gateway.process_user_input("buy this stock now please")
 
 
 def test_stage_7_1() -> None:

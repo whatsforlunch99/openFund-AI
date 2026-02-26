@@ -19,7 +19,7 @@ Tracks **major capability readiness**. Update when a capability becomes operatio
 | WebSearcherAgent | FR4 | Not Started | Slice 5 |
 | AnalystAgent | FR4 | Not Started | Slice 5 |
 | Planner full stub (3 agents) | FR4 | Not Started | Slice 5: three TaskSteps, parallel REQUESTs |
-| SafetyGateway | FR1, FR2, AC3 | Not Started | Slice 6 |
+| SafetyGateway | FR1, FR2, AC3 | Live | Slice 6: validate_input, check_guardrails, mask_pii, process_user_input; test_stage_6_1 |
 | REST API (POST /chat, GET /conversations) | FR1, AC1, AC2 | Not Started | Slice 7 |
 | OutputRail (real format + compliance) | FR5, C2 | Not Started | Slice 8 |
 | WebSocket /ws | — | Not Started | Slice 9 |

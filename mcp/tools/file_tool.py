@@ -23,13 +23,17 @@ def read_file(path: str) -> dict:
     """
     base_dir = os.getenv("MCP_FILE_BASE_DIR")
     if base_dir:
+        # Restrict path to under base_dir to prevent path traversal
         base_dir = os.path.abspath(base_dir)
         try:
             abs_path = os.path.abspath(path)
         except OSError as e:
             return {"error": str(e), "path": path}
         if not abs_path.startswith(base_dir):
-            return {"error": "Path not allowed (outside MCP_FILE_BASE_DIR)", "path": path}
+            return {
+                "error": "Path not allowed (outside MCP_FILE_BASE_DIR)",
+                "path": path,
+            }
         path = abs_path
     try:
         with open(path, encoding="utf-8") as f:

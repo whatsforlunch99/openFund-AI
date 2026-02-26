@@ -22,6 +22,6 @@ Tracks **major capability readiness**. Update when a capability becomes operatio
 | SafetyGateway | FR1, FR2, AC3 | Live | Slice 6: validate_input, check_guardrails, mask_pii, process_user_input; test_stage_6_1 |
 | REST API (POST /chat, GET /conversations) | FR1, AC1, AC2 | Live | Slice 7: create_app, POST /chat, GET /conversations/{id}; test_stage_7_1 |
 | OutputRail (real format + compliance) | FR5, C2 | Live | Slice 8: check_compliance, format_for_user; Responder uses OutputRail; user_profile API → planner → responder |
-| WebSocket /ws | — | Not Started | Slice 9 |
+| WebSocket /ws | — | Live | Slice 9: /ws same flow as POST /chat; events response/timeout/error; test_stage_9_1 |
 | Multi-round Planner | FR4 (optional) | Not Started | Optional |
-| LLM (decompose_task, sufficiency) | — | Not Started | Stage 10.2 / Phase 2 |
+| LLM (decompose_task, sufficiency) | — | In Progress | Stage 10.2: static mock live; set LLM_API_KEY + pip install [llm] for live OpenAI |

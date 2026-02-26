@@ -53,7 +53,7 @@ class ACLMessage:
         """Normalize performative to enum; set conversation_id and timestamp if missing."""
         if isinstance(self.performative, str):
             self.performative = Performative(self.performative.upper())
-        # Default conversation_id for threading; timestamp for ordering (backend: conversation state)
+        # One conversation_id per thread so agents can route replies; timestamp for ordering
         if not self.conversation_id:
             self.conversation_id = str(uuid.uuid4())
         if self.timestamp is None:

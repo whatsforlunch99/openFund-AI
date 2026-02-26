@@ -24,6 +24,7 @@ def search(
         When MILVUS_URI is not set, returns mock data for slice 4.
     """
     if not os.environ.get("MILVUS_URI"):
+        # No Milvus configured; return mock so tests and E2E run without a real index
         return [
             {"content": f"mock doc for: {query}", "score": 0.9, "id": "mock1"},
             {"content": "second mock doc", "score": 0.8, "id": "mock2"},

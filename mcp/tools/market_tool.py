@@ -11,7 +11,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from io import StringIO
-from typing import Optional, Union
+from typing import Optional
 
 import pandas as pd
 import requests
@@ -54,7 +54,7 @@ def get_api_key() -> str:
     return api_key
 
 
-def format_datetime_for_api(date_input: Union[str, datetime]) -> str:
+def format_datetime_for_api(date_input: str | datetime) -> str:
     """Convert date to YYYYMMDDTHHMM format required by Alpha Vantage API."""
     if isinstance(date_input, str):
         if len(date_input) == 13 and "T" in date_input:
@@ -77,7 +77,7 @@ class AlphaVantageRateLimitError(Exception):
     """Raised when Alpha Vantage API rate limit is exceeded."""
 
 
-def _make_api_request(function_name: str, params: dict) -> Union[dict, str]:
+def _make_api_request(function_name: str, params: dict) -> dict | str:
     """Make API request and return response text. Raises AlphaVantageRateLimitError on rate limit."""
     api_params = params.copy()
     api_params.update(
@@ -94,7 +94,10 @@ def _make_api_request(function_name: str, params: dict) -> Union[dict, str]:
         response_json = json.loads(response_text)
         if "Information" in response_json:
             info_message = response_json["Information"]
-            if "rate limit" in info_message.lower() or "api key" in info_message.lower():
+            if (
+                "rate limit" in info_message.lower()
+                or "api key" in info_message.lower()
+            ):
                 raise AlphaVantageRateLimitError(
                     f"Alpha Vantage rate limit exceeded: {info_message}"
                 )
@@ -752,6 +755,7 @@ def get_insider_transactions_av(symbol: str) -> dict:
 
 # --- Vendor routing (yfinance | alpha_vantage) ---
 
+
 def _wrap_content(s: str) -> dict:
     """Wrap string content in MCP result dict."""
     return {"content": s, "timestamp": _now_iso()}
@@ -826,9 +830,7 @@ def _route_global_news(as_of_date: str, look_back_days: int, limit: int) -> dict
     """Route get_global_news to configured vendor."""
     if get_market_vendor() == "alpha_vantage":
         try:
-            return get_global_news_av(
-                as_of_date, look_back_days, limit or 50
-            )
+            return get_global_news_av(as_of_date, look_back_days, limit or 50)
         except AlphaVantageRateLimitError:
             pass
     return get_global_news_yf(as_of_date, look_back_days, limit or 10)

@@ -7,6 +7,7 @@ matches and runs the correct stage test. No classes; per clarification A2.
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -391,7 +392,9 @@ def test_vendor_config_get_indicator_vendor(monkeypatch: pytest.MonkeyPatch) -> 
     assert get_indicator_vendor() == "yfinance"
 
 
-def test_vendor_config_route_stock_data_av_and_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vendor_config_route_stock_data_av_and_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """When MCP_MARKET_VENDOR=alpha_vantage, _route_stock_data tries AV first; on rate limit uses yf."""
     try:
         from mcp.tools import market_tool
@@ -428,7 +431,9 @@ def test_vendor_config_route_stock_data_av_and_fallback(monkeypatch: pytest.Monk
     assert result2.get("content") == "ok"
 
 
-def test_vendor_config_route_indicators_av_and_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vendor_config_route_indicators_av_and_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """When MCP_INDICATOR_VENDOR=alpha_vantage, _route_indicators tries AV first; on rate limit uses yf."""
     try:
         from mcp.tools import analyst_tool
@@ -440,11 +445,15 @@ def test_vendor_config_route_indicators_av_and_fallback(monkeypatch: pytest.Monk
     av_called = []
     yf_called = []
 
-    def fake_av(symbol: str, indicator: str, as_of_date: str, look_back_days: int) -> dict:
+    def fake_av(
+        symbol: str, indicator: str, as_of_date: str, look_back_days: int
+    ) -> dict:
         av_called.append(1)
         raise AlphaVantageRateLimitError("rate limit")
 
-    def fake_yf(symbol: str, indicator: str, as_of_date: str, look_back_days: int) -> dict:
+    def fake_yf(
+        symbol: str, indicator: str, as_of_date: str, look_back_days: int
+    ) -> dict:
         yf_called.append(1)
         return {"content": "ok", "timestamp": "2024-01-01T00:00:00Z"}
 
@@ -622,7 +631,11 @@ def test_stage_3_2() -> None:
     assert reply.performative == Performative.INFORM
     assert reply.sender == "librarian"
     assert isinstance(reply.content, dict)
-    assert "content" in reply.content or "result" in reply.content or "data" in reply.content
+    assert (
+        "content" in reply.content
+        or "result" in reply.content
+        or "data" in reply.content
+    )
     if "content" in reply.content:
         assert reply.content["content"] == "hello from file"
 
@@ -648,15 +661,16 @@ def test_stage_3_3() -> None:
         try:
             mgr = ConversationManager(bus)
             cid = mgr.create_conversation("u1", "Query")
-            responder = ResponderAgent(
-                "responder", bus, conversation_manager=mgr
-            )
+            responder = ResponderAgent("responder", bus, conversation_manager=mgr)
 
             inform = ACLMessage(
                 performative=Performative.INFORM,
                 sender="planner",
                 receiver="responder",
-                content={"final_response": "Here is your answer.", "conversation_id": cid},
+                content={
+                    "final_response": "Here is your answer.",
+                    "conversation_id": cid,
+                },
                 conversation_id=cid,
             )
             responder.handle_message(inform)
@@ -690,7 +704,9 @@ def test_stage_4_1() -> None:
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
-        result = client.call_tool("vector_tool.search", {"query": "test query", "top_k": 3})
+        result = client.call_tool(
+            "vector_tool.search", {"query": "test query", "top_k": 3}
+        )
         assert isinstance(result, dict)
         assert "error" not in result
         docs = result.get("documents", result)
@@ -719,7 +735,9 @@ def test_stage_4_2() -> None:
         assert isinstance(result, dict)
         assert "error" not in result
         assert "nodes" in result
-        result2 = client.call_tool("kg_tool.query_graph", {"cypher": "MATCH (n) RETURN n", "params": {}})
+        result2 = client.call_tool(
+            "kg_tool.query_graph", {"cypher": "MATCH (n) RETURN n", "params": {}}
+        )
         assert isinstance(result2, dict)
         assert "error" not in result2
     finally:
@@ -740,7 +758,9 @@ def test_stage_4_3() -> None:
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
-        result = client.call_tool("sql_tool.run_query", {"query": "SELECT 1", "params": {}})
+        result = client.call_tool(
+            "sql_tool.run_query", {"query": "SELECT 1", "params": {}}
+        )
         assert isinstance(result, dict)
         assert "error" not in result
         assert "rows" in result
@@ -872,9 +892,9 @@ def test_stage_5_4() -> None:
 def test_stage_6_1() -> None:
     """Stage 6.1: SafetyGateway."""
     from safety.safety_gateway import (
+        ProcessedInput,
         SafetyError,
         SafetyGateway,
-        ProcessedInput,
     )
 
     gateway = SafetyGateway()
@@ -889,15 +909,17 @@ def test_stage_6_1() -> None:
     # (b) Invalid input: empty or over-length -> SafetyError
     with pytest.raises(SafetyError) as exc_info:
         gateway.process_user_input("")
-    assert "empty" in (exc_info.value.reason or "").lower() or "whitespace" in (
-        exc_info.value.reason or ""
-    ).lower()
+    assert (
+        "empty" in (exc_info.value.reason or "").lower()
+        or "whitespace" in (exc_info.value.reason or "").lower()
+    )
 
     with pytest.raises(SafetyError) as exc_info:
         gateway.process_user_input("   \n\t  ")
-    assert "empty" in (exc_info.value.reason or "").lower() or "whitespace" in (
-        exc_info.value.reason or ""
-    ).lower()
+    assert (
+        "empty" in (exc_info.value.reason or "").lower()
+        or "whitespace" in (exc_info.value.reason or "").lower()
+    )
 
     over_length = "x" * 10_001
     with pytest.raises(SafetyError) as exc_info:
@@ -979,5 +1001,85 @@ def test_stage_8_1() -> None:
 
 
 def test_stage_9_1() -> None:
-    """Stage 9.1: WebSocket."""
-    pytest.skip("Stage 9.1 not implemented yet")
+    """Stage 9.1: WebSocket /ws — same flow as POST /chat; one event then close."""
+    from fastapi.testclient import TestClient
+
+    from api.rest import create_app
+
+    app = create_app(timeout_seconds=5)
+    client = TestClient(app)
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write("What is fund X? (stage 9.1)")
+        path = f.name
+    try:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_json(
+                {
+                    "query": "What is fund X?",
+                    "user_profile": "beginner",
+                    "path": path,
+                }
+            )
+            data = ws.receive_json()
+        assert "event" in data
+        assert data["event"] in ("response", "timeout", "error")
+        if data["event"] == "response":
+            assert "conversation_id" in data
+            assert "response" in data
+        elif data["event"] == "timeout":
+            assert "conversation_id" in data
+            assert data.get("response") is None
+        else:
+            assert "detail" in data
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+
+
+def test_stage_10_1() -> None:
+    """Stage 10.1: E2E smoke — main.py --e2e-once completes one conversation and exits 0."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = {**os.environ, "PYTHONPATH": root}
+    result = subprocess.run(
+        [sys.executable, "main.py", "--e2e-once"],
+        cwd=root,
+        env=env,
+        timeout=60,
+        capture_output=True,
+        text=True,
+    )
+    assert (
+        result.returncode == 0
+    ), f"E2E exited {result.returncode}; stdout={result.stdout!r}; stderr={result.stderr!r}"
+
+
+def test_stage_10_2_llm_static_mock() -> None:
+    """Stage 10.2: LLM integration uses static mock when no API key; decompose_to_steps returns runnable steps."""
+    from config.config import load_config
+    from llm.factory import get_llm_client
+    from llm.static_client import StaticLLMClient
+
+    cfg = load_config()
+    client = get_llm_client(cfg)
+    assert isinstance(client, StaticLLMClient)
+
+    steps = client.decompose_to_steps("What is fund X?")
+    assert isinstance(steps, list)
+    assert len(steps) == 3
+    agents = [s["agent"] for s in steps]
+    assert agents == ["librarian", "websearcher", "analyst"]
+    for s in steps:
+        assert "query" in (s.get("params") or {})
+        assert (s.get("params") or {})["query"] == "What is fund X?"
+
+    from a2a.message_bus import InMemoryMessageBus
+    from agents.planner_agent import PlannerAgent, TaskStep
+
+    bus = InMemoryMessageBus()
+    bus.register_agent("planner")
+    planner = PlannerAgent("planner", bus, llm_client=client)
+    plan_steps = planner.decompose_task("What is fund X?")
+    assert len(plan_steps) == 3
+    assert all(isinstance(s, TaskStep) for s in plan_steps)
+    assert [s.agent for s in plan_steps] == ["librarian", "websearcher", "analyst"]

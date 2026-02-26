@@ -1,7 +1,7 @@
 """Abstract message transport for agent-to-agent communication."""
 
-from abc import ABC, abstractmethod
 import queue
+from abc import ABC, abstractmethod
 from typing import Optional
 
 from a2a.acl_message import ACLMessage

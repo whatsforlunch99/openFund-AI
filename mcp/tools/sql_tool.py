@@ -18,5 +18,10 @@ def run_query(query: str, params: Optional[dict] = None) -> dict:
         Dict with rows and optional schema.
     """
     if not os.environ.get("DATABASE_URL"):
-        return {"rows": [{"id": 1, "value": "mock"}], "schema": ["id", "value"], "params": params or {}}
+        # No database configured; return mock so tests and E2E run without Postgres
+        return {
+            "rows": [{"id": 1, "value": "mock"}],
+            "schema": ["id", "value"],
+            "params": params or {},
+        }
     raise NotImplementedError("Real PostgreSQL backend not implemented")

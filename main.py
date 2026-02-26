@@ -15,9 +15,9 @@ def _run_e2e_once() -> None:
     creates a temp file and passes its path so librarian can read it; blocks on
     completion_event then exits 0.
     """
-    import threading
-    import tempfile
     import os
+    import tempfile
+    import threading
 
     from a2a.acl_message import ACLMessage, Performative
     from a2a.conversation_manager import ConversationManager
@@ -27,6 +27,7 @@ def _run_e2e_once() -> None:
     from agents.planner_agent import PlannerAgent
     from agents.responder_agent import ResponderAgent
     from agents.websearch_agent import WebSearcherAgent
+    from llm.factory import get_llm_client
     from mcp.mcp_client import MCPClient
     from mcp.mcp_server import MCPServer
     from output.output_rail import OutputRail
@@ -40,7 +41,8 @@ def _run_e2e_once() -> None:
     server = MCPServer()
     server.register_default_tools()
     client = MCPClient(server)
-    planner = PlannerAgent("planner", bus)
+    llm_client = get_llm_client(cfg)
+    planner = PlannerAgent("planner", bus, llm_client=llm_client)
     librarian = LibrarianAgent("librarian", bus, mcp_client=client)
     websearcher = WebSearcherAgent("websearcher", bus, mcp_client=client)
     analyst = AnalystAgent("analyst", bus, mcp_client=client)
@@ -81,14 +83,16 @@ def _run_e2e_once() -> None:
         )
 
         timeout = cfg.e2e_timeout_seconds
-        # Block until Responder sets final_response and signals completion (backend: completion_event)
+        # Block until responder sets final_response and sets completion_event
         state.completion_event.wait(timeout=timeout)
         if state.final_response:
             logger.info(
                 "E2E complete: %s",
-                (state.final_response[:80] + "...")
-                if len(state.final_response) > 80
-                else state.final_response,
+                (
+                    (state.final_response[:80] + "...")
+                    if len(state.final_response) > 80
+                    else state.final_response
+                ),
             )
         else:
             logger.warning("E2E timeout (no final response within %ss)", timeout)

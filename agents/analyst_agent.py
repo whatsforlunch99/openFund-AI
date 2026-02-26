@@ -33,7 +33,12 @@ class AnalystAgent(BaseAgent):
                 market_data, documents, graph, market.
         """
         content = message.content or {}
-        structured_data = content.get("structured_data") or content.get("documents") or content.get("graph") or {}
+        structured_data = (
+            content.get("structured_data")
+            or content.get("documents")
+            or content.get("graph")
+            or {}
+        )
         market_data = content.get("market_data") or content.get("market") or {}
         if not isinstance(structured_data, dict):
             structured_data = {"data": structured_data}
@@ -107,7 +112,7 @@ class AnalystAgent(BaseAgent):
             return 0.0
         avg = sum(returns) / len(returns)
         variance = sum((r - avg) ** 2 for r in returns) / len(returns)
-        std = variance ** 0.5 if variance else 0.0
+        std = variance**0.5 if variance else 0.0
         if std == 0:
             return 0.0
         return (avg - risk_free_rate) / std

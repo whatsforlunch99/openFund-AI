@@ -21,6 +21,14 @@ class ResponderAgent(BaseAgent):
         output_rail: Any = None,
         conversation_manager: Any = None,
     ) -> None:
+        """Initialize the responder agent.
+
+        Args:
+            name: Unique agent name.
+            message_bus: Shared A2A transport.
+            output_rail: Optional OutputRail for compliance and user-profile formatting.
+            conversation_manager: ConversationManager for register_reply and broadcast_stop.
+        """
         super().__init__(name, message_bus)
         self.output_rail = output_rail
         self.conversation_manager = conversation_manager
@@ -52,7 +60,11 @@ class ResponderAgent(BaseAgent):
 
         if self.output_rail is not None:
             draft = self.output_rail.format_for_user(
-                final_response if isinstance(final_response, str) else str(final_response),
+                (
+                    final_response
+                    if isinstance(final_response, str)
+                    else str(final_response)
+                ),
                 user_profile,
             )
             comp = self.output_rail.check_compliance(draft)
@@ -60,7 +72,10 @@ class ResponderAgent(BaseAgent):
                 draft = f"{draft}\n\nThis is not investment advice."
             final_response = draft
 
-        reply_content = {"final_response": final_response, "conversation_id": conversation_id}
+        reply_content = {
+            "final_response": final_response,
+            "conversation_id": conversation_id,
+        }
         reply_msg = ACLMessage(
             performative=Performative.INFORM,
             sender=self.name,

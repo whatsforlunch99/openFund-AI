@@ -68,12 +68,14 @@ def load_config() -> Config:
     """
 
     def _int(key: str, default: int) -> int:
+        """Parse env as int; return default if missing or invalid."""
         try:
             return int(os.getenv(key, str(default)))
         except ValueError:
             return default
 
     def _float(key: str, default: float) -> float:
+        """Parse env as float; return default if missing or invalid."""
         try:
             return float(os.getenv(key, str(default)))
         except ValueError:

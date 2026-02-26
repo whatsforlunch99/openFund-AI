@@ -17,6 +17,13 @@ class LibrarianAgent(BaseAgent):
     def __init__(
         self, name: str, message_bus: MessageBus, mcp_client: Any = None
     ) -> None:
+        """Initialize the librarian agent.
+
+        Args:
+            name: Unique agent name (receiver address).
+            message_bus: Shared A2A transport.
+            mcp_client: MCP client for file_tool, vector_tool, kg_tool, sql_tool.
+        """
         super().__init__(name, message_bus)
         self.mcp_client = mcp_client
 
@@ -36,7 +43,9 @@ class LibrarianAgent(BaseAgent):
         content = message.content or {}
         path = content.get("path")
         if not path and content.get("query"):
-            path = content.get("query")  # Planner often sends query as path for read_file
+            path = content.get(
+                "query"
+            )  # Planner often sends query as path for read_file
         vector_query = content.get("vector_query")
         fund = content.get("fund") or content.get("entity") or ""
         sql_query = content.get("sql_query") or content.get("sql") or ""
@@ -45,17 +54,29 @@ class LibrarianAgent(BaseAgent):
         parts = {}
         if path:
             result = self.mcp_client.call_tool("file_tool.read_file", {"path": path})
-            parts["file"] = result if isinstance(result, dict) else {"content": str(result)}
+            parts["file"] = (
+                result if isinstance(result, dict) else {"content": str(result)}
+            )
         if vector_query:
             docs_result = self.mcp_client.call_tool(
                 "vector_tool.search",
                 {"query": vector_query, "top_k": content.get("top_k", 5)},
             )
-            docs = docs_result.get("documents", docs_result) if isinstance(docs_result, dict) else docs_result
+            docs = (
+                docs_result.get("documents", docs_result)
+                if isinstance(docs_result, dict)
+                else docs_result
+            )
             parts["documents"] = docs if isinstance(docs, list) else [docs]
         if fund:
-            graph_result = self.mcp_client.call_tool("kg_tool.get_relations", {"entity": fund})
-            parts["graph"] = graph_result if isinstance(graph_result, dict) and "error" not in graph_result else {}
+            graph_result = self.mcp_client.call_tool(
+                "kg_tool.get_relations", {"entity": fund}
+            )
+            parts["graph"] = (
+                graph_result
+                if isinstance(graph_result, dict) and "error" not in graph_result
+                else {}
+            )
         if sql_query:
             sql_result = self.mcp_client.call_tool(
                 "sql_tool.run_query",
@@ -116,7 +137,9 @@ class LibrarianAgent(BaseAgent):
         """
         if not self.mcp_client:
             return []
-        result = self.mcp_client.call_tool("vector_tool.search", {"query": query, "top_k": top_k})
+        result = self.mcp_client.call_tool(
+            "vector_tool.search", {"query": query, "top_k": top_k}
+        )
         if isinstance(result, dict) and "error" in result:
             return []
         docs = result.get("documents", result) if isinstance(result, dict) else result

@@ -30,12 +30,7 @@ class MCPServer:
     def dispatch(self, tool_name: str, payload: dict) -> dict:
         """Invoke the named tool with the given payload.
 
-        Args:
-            tool_name: Name of the tool to invoke.
-            payload: Tool-specific parameters.
-
-        Returns:
-            Result dict from the tool. On error or unknown tool, returns {"error": "..."}.
+        Returns {"error": "..."} if tool is unknown or the handler raises.
         """
         handler = self._handlers.get(tool_name)
         if handler is None:
@@ -46,12 +41,7 @@ class MCPServer:
             return {"error": str(e)}  # backend: MCP tool errors return {"error": "..."}
 
     def register_default_tools(self) -> None:
-        """Register all default MCP tools (file_tool, vector/kg/sql, then optional market/analyst).
-
-        Handlers decompose payload dict into explicit parameters per backend.md.
-        file_tool first; vector_tool, kg_tool, sql_tool always registered; market_tool
-        and analyst_tool skipped if imports fail (e.g. missing pandas) so stage 2.1/2.2 pass.
-        """
+        """Register file_tool first, then vector/kg/sql; market_tool and analyst_tool only if imports succeed (e.g. pandas)."""
         from mcp.tools import file_tool
 
         self.register_tool(
@@ -63,19 +53,23 @@ class MCPServer:
             ),
         )
         from mcp.tools import vector_tool
+
         self.register_tool(
             "vector_tool.search",
             lambda p: (
-                {"documents": vector_tool.search(
-                    p.get("query") or "",
-                    p.get("top_k", 5),
-                    p.get("filter"),
-                )}
+                {
+                    "documents": vector_tool.search(
+                        p.get("query") or "",
+                        p.get("top_k", 5),
+                        p.get("filter"),
+                    )
+                }
                 if "query" in p
                 else {"error": "Missing required parameter 'query'"}
             ),
         )
         from mcp.tools import kg_tool
+
         self.register_tool(
             "kg_tool.query_graph",
             lambda p: kg_tool.query_graph(
@@ -85,19 +79,24 @@ class MCPServer:
         )
         self.register_tool(
             "kg_tool.get_relations",
-            lambda p: kg_tool.get_relations(p.get("entity") or "")
-            if "entity" in p
-            else {"error": "Missing required parameter 'entity'"},
+            lambda p: (
+                kg_tool.get_relations(p.get("entity") or "")
+                if "entity" in p
+                else {"error": "Missing required parameter 'entity'"}
+            ),
         )
         from mcp.tools import sql_tool
+
         self.register_tool(
             "sql_tool.run_query",
-            lambda p: sql_tool.run_query(
-                p.get("query") or "",
-                p.get("params"),
-            )
-            if "query" in p
-            else {"error": "Missing required parameter 'query'"},
+            lambda p: (
+                sql_tool.run_query(
+                    p.get("query") or "",
+                    p.get("params"),
+                )
+                if "query" in p
+                else {"error": "Missing required parameter 'query'"}
+            ),
         )
         try:
             from mcp.tools import market_tool
@@ -207,7 +206,11 @@ class MCPServer:
                 "market_tool.get_news",
                 lambda p: market_tool._route_news(
                     p.get("symbol") or p.get("ticker") or "",
-                    p.get("limit") if "limit" in p else p.get("count") if "count" in p else None,
+                    (
+                        p.get("limit")
+                        if "limit" in p
+                        else p.get("count") if "count" in p else None
+                    ),
                     p.get("start_date"),
                     p.get("end_date"),
                 ),

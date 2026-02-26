@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "ruff>=0.1.0", "black>=24.0.0", "httpx>=0.24.0"]
+llm = ["openai>=1.0"]
 
 [tool.ruff]
 target-version = "py39"
@@ -41,4 +42,4 @@ exclude = '''
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["a2a*", "agents*", "api*", "safety*", "output*", "mcp*", "config*", "memory*"]
+include = ["a2a*", "agents*", "api*", "safety*", "output*", "mcp*", "config*", "memory*", "llm*"]

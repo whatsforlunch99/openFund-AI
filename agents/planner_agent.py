@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
+
+if TYPE_CHECKING:
+    from llm.base import LLMClient
 
 # Same allowed values as api/rest.py; normalize so Responder/OutputRail get consistent profile.
 VALID_USER_PROFILES = ("beginner", "long_term", "analyst")
@@ -39,11 +42,23 @@ class PlannerAgent(BaseAgent):
     Slice 5: sends to all three in one round; aggregates INFORMs then forwards to Responder.
     """
 
-    def __init__(self, name: str, message_bus: MessageBus) -> None:
+    def __init__(
+        self,
+        name: str,
+        message_bus: MessageBus,
+        llm_client: Optional[LLMClient] = None,
+    ) -> None:
         super().__init__(name, message_bus)
-        self._round_pending: dict[str, set[str]] = {}  # conversation_id -> agents we're waiting for
-        self._collected: dict[str, dict[str, Any]] = {}  # conversation_id -> { agent: content }
-        self._user_profile_by_conversation: dict[str, str] = {}  # conversation_id -> user_profile
+        self._llm_client = llm_client
+        self._round_pending: dict[str, set[str]] = (
+            {}
+        )  # conversation_id -> agents we're waiting for
+        self._collected: dict[str, dict[str, Any]] = (
+            {}
+        )  # conversation_id -> { agent: content }
+        self._user_profile_by_conversation: dict[str, str] = (
+            {}
+        )  # conversation_id -> user_profile
 
     def handle_message(self, message: ACLMessage) -> None:
         """Handle incoming messages directed to the Planner.
@@ -58,17 +73,25 @@ class PlannerAgent(BaseAgent):
         if message.performative == Performative.STOP:
             return
         content = message.content or {}
-        conversation_id = content.get("conversation_id") or message.conversation_id or ""
+        conversation_id = (
+            content.get("conversation_id") or message.conversation_id or ""
+        )
 
         # Specialist replied: store content, mark agent done, forward when all three received
-        if message.performative == Performative.INFORM and message.sender in ("librarian", "websearcher", "analyst"):
+        if message.performative == Performative.INFORM and message.sender in (
+            "librarian",
+            "websearcher",
+            "analyst",
+        ):
             if conversation_id not in self._collected:
                 return
             self._collected[conversation_id][message.sender] = content
             self._round_pending[conversation_id].discard(message.sender)
             if not self._round_pending[conversation_id]:
                 final = self._format_final(self._collected[conversation_id])
-                user_profile = self._user_profile_by_conversation.get(conversation_id, "beginner")
+                user_profile = self._user_profile_by_conversation.get(
+                    conversation_id, "beginner"
+                )
                 self.bus.send(
                     ACLMessage(
                         performative=Performative.INFORM,
@@ -107,7 +130,9 @@ class PlannerAgent(BaseAgent):
         for step in steps:
             step.params = dict(step.params)
             if "path" in content:
-                step.params["path"] = content["path"]  # E2E passes path for file_tool
+                step.params["path"] = content[
+                    "path"
+                ]  # E2E and API can pass file path for file_tool
             req = self.create_research_request(query, step, context=None)
             req.conversation_id = conversation_id
             req.reply_to = self.name
@@ -129,7 +154,11 @@ class PlannerAgent(BaseAgent):
                 parts.append(str(c["content"]))
             elif c.get("documents") or c.get("graph"):
                 parts.append("Librarian: documents and graph data retrieved.")
-            elif c.get("file") and isinstance(c["file"], dict) and c["file"].get("content"):
+            elif (
+                c.get("file")
+                and isinstance(c["file"], dict)
+                and c["file"].get("content")
+            ):
                 parts.append(c["file"]["content"])
             else:
                 parts.append("Librarian: data retrieved.")
@@ -146,7 +175,8 @@ class PlannerAgent(BaseAgent):
     def decompose_task(self, query: str) -> list[TaskStep]:
         """Produce a ReAct-style task chain from the user query.
 
-        Slice 5: one round with all three agents (librarian, websearcher, analyst).
+        Uses llm_client.decompose_to_steps when available (Stage 10.2); otherwise
+        returns a fixed one-round chain (librarian, websearcher, analyst).
 
         Args:
             query: Raw user investment query.
@@ -154,9 +184,28 @@ class PlannerAgent(BaseAgent):
         Returns:
             Ordered list of TaskSteps (one per specialist).
         """
+        if self._llm_client is not None:
+            try:
+                step_dicts = self._llm_client.decompose_to_steps(query)
+                if step_dicts:
+                    return [
+                        TaskStep(
+                            agent=s.get("agent", "librarian"),
+                            action=s.get("action", "analyze"),
+                            params=dict(s.get("params") or {}),
+                        )
+                        for s in step_dicts
+                        if isinstance(s, dict)
+                        and (s.get("agent") or "").strip().lower()
+                        in ("librarian", "websearcher", "analyst")
+                    ]
+            except Exception:
+                pass
         return [
             TaskStep(agent="librarian", action="read_file", params={"query": query}),
-            TaskStep(agent="websearcher", action="fetch_market", params={"query": query}),
+            TaskStep(
+                agent="websearcher", action="fetch_market", params={"query": query}
+            ),
             TaskStep(agent="analyst", action="analyze", params={"query": query}),
         ]
 

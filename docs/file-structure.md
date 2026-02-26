@@ -761,7 +761,7 @@ bus.send(refinement_msg)
 
 ## Function: `create_app() -> Any`
 
-**Purpose:** Build and return the FastAPI application with chat and conversation routes wired to shared state (bus, manager, safety, mcp_client).
+**Purpose:** Build and return the FastAPI application with chat, conversation, and WebSocket routes wired to shared state (bus, manager, safety, mcp_client).
 
 **Docstring:** `Create FastAPI application with chat and conversation routes. Returns: FastAPI app instance.`
 
@@ -812,17 +812,17 @@ state = get_conversation("uuid-here")
 
 # api/websocket.py
 
-**Purpose:** Layer 1 — WebSocket handler. Same flow as POST /chat but stream partial responses over the socket.
+**Purpose:** Layer 1 — WebSocket handler. Same flow as POST /chat; one event (response, timeout, or error) then close.
 
 ---
 
-## Function: `handle_websocket(websocket: Any) -> None`
+## Function: `handle_websocket(websocket, bus, manager, safety_gateway, timeout_seconds) -> None` (async)
 
-**Purpose:** Accept WebSocket connection, receive query (and optional conversation_id, user_profile), run through SafetyGateway, post to bus, stream partial responses back.
+**Purpose:** Handle WebSocket /ws: receive one JSON message (query required; optional conversation_id, user_profile, user_id, path), validate, run SafetyGateway.process_user_input, create or get conversation, send REQUEST to planner, wait on completion_event (via run_in_executor), send one event (response | timeout | error) and close.
 
-**Docstring:** `Handle WebSocket /ws connection. Same semantics as POST /chat: receive query (and optional conversation_id, user_profile), run through SafetyGateway, post to MessageBus, stream partial responses back. Args: websocket: WebSocket connection object (e.g. FastAPI WebSocket).`
+**Docstring:** `Handle WebSocket /ws connection. Same flow as POST /chat: receive one JSON message (query required; optional conversation_id, user_profile, user_id, path), validate, run SafetyGateway.process_user_input, create or get conversation, send REQUEST to planner, wait on completion_event, then send one event (response, timeout, or error) and close. Args: websocket: WebSocket connection (accept() called by route); bus, manager, safety_gateway, timeout_seconds: from app.state.`
 
-**Example usage:** Mounted as WebSocket route; called by FastAPI when client connects to /ws.
+**Example usage:** Called by FastAPI @app.websocket("/ws") after accept().
 
 ---
 

@@ -18,7 +18,12 @@ def query_graph(cypher: str, params: Optional[dict] = None) -> dict:
         Dict with nodes/edges or result rows. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD.
     """
     if not os.environ.get("NEO4J_URI"):
-        return {"nodes": [{"id": "n1", "label": "Fund"}], "edges": [], "params": params or {}}
+        # No Neo4j configured; return mock so tests and E2E run without a real graph
+        return {
+            "nodes": [{"id": "n1", "label": "Fund"}],
+            "edges": [],
+            "params": params or {},
+        }
     raise NotImplementedError("Real Neo4j backend not implemented")
 
 
@@ -33,5 +38,10 @@ def get_relations(entity: str) -> dict:
         Dict with related nodes/edges.
     """
     if not os.environ.get("NEO4J_URI"):
-        return {"nodes": [{"id": entity, "label": "Entity"}], "edges": [], "entity": entity}
+        # No Neo4j configured; return mock so tests and E2E run without a real graph
+        return {
+            "nodes": [{"id": entity, "label": "Entity"}],
+            "edges": [],
+            "entity": entity,
+        }
     raise NotImplementedError("Real Neo4j backend not implemented")

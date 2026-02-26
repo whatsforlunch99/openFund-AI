@@ -16,10 +16,10 @@ from dateutil.relativedelta import relativedelta
 
 from mcp.tools.market_tool import (
     AlphaVantageRateLimitError,
-    get_data_cache_dir,
-    get_indicator_vendor,
     _make_api_request,
     _now_iso,
+    get_data_cache_dir,
+    get_indicator_vendor,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,11 +27,23 @@ logger = logging.getLogger(__name__)
 
 # --- Stockstats extended indicators (optional dependency: stockstats) ---
 
-STOCKSTATS_INDICATORS = frozenset({
-    "close_50_sma", "close_200_sma", "close_10_ema",
-    "macd", "macds", "macdh", "rsi",
-    "boll", "boll_ub", "boll_lb", "atr", "vwma", "mfi",
-})
+STOCKSTATS_INDICATORS = frozenset(
+    {
+        "close_50_sma",
+        "close_200_sma",
+        "close_10_ema",
+        "macd",
+        "macds",
+        "macdh",
+        "rsi",
+        "boll",
+        "boll_ub",
+        "boll_lb",
+        "atr",
+        "vwma",
+        "mfi",
+    }
+)
 
 INDICATOR_DESCRIPTIONS = {
     "close_50_sma": "50 SMA: A medium-term trend indicator. Usage: Identify trend direction and serve as dynamic support/resistance. Tips: It lags price; combine with faster indicators for timely signals.",
@@ -113,7 +125,9 @@ def get_indicators_stockstats_window(
         if cache_dir:
             try:
                 data.to_csv(
-                    os.path.join(cache_dir, f"{symbol}-YFin-data-{start_str}-{end_str}.csv"),
+                    os.path.join(
+                        cache_dir, f"{symbol}-YFin-data-{start_str}-{end_str}.csv"
+                    ),
                     index=False,
                 )
             except Exception as e:
@@ -294,37 +308,77 @@ def _av_fetch_indicator_data(
     if indicator == "close_50_sma":
         return _make_api_request(
             "SMA",
-            {"symbol": symbol, "interval": interval, "time_period": "50", "series_type": series_type, "datatype": "csv"},
+            {
+                "symbol": symbol,
+                "interval": interval,
+                "time_period": "50",
+                "series_type": series_type,
+                "datatype": "csv",
+            },
         )
     if indicator == "close_200_sma":
         return _make_api_request(
             "SMA",
-            {"symbol": symbol, "interval": interval, "time_period": "200", "series_type": series_type, "datatype": "csv"},
+            {
+                "symbol": symbol,
+                "interval": interval,
+                "time_period": "200",
+                "series_type": series_type,
+                "datatype": "csv",
+            },
         )
     if indicator == "close_10_ema":
         return _make_api_request(
             "EMA",
-            {"symbol": symbol, "interval": interval, "time_period": "10", "series_type": series_type, "datatype": "csv"},
+            {
+                "symbol": symbol,
+                "interval": interval,
+                "time_period": "10",
+                "series_type": series_type,
+                "datatype": "csv",
+            },
         )
     if indicator in ("macd", "macds", "macdh"):
         return _make_api_request(
             "MACD",
-            {"symbol": symbol, "interval": interval, "series_type": series_type, "datatype": "csv"},
+            {
+                "symbol": symbol,
+                "interval": interval,
+                "series_type": series_type,
+                "datatype": "csv",
+            },
         )
     if indicator == "rsi":
         return _make_api_request(
             "RSI",
-            {"symbol": symbol, "interval": interval, "time_period": str(time_period), "series_type": series_type, "datatype": "csv"},
+            {
+                "symbol": symbol,
+                "interval": interval,
+                "time_period": str(time_period),
+                "series_type": series_type,
+                "datatype": "csv",
+            },
         )
     if indicator in ("boll", "boll_ub", "boll_lb"):
         return _make_api_request(
             "BBANDS",
-            {"symbol": symbol, "interval": interval, "time_period": "20", "series_type": series_type, "datatype": "csv"},
+            {
+                "symbol": symbol,
+                "interval": interval,
+                "time_period": "20",
+                "series_type": series_type,
+                "datatype": "csv",
+            },
         )
     if indicator == "atr":
         return _make_api_request(
             "ATR",
-            {"symbol": symbol, "interval": interval, "time_period": str(time_period), "datatype": "csv"},
+            {
+                "symbol": symbol,
+                "interval": interval,
+                "time_period": str(time_period),
+                "datatype": "csv",
+            },
         )
     return None
 
@@ -385,7 +439,9 @@ def get_indicators_av(
             try:
                 value_col_idx = header.index(target_col_name)
             except ValueError:
-                return {"error": f"Column '{target_col_name}' not found. Available: {header}"}
+                return {
+                    "error": f"Column '{target_col_name}' not found. Available: {header}"
+                }
         else:
             value_col_idx = 1
 
@@ -425,15 +481,14 @@ def get_indicators_av(
 
 # --- Vendor routing ---
 
+
 def _route_indicators(
     symbol: str, indicator: str, as_of_date: str, look_back_days: int
 ) -> dict:
     """Route get_indicators to configured vendor (yfinance/stockstats or alpha_vantage)."""
     if get_indicator_vendor() == "alpha_vantage":
         try:
-            return get_indicators_av(
-                symbol, indicator, as_of_date, look_back_days
-            )
+            return get_indicators_av(symbol, indicator, as_of_date, look_back_days)
         except AlphaVantageRateLimitError:
             pass
     return get_indicators_yf(symbol, indicator, as_of_date, look_back_days)

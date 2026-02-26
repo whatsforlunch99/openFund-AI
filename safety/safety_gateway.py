@@ -80,14 +80,18 @@ class SafetyGateway:
             ValidationResult with valid flag and optional reason.
         """
         if not text or not text.strip():
-            return ValidationResult(valid=False, reason="Input is empty or whitespace only")
+            return ValidationResult(
+                valid=False, reason="Input is empty or whitespace only"
+            )
         if len(text) > MAX_INPUT_LENGTH:
             return ValidationResult(
                 valid=False,
                 reason=f"Input exceeds maximum length of {MAX_INPUT_LENGTH} characters",
             )
         if not _is_printable_or_whitespace(text):
-            return ValidationResult(valid=False, reason="Input contains invalid characters")
+            return ValidationResult(
+                valid=False, reason="Input contains invalid characters"
+            )
         return ValidationResult(valid=True)
 
     def check_guardrails(self, text: str) -> GuardrailResult:
@@ -113,14 +117,10 @@ class SafetyGateway:
         """
         Mask PII (IDs, phone numbers, etc.) in text.
 
-        Args:
-            text: Text that may contain PII.
-
-        Returns:
-            Desensitized string.
+        Replaces phone numbers, emails, and SSN-like patterns with placeholders.
         """
         out = text
-        # Phone: digits with optional dashes/spaces/dots/parens (simple pattern)
+        # Phone: digits with optional separators (dashes, spaces, dots, parens)
         out = re.sub(
             r"\b(?:\d[\d\s\-\.]{8,14}\d|\d{3}[-.\s]?\d{3}[-.\s]?\d{4})\b",
             "[PHONE]",

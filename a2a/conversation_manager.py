@@ -92,7 +92,7 @@ class ConversationManager:
         dir_path = self._user_dir(user_id)
         os.makedirs(dir_path, exist_ok=True)
         path = os.path.join(dir_path, "conversations.json")
-        # Build one dict keyed by conversation_id for this user only
+        # Build one dict keyed by conversation_id for this user only (one file per user)
         data = {}
         for cid, state in self._conversations.items():
             if state.user_id == user_id:
@@ -103,9 +103,9 @@ class ConversationManager:
                     "messages": state.messages,
                     "status": state.status,
                     "final_response": state.final_response,
-                    "created_at": state.created_at.isoformat()
-                    if state.created_at
-                    else None,
+                    "created_at": (
+                        state.created_at.isoformat() if state.created_at else None
+                    ),
                 }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -165,14 +165,13 @@ class ConversationManager:
         if "final_response" in content:
             state.final_response = content["final_response"]
             state.status = "complete"
-            state.completion_event.set()  # Unblock waiters (e.g. POST /chat or --e2e-once)
+            state.completion_event.set()  # Unblock POST /chat or --e2e-once waiting on event.wait()
         self._save_user(state.user_id)
 
     def broadcast_stop(self, conversation_id: str) -> None:
         """Send STOP via MessageBus so agents stop processing this conversation.
 
-        Receiver "*" means broadcast: every registered agent gets the message;
-        agents exit their run() loop when they see STOP.
+        receiver="*" is broadcast: every registered agent gets STOP and exits its run() loop.
 
         Args:
             conversation_id: Conversation to terminate.

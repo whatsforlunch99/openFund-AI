@@ -33,7 +33,12 @@ class WebSearcherAgent(BaseAgent):
         if not self.mcp_client:
             return
         content = message.content or {}
-        fund = content.get("fund") or content.get("symbol") or content.get("query") or "AAPL"
+        fund = (
+            content.get("fund")
+            or content.get("symbol")
+            or content.get("query")
+            or "AAPL"
+        )
         market = self.fetch_market_data(fund)
         sentiment = self.fetch_sentiment(fund)
         regulatory = self.fetch_regulatory(fund)
@@ -71,7 +76,11 @@ class WebSearcherAgent(BaseAgent):
         )
         if isinstance(result, dict) and "error" not in result:
             result.setdefault("timestamp", result.get("timestamp", ""))
-        return result if isinstance(result, dict) else {"content": str(result), "timestamp": ""}
+        return (
+            result
+            if isinstance(result, dict)
+            else {"content": str(result), "timestamp": ""}
+        )
 
     def fetch_sentiment(self, symbol_or_fund: str) -> dict:
         """
@@ -91,7 +100,11 @@ class WebSearcherAgent(BaseAgent):
         )
         if isinstance(result, dict) and "error" not in result:
             result.setdefault("timestamp", result.get("timestamp", ""))
-        return result if isinstance(result, dict) else {"content": str(result), "timestamp": ""}
+        return (
+            result
+            if isinstance(result, dict)
+            else {"content": str(result), "timestamp": ""}
+        )
 
     def fetch_regulatory(self, fund: str) -> dict:
         """
@@ -112,4 +125,8 @@ class WebSearcherAgent(BaseAgent):
         )
         if isinstance(result, dict) and "error" not in result:
             result.setdefault("timestamp", result.get("timestamp", ""))
-        return result if isinstance(result, dict) else {"content": str(result), "timestamp": ""}
+        return (
+            result
+            if isinstance(result, dict)
+            else {"content": str(result), "timestamp": ""}
+        )

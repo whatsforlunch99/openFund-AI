@@ -58,6 +58,7 @@ class ResponderAgent(BaseAgent):
         else:
             user_profile = "beginner"
 
+        # Format by profile and check compliance; append disclaimer if blocked phrase found
         if self.output_rail is not None:
             draft = self.output_rail.format_for_user(
                 (
@@ -72,6 +73,7 @@ class ResponderAgent(BaseAgent):
                 draft = f"{draft}\n\nThis is not investment advice."
             final_response = draft
 
+        # Register reply and broadcast STOP so other agents exit their run loop
         reply_content = {
             "final_response": final_response,
             "conversation_id": conversation_id,

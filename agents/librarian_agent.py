@@ -41,6 +41,7 @@ class LibrarianAgent(BaseAgent):
         if not self.mcp_client:
             return
         content = message.content or {}
+        # Extract requested sources; path may be under "query" when planner sends read_file
         path = content.get("path")
         if not path and content.get("query"):
             path = content.get(

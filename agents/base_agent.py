@@ -33,6 +33,7 @@ class BaseAgent(ABC):
             message = self.bus.receive(self.name)
             if message is None:
                 continue
+            # Exit loop on STOP so this agent thread shuts down cleanly
             if message.performative == Performative.STOP:
                 break
             self.handle_message(message)

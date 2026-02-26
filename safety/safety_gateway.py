@@ -147,12 +147,17 @@ class SafetyGateway:
             ProcessedInput with cleaned text and metadata.
             Raises SafetyError if validation or guardrails fail.
         """
+        # Validate length and charset; raise if invalid
         vr = self.validate_input(raw_input)
         if not vr.valid:
             raise SafetyError(vr.reason or "Validation failed")
+
+        # Block disallowed phrases (e.g. investment advice)
         gr = self.check_guardrails(raw_input)
         if not gr.allowed:
             raise SafetyError(gr.reason or "Guardrails blocked input")
+
+        # Mask PII then return cleaned input and metadata
         masked_text = self.mask_pii(raw_input)
         return ProcessedInput(
             text=masked_text,

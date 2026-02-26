@@ -35,6 +35,7 @@ class MCPServer:
         handler = self._handlers.get(tool_name)
         if handler is None:
             return {"error": f"Unknown tool: {tool_name}"}
+        # Invoke handler; return error dict if it raises
         try:
             return handler(payload)
         except Exception as e:

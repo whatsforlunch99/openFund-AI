@@ -1,0 +1,59 @@
+---
+description: Add simple, descriptive comments every few lines; skip comments for obvious code
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Code comments
+
+Add short, descriptive comments for small blocks of code so the logic is easy to follow. This refines the project preference to add comments when intent is non-obvious (see operating-principles).
+
+## Guidelines
+
+- **Comment small blocks:** Every few lines (e.g. 3–8), add one short comment above that block that explains the *logic* or *intent* (what/why), not the syntax.
+- **One idea per comment:** Prefer one sentence. E.g. "Build request payload and send to planner", "Parse env as int; use default if missing or invalid".
+- **Skip obvious code:** Do not add comments for: simple assignments (`x = 1`), trivial returns (`return result`), self-evident conditionals (`if not name: return`), or standard patterns (e.g. `with open(...) as f:`).
+- **Placement:** Put the comment on the line above the block or, for a single non-obvious line, at the end of the line. Avoid long paragraphs.
+
+## Example
+
+**Without comments (logic is there but not spelled out):**
+
+```python
+def process_user_input(self, raw_input: str) -> ProcessedInput:
+    vr = self.validate_input(raw_input)
+    if not vr.valid:
+        raise SafetyError(vr.reason or "Validation failed")
+    gr = self.check_guardrails(raw_input)
+    if not gr.allowed:
+        raise SafetyError(gr.reason or "Guardrails blocked input")
+    masked_text = self.mask_pii(raw_input)
+    return ProcessedInput(
+        text=masked_text,
+        raw_length=len(raw_input),
+        masked=(masked_text != raw_input),
+    )
+```
+
+**With comments (one per logical step; obvious lines left uncommented):**
+
+```python
+def process_user_input(self, raw_input: str) -> ProcessedInput:
+    # Validate length and charset; raise if invalid
+    vr = self.validate_input(raw_input)
+    if not vr.valid:
+        raise SafetyError(vr.reason or "Validation failed")
+
+    # Block disallowed phrases (e.g. investment advice)
+    gr = self.check_guardrails(raw_input)
+    if not gr.allowed:
+        raise SafetyError(gr.reason or "Guardrails blocked input")
+
+    # Mask PII then return cleaned input and metadata
+    masked_text = self.mask_pii(raw_input)
+    return ProcessedInput(
+        text=masked_text,
+        raw_length=len(raw_input),
+        masked=(masked_text != raw_input),
+    )
+```

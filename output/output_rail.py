@@ -63,6 +63,7 @@ class OutputRail:
         if profile not in ("beginner", "long_term", "analyst"):
             profile = "beginner"
 
+        # Add disclaimer or tag per profile type
         if profile == "beginner":
             disclaimer = "This is not investment advice."
             return f"{text.strip()}\n\n{disclaimer}"

@@ -37,6 +37,7 @@ def _run_e2e_once() -> None:
     for name in ("planner", "librarian", "websearcher", "analyst", "responder"):
         bus.register_agent(name)
 
+    # Wire manager, MCP server with default tools, LLM client, and all five agents
     mgr = ConversationManager(bus)
     server = MCPServer()
     server.register_default_tools()

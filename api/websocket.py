@@ -44,6 +44,7 @@ async def handle_websocket(
         await websocket.close()
         return
 
+    # Require non-empty query and valid user_profile
     query = body.get("query")
     if query is None or (isinstance(query, str) and not query.strip()):
         await websocket.send_json(
@@ -74,6 +75,7 @@ async def handle_websocket(
         conversation_id = str(conversation_id).strip() or None
     path = body.get("path")
 
+    # Run safety; then create or get conversation
     try:
         safety_gateway.process_user_input(query)
     except SafetyError as e:
@@ -99,6 +101,7 @@ async def handle_websocket(
             await websocket.close()
             return
 
+    # Build REQUEST content and send to planner
     content = {
         "query": query,
         "conversation_id": conversation_id,
@@ -117,6 +120,7 @@ async def handle_websocket(
         )
     )
 
+    # Block until responder sets final_response or timeout; then send one event and close
     loop = asyncio.get_running_loop()
     signaled = await loop.run_in_executor(
         None, lambda: state.completion_event.wait(timeout=timeout_seconds)

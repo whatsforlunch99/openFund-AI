@@ -39,6 +39,7 @@ class LiveLLMClient:
     def decompose_to_steps(self, query: str) -> list[dict[str, Any]]:
         """Call the LLM to decompose the query into steps; parse and validate."""
         try:
+            # Call OpenAI and parse response into step dicts
             client = self._get_client()
             response = client.chat.completions.create(
                 model=self._model,
@@ -68,7 +69,7 @@ class LiveLLMClient:
 
     def _parse_steps(self, text: str, query: str) -> list[dict[str, Any]]:
         """Extract JSON array from LLM response and validate agent names."""
-        # Allow JSON inside markdown code block
+        # Strip markdown code fence if present so we can parse raw JSON
         if "```" in text:
             match = re.search(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", text)
             if match:
@@ -79,6 +80,7 @@ class LiveLLMClient:
             return []
         if not isinstance(raw, list):
             return []
+        # Keep only items with allowed agent names and build step dicts
         result = []
         for item in raw:
             if not isinstance(item, dict):

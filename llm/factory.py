@@ -36,4 +36,5 @@ def get_llm_client(config: Config) -> LLMClient:
                 "LLM_API_KEY set but live client unavailable (install [llm] extra): %s. Using static mock.",
                 e,
             )
+    # No API key or import failed; use mock so app runs without OpenAI
     return StaticLLMClient()

@@ -186,6 +186,7 @@ class PlannerAgent(BaseAgent):
         """
         if self._llm_client is not None:
             try:
+                # Use LLM to get step dicts; filter to allowed agents and build TaskSteps
                 step_dicts = self._llm_client.decompose_to_steps(query)
                 if step_dicts:
                     return [
@@ -201,6 +202,7 @@ class PlannerAgent(BaseAgent):
                     ]
             except Exception:
                 pass
+        # No LLM or parse failed; use fixed three steps (librarian, websearcher, analyst)
         return [
             TaskStep(agent="librarian", action="read_file", params={"query": query}),
             TaskStep(

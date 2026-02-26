@@ -78,6 +78,52 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend
 
 ---
 
+## Future implementation tracker
+
+*(Functions that currently raise NotImplementedError or are stubs; track here for future work. Abstract methods and intentional "use TestClient" wrappers in api/rest.py are excluded.)*
+
+### Backend integrations (when Neo4j / Postgres / Milvus are available)
+
+- **mcp/tools/kg_tool.py:** `query_graph(cypher, params)` — use neo4j driver with NEO4J_URI/NEO4J_USER/NEO4J_PASSWORD; run Cypher with params; return nodes/edges or result rows.
+- **mcp/tools/kg_tool.py:** `get_relations(entity)` — same driver; query relations for entity; return dict with nodes, edges, entity.
+- **mcp/tools/sql_tool.py:** `run_query(query, params)` — use psycopg2 or SQLAlchemy with DATABASE_URL; execute with parameterization; return dict with rows and optional schema.
+- **mcp/tools/vector_tool.py:** `search(query, top_k, filter)` — when MILVUS_URI set: connect to Milvus, embed query, search collection; return list of docs with scores.
+- **mcp/tools/vector_tool.py:** `index_documents(docs)` — embed and upsert docs into Milvus collection; return count/status.
+
+Keep current mock return when env is unset so E2E and tests pass without backends.
+
+### MCP tool stubs (to complete tool surface)
+
+- **mcp/tools/file_tool.py:** `list_files(prefix)` — list paths under MCP_FILE_BASE_DIR + prefix (e.g. os.listdir/glob); return list of relative paths.
+- **mcp/tools/market_tool.py:** `fetch(fund_or_symbol)` — wrap get_stock_data_yf or get_fundamentals_yf; add timestamp; return dict.
+- **mcp/tools/market_tool.py:** `fetch_bulk(symbols)` — loop symbols, call existing yfinance helpers; return dict keyed by symbol with timestamp.
+- **mcp/tools/market_tool.py:** `search_web(query)` — call Tavily API if TAVILY_API_KEY set; normalize to list of dicts with timestamp; else fallback (e.g. get_news_yf).
+- **mcp/tools/analyst_tool.py:** `run_analysis(payload)` — if ANALYST_API_URL set: POST payload with optional ANALYST_API_KEY; return response JSON; else return stub dict.
+
+### Phase 2 (multi-round / confidence-driven flow)
+
+- **agents/planner_agent.py:** `resolve_conflicts(agent_outputs)` — reconcile when librarian/websearcher/analyst disagree (e.g. LLM merge or rule-based preference).
+- **agents/responder_agent.py:** `evaluate_confidence(analysis)` — return float from analysis.get("confidence") or computed from distribution/indicators.
+- **agents/responder_agent.py:** `should_terminate(confidence)` — compare to RESPONDER_CONFIDENCE_THRESHOLD; return True to stop, False to request refinement.
+- **agents/responder_agent.py:** `format_response(analysis, user_profile)` — build string from analysis (e.g. summary); call OutputRail.format_for_user; return formatted string.
+- **agents/responder_agent.py:** `request_refinement(reason)` — return ACLMessage(REQUEST, sender=responder, receiver=planner, content={"reason": reason, "conversation_id": ...}).
+
+### Suggested implementation order
+
+1. **Low effort:** file_tool.list_files (directory listing under base_dir).
+2. **Unify market:** market_tool.fetch, fetch_bulk, search_web (wrap existing yfinance/Tavily).
+3. **Custom analyst:** analyst_tool.run_analysis (HTTP POST to ANALYST_API_URL).
+4. **Backends:** kg_tool, sql_tool, vector_tool when Neo4j/Postgres/Milvus instances are available.
+5. **Phase 2:** ResponderAgent confidence/termination/format/refinement and PlannerAgent resolve_conflicts when adding multi-round flow.
+
+### Not to implement (by design)
+
+- **a2a/message_bus.py:** MessageBus abstract methods — InMemoryMessageBus implements them.
+- **agents/base_agent.py:** BaseAgent.handle_message — abstract; each agent implements.
+- **api/rest.py:** post_chat, get_conversation — use FastAPI TestClient or real endpoints; left as NotImplementedError by design.
+
+---
+
 ## PRD coverage and risks
 
 **PRD coverage:** The plan meets the PRD for MVP. All functional requirements (FR1–FR7), constraints (C1–C3), and acceptance criteria (AC1–AC5) are covered by slices 1–10 and the contracts in [backend.md](backend.md) and [user-flow.md](user-flow.md). The PRD column in [project-status.md](project-status.md) maps each capability to the relevant FR/AC.

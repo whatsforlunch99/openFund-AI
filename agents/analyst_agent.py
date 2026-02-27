@@ -193,8 +193,8 @@ class AnalystAgent(BaseAgent):
     def monte_carlo_simulation(
         self,
         returns: list[float],
-        horizon: int,
-        n_sims: int,
+        _horizon: int,
+        _n_sims: int,
     ) -> dict:
         """
         Run Monte Carlo simulation; return distribution, not single point.

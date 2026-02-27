@@ -305,8 +305,8 @@ class PlannerAgent(BaseAgent):
                         and (s.get("agent") or "").strip().lower()
                         in ("librarian", "websearcher", "analyst")
                     ]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("LLM task parse failed, using default steps: %s", e)
         # No LLM or parse failed; use fixed three steps (librarian, websearcher, analyst)
         # Pass vector_query and fund so the librarian calls vector_tool and kg_tool
         # (demo can then use populated backends; file_tool uses path=query)
@@ -333,7 +333,7 @@ class PlannerAgent(BaseAgent):
         self,
         query: str,
         step: TaskStep,
-        context: Optional[dict[str, Any]] = None,
+        _context: Optional[dict[str, Any]] = None,
     ) -> ACLMessage:
         """Build a request ACL message for Librarian, WebSearcher, or Analyst.
 
@@ -354,7 +354,7 @@ class PlannerAgent(BaseAgent):
             content=content,
         )
 
-    def resolve_conflicts(self, agent_outputs: dict[str, Any]) -> Any:
+    def resolve_conflicts(self, _agent_outputs: dict[str, Any]) -> Any:
         """Self-reflection when agent results conflict (Phase 2).
 
         Args:

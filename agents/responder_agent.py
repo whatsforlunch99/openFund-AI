@@ -151,7 +151,7 @@ class ResponderAgent(BaseAgent):
             self.conversation_manager.register_reply(conversation_id, reply_msg)
             self.conversation_manager.broadcast_stop(conversation_id)
 
-    def evaluate_confidence(self, analysis: dict) -> float:
+    def evaluate_confidence(self, _analysis: dict) -> float:
         """Compute confidence score for the analysis output.
 
         Args:
@@ -173,7 +173,7 @@ class ResponderAgent(BaseAgent):
         """
         raise NotImplementedError
 
-    def format_response(self, analysis: dict, user_profile: str) -> str:
+    def format_response(self, _analysis: dict, user_profile: str) -> str:
         """Turn analysis dict into user-facing text via OutputRail.
 
         Args:

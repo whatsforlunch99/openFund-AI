@@ -78,6 +78,10 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend
 
 - **MCP `register_default_tools` failing when pandas missing:** `register_default_tools()` imported all tools in one block; if `analyst_tool` (or `market_tool`) failed to import (e.g. missing pandas), stage 2.1/2.2 tests failed. Fix: import `file_tool` first and register it; register `market_tool` and `analyst_tool` only inside try/except ImportError so optional tools are skipped when deps are missing.
 
+- **Community-common tools implemented:** Per [backend-tools-design.md](backend-tools-design.md) (section "Community-common tools"): kg_tool (`get_node_by_id`, `get_neighbors`, `get_graph_schema`), sql_tool (`explain_query`, `export_results`, `connection_health_check`), vector_tool (`get_by_ids`, `upsert_documents`, `health_check`), and `get_capabilities` (mcp/tools/capabilities.py) are implemented and registered in `register_default_tools`. Mock behavior when env unset; tests in tests/test_kg_tool.py, test_sql_tool.py, test_vector_tool.py, test_capabilities.py.
+
+- **Deferred community-common tools implemented:** kg_tool: `shortest_path`, `get_similar_nodes`, `fulltext_search`, `bulk_export`, `bulk_create_nodes`; vector_tool: `create_collection_from_config`. All registered in `register_default_tools`; mock when NEO4J_URI/MILVUS_URI unset. Tests in tests/test_kg_tool.py and tests/test_vector_tool.py. Fulltext search requires an existing Neo4j fulltext index; bulk_export allows only read-only Cypher (MATCH/CALL).
+
 ---
 
 ## Future implementation tracker

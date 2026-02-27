@@ -11,7 +11,7 @@ requires-python = ">=3.9"
 dependencies = [
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.22.0",
-    "yfinance>=0.2.0",
+    "yfinance==0.1.83",
     "pandas>=2.0.0",
     "python-dateutil>=2.8.0",
     "rank_bm25>=0.2.2",
@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "ruff>=0.1.0", "black>=24.0.0", "httpx>=0.24.0", "vulture>=2.0"]
+dev = ["pytest>=7.0", "ruff>=0.1.0", "black>=24.0.0", "httpx>=0.24.0", "vulture>=2.0", "bandit>=1.7.0", "mypy>=1.0.0"]
 llm = ["openai>=1.0"]
 backends = [
     "neo4j>=5.0.0",
@@ -50,3 +50,10 @@ exclude = '''
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["a2a*", "agents*", "api*", "safety*", "output*", "mcp*", "config*", "memory*", "llm*", "demo*", "util*", "data*"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+disable_error_code = ["import-untyped", "no-any-return"]

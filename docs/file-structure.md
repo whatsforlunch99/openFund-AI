@@ -36,13 +36,12 @@ OpenFund-AI/
 │   ├── __init__.py
 │   ├── __main__.py       # Entry point for python -m data
 │   ├── cli.py            # CLI: populate, sql, neo4j, milvus index/delete
-│   ├── postgres.py       # PostgreSQL data management (populate_postgres via sql_tool)
-│   ├── neo4j.py          # Neo4j data management (populate_neo4j via kg_tool)
-│   ├── milvus.py         # Milvus data management (populate_milvus via vector_tool)
-│   └── populate.py       # Orchestrator: load .env, call postgres/neo4j/milvus populate
+│   ├── env_loader.py      # load_dotenv from project root
+│   └── populate.py       # Orchestrator: load .env, call sql/kg/vector_tool.populate_demo()
 ├── scripts/
 │   ├── install_backends.sh   # Install Homebrew, Postgres, Neo4j, .env, pip [backends]
 │   ├── start_services.sh     # Start Postgres, Neo4j, Milvus (loads .env)
+│   ├── start_milvus.sh       # Start Milvus container (e.g. for data milvus / vector_tool)
 │   ├── start_backends.py     # Check/start backends (python scripts/start_backends.py)
 │   └── load-env.sh          # Load .env (optional)
 ├── safety/
@@ -68,7 +67,8 @@ OpenFund-AI/
 │       ├── kg_tool.py
 │       ├── market_tool.py
 │       ├── analyst_tool.py
-│       └── sql_tool.py
+│       ├── sql_tool.py
+│       └── capabilities.py   # get_capabilities (backends + tool list)
 ├── config/
 │   ├── __init__.py
 │   └── config.py
@@ -91,6 +91,7 @@ OpenFund-AI/
     ├── backend.md
     ├── frontend.md
     ├── file-structure.md
+    ├── backend-tools-design.md   # Suggested MCP tool functions and community-common patterns (Neo4j, Postgres, Milvus)
     ├── test_plan.md
     ├── progress.md
     └── project-status.md
@@ -924,7 +925,7 @@ state = get_conversation("uuid-here")
 
 # data/
 
-**Purpose:** CLI entry point for backend data services. Create, update, and delete data in PostgreSQL, Neo4j, and Milvus. Run with `python -m data` (requires `pip install -e ".[backends]"` and corresponding env vars in `.env`). **Populate:** `python -m data populate` seeds all configured backends with demo data (NVDA/NVIDIA) matching `demo.demo_data`; the orchestrator is [data/populate.py](data/populate.py); backend logic lives in [data/postgres.py](data/postgres.py), [data/neo4j.py](data/neo4j.py), and [data/milvus.py](data/milvus.py).
+**Purpose:** CLI entry point for backend data services. Create, update, and delete data in PostgreSQL, Neo4j, and Milvus. Run with `python -m data` (requires `pip install -e ".[backends]"` and corresponding env vars in `.env`). **Populate:** `python -m data populate` seeds all configured backends with demo data (NVDA/NVIDIA) matching `demo.demo_data`; the orchestrator is [data/populate.py](data/populate.py); backend logic lives in [mcp/tools/sql_tool.py](mcp/tools/sql_tool.py), [mcp/tools/kg_tool.py](mcp/tools/kg_tool.py), and [mcp/tools/vector_tool.py](mcp/tools/vector_tool.py) (`populate_demo`). See [docs/backend-tools-design.md](backend-tools-design.md) for suggested named helpers and community-common tool patterns.
 
 ---
 
@@ -936,33 +937,17 @@ state = get_conversation("uuid-here")
 
 ---
 
-## data/postgres.py
+## data/env_loader.py
 
-**Purpose:** PostgreSQL data management. Create schema and seed demo data via mcp.tools.sql_tool. For one-off queries use the CLI (`data sql`) or sql_tool.run_query directly.
+**Purpose:** Load .env from project root so data CLI and populate work from any cwd.
 
-**Functions:** `populate_postgres() -> (bool, str)` — create funds table (if not exists), insert NVDA row; uses DATABASE_URL. Skips if DATABASE_URL unset.
-
----
-
-## data/neo4j.py
-
-**Purpose:** Neo4j data management. Create nodes/edges and seed demo data via mcp.tools.kg_tool. Includes CredentialsExpired/Unauthorized hint logic for auth failures. For one-off Cypher use the CLI (`data neo4j`) or kg_tool.query_graph directly.
-
-**Functions:** `populate_neo4j() -> (bool, str)` — MERGE Company NVDA, Sector Technology, IN_SECTOR edge; uses NEO4J_URI. Skips if NEO4J_URI unset.
-
----
-
-## data/milvus.py
-
-**Purpose:** Milvus data management. Index and delete demo documents via mcp.tools.vector_tool. Includes connection-error hint (e.g. start_milvus.sh). For one-off index/delete use the CLI (`data milvus index/delete`) or vector_tool directly.
-
-**Functions:** `populate_milvus() -> (bool, str)` — delete by source=="demo", index two demo docs; uses MILVUS_URI. Skips if MILVUS_URI unset.
+**Functions:** `load_dotenv() -> None` — load .env from project root (uses python-dotenv if available).
 
 ---
 
 ## data/populate.py
 
-**Purpose:** Thin orchestrator only. Load .env, call populate_postgres (from data.postgres), populate_neo4j (from data.neo4j), populate_milvus (from data.milvus), print results, return 0. No backend logic here; see data/postgres.py, data/neo4j.py, data/milvus.py.
+**Purpose:** Thin orchestrator only. Load .env, call mcp.tools.sql_tool.populate_demo(), mcp.tools.kg_tool.populate_demo(), mcp.tools.vector_tool.populate_demo(), print results, return 0. No backend logic here; see mcp/tools/sql_tool.py, kg_tool.py, vector_tool.py.
 
 **Functions:** `run_populate() -> int`.
 
@@ -1371,7 +1356,7 @@ result = server.dispatch("read_file", {"path": "CHANGELOG.md"})
 
 ## Method: `MCPServer.register_default_tools(self) -> None`
 
-**Purpose:** Register file_tool first (read_file); then vector_tool.search, kg_tool.query_graph, kg_tool.get_relations, sql_tool.run_query. Then market_tool and analyst_tool only if imports succeed (optional deps e.g. pandas, yfinance). Each handler receives the MCP payload dict and passes required params to the underlying function. Vendor-agnostic tools (market_tool.get_stock_data, get_fundamentals, …, analyst_tool.get_indicators) route via MCP_MARKET_VENDOR and MCP_INDICATOR_VENDOR. Call after creating the server.
+**Purpose:** Register file_tool first (read_file); then vector_tool.search, kg_tool.query_graph, kg_tool.get_relations, sql_tool.run_query; then community-common tools (kg_tool.get_node_by_id, get_neighbors, get_graph_schema; sql_tool.explain_query, export_results, connection_health_check; vector_tool.get_by_ids, upsert_documents, health_check); get_capabilities last. Then market_tool and analyst_tool only if imports succeed (optional deps e.g. pandas, yfinance). Each handler receives the MCP payload dict and passes required params to the underlying function. Vendor-agnostic tools (market_tool.get_stock_data, get_fundamentals, …, analyst_tool.get_indicators) route via MCP_MARKET_VENDOR and MCP_INDICATOR_VENDOR. Call after creating the server.
 
 ---
 
@@ -1411,7 +1396,7 @@ paths = list_files("docs/")
 
 # mcp/tools/vector_tool.py
 
-**Purpose:** MCP tool for semantic search and indexing over Milvus. Config: MILVUS_URI, MILVUS_COLLECTION.
+**Purpose:** MCP tool for semantic search and indexing over Milvus. Config: MILVUS_URI, MILVUS_COLLECTION. Demo seeding: `populate_demo()` deletes by source=="demo", indexes two NVDA docs (caller loads .env).
 
 ---
 
@@ -1441,9 +1426,33 @@ result = index_documents([{"content": "Fund X ...", "fund_id": "X"}])
 
 ---
 
+## Function: `get_by_ids(ids: List[str], collection_name: Optional[str] = None) -> dict`
+
+**Purpose:** Retrieve entities by primary key (id in ids). Returns `{"entities": [...]}`; mock when MILVUS_URI unset.
+
+---
+
+## Function: `upsert_documents(docs: List[dict]) -> dict`
+
+**Purpose:** Insert or overwrite by primary key (each doc must have "id"). Returns `{"upserted": n, "status": "ok"}` or error when MILVUS_URI unset.
+
+---
+
+## Function: `health_check() -> dict`
+
+**Purpose:** Ping Milvus; return `{"ok": true}` or `{"ok": false, "error": "..."}`. When MILVUS_URI unset return `{"ok": false, "error": "MILVUS_URI not set"}`.
+
+---
+
+## Function: `populate_demo() -> tuple[bool, str]`
+
+**Purpose:** Delete by source=="demo", index two demo documents. Uses MILVUS_URI. Returns (success, message). Keeps connection-error hint (start_milvus.sh). Caller should load .env first.
+
+---
+
 # mcp/tools/kg_tool.py
 
-**Purpose:** MCP tool for Cypher and relation queries against Neo4j. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD.
+**Purpose:** MCP tool for Cypher and relation queries against Neo4j. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD. Demo seeding: `populate_demo()` MERGEs Company NVDA, Sector Technology, IN_SECTOR (caller loads .env).
 
 ---
 
@@ -1473,9 +1482,33 @@ rels = get_relations("FUND_X")
 
 ---
 
+## Function: `get_node_by_id(id_val: str, id_key: str = "id") -> dict`
+
+**Purpose:** Look up a single node by id_key property; mock when NEO4J_URI unset. Returns `{"node": {...}}` or `{"error": "...", "node": None}`.
+
+---
+
+## Function: `get_neighbors(node_id: str, id_key: str = "id", direction: str = "both", relationship_type: Optional[str] = None, limit: int = 100) -> dict`
+
+**Purpose:** Return 1-hop neighbors; direction in/out/both; optional relationship_type filter. Returns `{"nodes": [...], "relationships": [...]}`; mock when NEO4J_URI unset.
+
+---
+
+## Function: `get_graph_schema() -> dict`
+
+**Purpose:** List node labels and relationship types. Returns `{"node_labels": [...], "relationship_types": [...]}`; mock when NEO4J_URI unset.
+
+---
+
+## Function: `populate_demo() -> tuple[bool, str]`
+
+**Purpose:** MERGE Company NVDA, Sector Technology, IN_SECTOR edge. Uses NEO4J_URI. Returns (success, message). Keeps CredentialsExpired/Unauthorized hints in errors. Caller should load .env first.
+
+---
+
 # mcp/tools/market_tool.py
 
-**Purpose:** MCP tool for market data, web search, company fundamentals, financials, and news. **Vendor config:** get_market_vendor(), get_indicator_vendor(), get_data_cache_dir() (env: MCP_MARKET_VENDOR, MCP_INDICATOR_VENDOR, MCP_DATA_CACHE_DIR). **Alpha Vantage common** (in this file): get_api_key(), format_datetime_for_api(), AlphaVantageRateLimitError, _make_api_request(), _filter_csv_by_date_range(), _now_iso(). analyst_tool imports get_indicator_vendor, get_data_cache_dir, AlphaVantageRateLimitError, _make_api_request, _now_iso from this module. Stubs: fetch, fetch_bulk, search_web (Tavily/Yahoo). Implemented (yfinance): get_stock_data_yf, get_fundamentals_yf, get_balance_sheet_yf, get_cashflow_yf, get_income_statement_yf, get_insider_transactions_yf, get_news_yf, get_global_news_yf. Alpha Vantage implementations (same file, _av suffix): get_stock_data_av, get_fundamentals_av, get_balance_sheet_av, get_cashflow_av, get_income_statement_av, get_news_av, get_global_news_av, get_insider_transactions_av. **Vendor routing:** _route_* helpers select yfinance or Alpha Vantage via MCP_MARKET_VENDOR; on Alpha Vantage rate limit, fall back to yfinance. All returns include `timestamp`. Config: TAVILY_API_KEY, YAHOO_BASE_URL; optional ALPHA_VANTAGE_API_KEY.
+**Purpose:** MCP tool for market data, web search, company fundamentals, financials, and news. **Vendor config:** get_market_vendor(), get_indicator_vendor(), get_data_cache_dir() (env: MCP_MARKET_VENDOR, MCP_INDICATOR_VENDOR, MCP_DATA_CACHE_DIR). **Alpha Vantage common** (in this file): get_api_key(), format_datetime_for_api(), AlphaVantageRateLimitError, _make_api_request(), _filter_csv_by_date_range(), _now_iso(). analyst_tool imports get_indicator_vendor, get_data_cache_dir, AlphaVantageRateLimitError, _make_api_request, _now_iso from this module. Stubs: fetch, fetch_bulk, search_web (Tavily/Yahoo). Implemented (yfinance): get_stock_data_yf, get_fundamentals_yf, get_balance_sheet_yf, get_cashflow_yf, get_income_statement_yf, get_insider_transactions_yf, get_news_yf, get_global_news_yf. Alpha Vantage implementations (same file, _av suffix): get_stock_data_av, get_fundamentals_av, get_balance_sheet_av, get_cashflow_av, get_income_statement_av, get_news_av, get_global_news_av, get_insider_transactions_av. **Vendor routing:** _route_* helpers select yfinance or Alpha Vantage via MCP_MARKET_VENDOR; on Alpha Vantage rate limit, fall back to yfinance. **Dify Yahoo–compatible:** get_ticker_info (raw info JSON), get_news_dify (STORY-only news list), get_stock_analytics (segmented OHLCV stats); _parse_stock_data_content_to_df, _route_ticker_info. All returns include `timestamp`. Config: TAVILY_API_KEY, YAHOO_BASE_URL; optional ALPHA_VANTAGE_API_KEY.
 
 ---
 
@@ -1544,7 +1577,7 @@ result = get_indicators_yf("AAPL", "sma_50", "2024-01-15", 10)
 
 # mcp/tools/sql_tool.py
 
-**Purpose:** MCP tool for executing SQL queries with optional parameters. Returns rows and optional schema.
+**Purpose:** MCP tool for executing SQL queries with optional parameters. Returns rows and optional schema. Demo seeding: `populate_demo()` creates funds table and inserts NVDA (uses DATABASE_URL; caller loads .env).
 
 ---
 
@@ -1561,9 +1594,45 @@ result = run_query("SELECT * FROM funds WHERE id = :id", {"id": "X"})
 
 ---
 
+## Function: `explain_query(query: str, params: Optional[Dict] = None, analyze: bool = False) -> dict`
+
+**Purpose:** Run EXPLAIN or EXPLAIN ANALYZE for a read-only query; return plan rows. Only SELECT/EXPLAIN allowed. Mock when DATABASE_URL unset.
+
+---
+
+## Function: `export_results(query: str, params: Optional[Dict] = None, format: str = "json", row_limit: int = 1000) -> dict`
+
+**Purpose:** Execute read-only SELECT, apply row_limit; return data as JSON (list of dicts) or CSV string. Mock when DATABASE_URL unset.
+
+---
+
+## Function: `connection_health_check() -> dict`
+
+**Purpose:** Execute SELECT 1; return `{"ok": true}` or `{"ok": false, "error": "..."}`. When DATABASE_URL unset return `{"ok": false, "error": "DATABASE_URL not set"}`.
+
+---
+
+## Function: `populate_demo() -> tuple[bool, str]`
+
+**Purpose:** Create funds table (if not exists) and insert NVDA row. Uses DATABASE_URL. Returns (success, message). Caller should load .env first.
+
+---
+
+# mcp/tools/capabilities.py
+
+**Purpose:** Introspection of which backends and tools are available. Used by MCP tool `get_capabilities`.
+
+---
+
+## Function: `get_capabilities(tool_names: List[str]) -> dict`
+
+**Purpose:** Return which backends are configured (neo4j, postgres, milvus from env) and which tools are registered. Args: tool_names from server._handlers.keys(). Returns `{"neo4j": bool, "postgres": bool, "milvus": bool, "tools": sorted list including get_capabilities}`.
+
+---
+
 # tests/test-stages.py
 
-**Purpose:** Single test file for staged implementation. Tests are **standalone functions** named `test_stage_X_Y` (e.g. `test_stage_1_1`, `test_stage_1_2`, `test_stage_2_1`). Run full suite: `pytest tests/test-stages.py -v`. Run a subset: `pytest tests/test-stages.py -k stage_1_2 -v`. Per-stage assertions and commands: see [progress.md](progress.md) and [test_plan.md](test_plan.md).
+**Purpose:** Single test file for staged implementation. Tests are **standalone functions** named `test_stage_X_Y` (e.g. `test_stage_1_1`, `test_stage_1_2`, `test_stage_2_1`). Run full suite: `pytest tests/test-stages.py -v`. Run a subset: `pytest tests/test-stages.py -k stage_1_2 -v`. Per-stage assertions and commands: see [progress.md](progress.md) and [test_plan.md](test_plan.md). Additional unit tests for community-common tools: tests/test_kg_tool.py, tests/test_sql_tool.py, tests/test_vector_tool.py, tests/test_capabilities.py.
 
 ---
 

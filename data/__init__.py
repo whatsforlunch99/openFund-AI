@@ -10,14 +10,8 @@ Run: python -m data --help
 
 from data.cli import main
 from data.populate import run_populate
-from data.postgres import populate_postgres
-from data.neo4j import populate_neo4j
-from data.milvus import populate_milvus
 
 __all__ = [
     "main",
     "run_populate",
-    "populate_postgres",
-    "populate_neo4j",
-    "populate_milvus",
 ]

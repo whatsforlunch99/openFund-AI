@@ -69,6 +69,31 @@ class MCPServer:
                 else {"error": "Missing required parameter 'query'"}
             ),
         )
+        self.register_tool(
+            "vector_tool.get_by_ids",
+            lambda p: vector_tool.get_by_ids(
+                p.get("ids") or [],
+                p.get("collection_name"),
+            ),
+        )
+        self.register_tool(
+            "vector_tool.upsert_documents",
+            lambda p: vector_tool.upsert_documents(p.get("docs") or []),
+        )
+        self.register_tool(
+            "vector_tool.health_check",
+            lambda p: vector_tool.health_check(),
+        )
+        self.register_tool(
+            "vector_tool.create_collection_from_config",
+            lambda p: vector_tool.create_collection_from_config(
+                p.get("name") or "",
+                int(p["dimension"]) if "dimension" in p and p["dimension"] is not None else 384,
+                p.get("primary_key_field") or "id",
+                p.get("scalar_fields"),
+                p.get("index_params"),
+            ),
+        )
         from mcp.tools import kg_tool
 
         self.register_tool(
@@ -86,6 +111,70 @@ class MCPServer:
                 else {"error": "Missing required parameter 'entity'"}
             ),
         )
+        self.register_tool(
+            "kg_tool.get_node_by_id",
+            lambda p: kg_tool.get_node_by_id(
+                p.get("id_val") or p.get("id") or "",
+                p.get("id_key") or "id",
+            ),
+        )
+        self.register_tool(
+            "kg_tool.get_neighbors",
+            lambda p: kg_tool.get_neighbors(
+                p.get("node_id") or p.get("id") or "",
+                p.get("id_key") or "id",
+                p.get("direction") or "both",
+                p.get("relationship_type"),
+                int(p["limit"]) if "limit" in p and p["limit"] is not None else 100,
+            ),
+        )
+        self.register_tool(
+            "kg_tool.get_graph_schema",
+            lambda p: kg_tool.get_graph_schema(),
+        )
+        self.register_tool(
+            "kg_tool.shortest_path",
+            lambda p: kg_tool.shortest_path(
+                p.get("start_id") or "",
+                p.get("end_id") or "",
+                p.get("id_key") or "id",
+                p.get("relationship_type"),
+                int(p["max_depth"]) if "max_depth" in p and p["max_depth"] is not None else 15,
+            ),
+        )
+        self.register_tool(
+            "kg_tool.get_similar_nodes",
+            lambda p: kg_tool.get_similar_nodes(
+                p.get("node_id") or p.get("id") or "",
+                p.get("id_key") or "id",
+                int(p["limit"]) if "limit" in p and p["limit"] is not None else 10,
+            ),
+        )
+        self.register_tool(
+            "kg_tool.fulltext_search",
+            lambda p: kg_tool.fulltext_search(
+                p.get("index_name") or "",
+                p.get("query_string") or "",
+                int(p["limit"]) if "limit" in p and p["limit"] is not None else 50,
+            ),
+        )
+        self.register_tool(
+            "kg_tool.bulk_export",
+            lambda p: kg_tool.bulk_export(
+                p.get("cypher") or "",
+                p.get("params"),
+                p.get("format") or "json",
+                int(p["row_limit"]) if "row_limit" in p and p["row_limit"] is not None else 1000,
+            ),
+        )
+        self.register_tool(
+            "kg_tool.bulk_create_nodes",
+            lambda p: kg_tool.bulk_create_nodes(
+                p.get("nodes") or [],
+                p.get("label"),
+                p.get("id_key") or "id",
+            ),
+        )
         from mcp.tools import sql_tool
 
         self.register_tool(
@@ -99,10 +188,33 @@ class MCPServer:
                 else {"error": "Missing required parameter 'query'"}
             ),
         )
+        self.register_tool(
+            "sql_tool.explain_query",
+            lambda p: sql_tool.explain_query(
+                p.get("query") or "",
+                p.get("params"),
+                p.get("analyze") is True,
+            ),
+        )
+        self.register_tool(
+            "sql_tool.export_results",
+            lambda p: sql_tool.export_results(
+                p.get("query") or "",
+                p.get("params"),
+                p.get("format") or "json",
+                int(p["row_limit"]) if "row_limit" in p and p["row_limit"] is not None else 1000,
+            ),
+        )
+        self.register_tool(
+            "sql_tool.connection_health_check",
+            lambda p: sql_tool.connection_health_check(),
+        )
+        market_tool: Any | None = None
         try:
-            from mcp.tools import market_tool
+            from mcp.tools import market_tool as _market_tool
+            market_tool = _market_tool
         except ImportError:
-            market_tool = None
+            pass
         # Skip optional tools if deps (e.g. pandas, yfinance) missing so stage 2.1/2.2 tests pass
         if market_tool is not None:
             self.register_tool(
@@ -150,13 +262,9 @@ class MCPServer:
                 "market_tool.get_news_yf",
                 lambda p: market_tool.get_news_yf(
                     p.get("symbol") or p.get("ticker") or "",
-                    (
-                        p.get("limit")
-                        if "limit" in p
-                        else p.get("count")
-                        if "count" in p
-                        else None
-                    ),
+                    int(p["limit"]) if "limit" in p and p["limit"] is not None
+                    else int(p["count"]) if "count" in p and p["count"] is not None
+                    else 20,
                     p.get("start_date"),
                     p.get("end_date"),
                 ),
@@ -165,8 +273,8 @@ class MCPServer:
                 "market_tool.get_global_news_yf",
                 lambda p: market_tool.get_global_news_yf(
                     p.get("as_of_date") or p.get("curr_date") or "",
-                    p.get("look_back_days") if "look_back_days" in p else None,
-                    p.get("limit") if "limit" in p else None,
+                    int(p["look_back_days"]) if "look_back_days" in p and p["look_back_days"] is not None else 7,
+                    int(p["limit"]) if "limit" in p and p["limit"] is not None else 10,
                 ),
             )
             # Vendor-agnostic tools (route to yfinance or alpha_vantage via config)
@@ -212,9 +320,7 @@ class MCPServer:
                     (
                         p.get("limit")
                         if "limit" in p
-                        else p.get("count")
-                        if "count" in p
-                        else None
+                        else p.get("count") if "count" in p else None
                     ),
                     p.get("start_date"),
                     p.get("end_date"),
@@ -234,10 +340,35 @@ class MCPServer:
                     p.get("ticker") or p.get("symbol") or ""
                 ),
             )
+            self.register_tool(
+                "market_tool.get_ticker_info",
+                lambda p: market_tool.get_ticker_info(
+                    p.get("symbol") or p.get("ticker") or ""
+                ),
+            )
+            self.register_tool(
+                "market_tool.get_news_dify",
+                lambda p: market_tool.get_news_dify(
+                    p.get("symbol") or p.get("ticker") or "",
+                    p.get("limit") if "limit" in p else 20,
+                    p.get("start_date"),
+                    p.get("end_date"),
+                ),
+            )
+            self.register_tool(
+                "market_tool.get_stock_analytics",
+                lambda p: market_tool.get_stock_analytics(
+                    p.get("symbol") or p.get("ticker") or "",
+                    p.get("start_date") or "",
+                    p.get("end_date") or "",
+                ),
+            )
+        analyst_tool: Any | None = None
         try:
-            from mcp.tools import analyst_tool
+            from mcp.tools import analyst_tool as _analyst_tool
+            analyst_tool = _analyst_tool
         except ImportError:
-            analyst_tool = None
+            pass
         # analyst_tool also optional (may pull in pandas etc.)
         if analyst_tool is not None:
             self.register_tool(
@@ -246,7 +377,7 @@ class MCPServer:
                     p.get("symbol") or p.get("ticker") or "",
                     p.get("indicator") or "",
                     p.get("as_of_date") or p.get("curr_date") or "",
-                    p.get("look_back_days") if "look_back_days" in p else None,
+                    int(p["look_back_days"]) if "look_back_days" in p and p["look_back_days"] is not None else 30,
                 ),
             )
             self.register_tool(
@@ -258,3 +389,9 @@ class MCPServer:
                     p.get("look_back_days") if "look_back_days" in p else 30,
                 ),
             )
+        from mcp.tools import capabilities
+
+        self.register_tool(
+            "get_capabilities",
+            lambda p: capabilities.get_capabilities(list(self._handlers.keys())),
+        )

@@ -7,8 +7,8 @@ KG nodes/edges). Run with: python -m data populate.
 Idempotency: Postgres uses ON CONFLICT; Neo4j uses MERGE; Milvus deletes
 by source == "demo" before indexing so re-runs do not duplicate docs.
 
-This module is a thin orchestrator only; backend logic lives in
-data.postgres, data.neo4j, and data.milvus.
+This module is a thin orchestrator only; backend logic lives in mcp.tools
+(sql_tool.populate_demo, kg_tool.populate_demo, vector_tool.populate_demo).
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from __future__ import annotations
 import sys
 
 from data.env_loader import load_dotenv as _load_dotenv
-from data.postgres import populate_postgres
-from data.neo4j import populate_neo4j
-from data.milvus import populate_milvus
+from mcp.tools import kg_tool
+from mcp.tools import sql_tool
+from mcp.tools import vector_tool
 
 
 def run_populate() -> int:
@@ -26,9 +26,9 @@ def run_populate() -> int:
     _load_dotenv()
 
     results = []
-    results.append(populate_postgres())
-    results.append(populate_neo4j())
-    results.append(populate_milvus())
+    results.append(sql_tool.populate_demo())
+    results.append(kg_tool.populate_demo())
+    results.append(vector_tool.populate_demo())
 
     for ok, msg in results:
         print(msg, file=sys.stdout if ok else sys.stderr)

@@ -11,15 +11,12 @@ import json
 import os
 import sys
 
+from data.env_loader import load_dotenv as _load_env_from_project
+
 
 def _load_dotenv() -> None:
-    """Load .env so env vars are set before using tools."""
-    try:
-        from dotenv import load_dotenv
-
-        load_dotenv()
-    except ImportError:
-        pass
+    """Load .env from project root so CLI finds it from any cwd."""
+    _load_env_from_project()
 
 
 def cmd_populate(args: argparse.Namespace) -> int:

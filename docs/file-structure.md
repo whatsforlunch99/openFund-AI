@@ -27,7 +27,8 @@ OpenFund-AI/
 │   └── websocket.py
 ├── demo/
 │   ├── __init__.py
-│   ├── __main__.py       # Single-command entry: python -m demo (start API + chat)
+│   ├── __main__.py       # python -m demo: start API + chat
+│   ├── run.sh           # Single entry: setup + start backends + populate + python -m demo
 │   ├── demo_data.py      # Static MCP responses (NVDA/Nvidia)
 │   ├── demo_client.py    # DemoMCPClient: real sql/kg/vector when env set; file/market/analyst static
 │   └── demo_chat.py      # Interactive CLI chat (python -m demo.demo_chat)
@@ -35,7 +36,15 @@ OpenFund-AI/
 │   ├── __init__.py
 │   ├── __main__.py       # Entry point for python -m data
 │   ├── cli.py            # CLI: populate, sql, neo4j, milvus index/delete
-│   └── populate.py       # Seed demo data into Postgres, Neo4j, Milvus
+│   ├── postgres.py       # PostgreSQL data management (populate_postgres via sql_tool)
+│   ├── neo4j.py          # Neo4j data management (populate_neo4j via kg_tool)
+│   ├── milvus.py         # Milvus data management (populate_milvus via vector_tool)
+│   └── populate.py       # Orchestrator: load .env, call postgres/neo4j/milvus populate
+├── scripts/
+│   ├── install_backends.sh   # Install Homebrew, Postgres, Neo4j, .env, pip [backends]
+│   ├── start_services.sh     # Start Postgres, Neo4j, Milvus (loads .env)
+│   ├── start_backends.py     # Check/start backends (python scripts/start_backends.py)
+│   └── load-env.sh          # Load .env (optional)
 ├── safety/
 │   ├── __init__.py
 │   └── safety_gateway.py
@@ -873,13 +882,19 @@ state = get_conversation("uuid-here")
 
 # demo/
 
-**Purpose:** Demo mode: static MCP responses and interactive CLI chat. Used when `OPENFUND_DEMO=1` or `python main.py --demo`. All demo-related code lives under this package.
+**Purpose:** Demo package: recommended entry `./demo/run.sh` (from project root) for first-time setup and run; or `python -m demo` for chat when backends are already running. Backends (PostgreSQL, Neo4j, Milvus) and static LLM (no API key). When backends are configured and seeded with `python -m data populate`, SQL/KG/vector tools use real backends; file, market, and analyst tools use static data.
+
+---
+
+## demo/run.sh
+
+**Purpose:** Single script to run the demo from project root. If `.env` is missing, creates it from `.env.example` and runs `./scripts/install_backends.sh`, then prompts to edit `.env` and re-run. Otherwise starts services (`./scripts/start_services.sh`), creates DB (`./scripts/create_db.sh`), seeds data (`python -m data populate`), then runs `python -m demo`. Use project venv if present.
 
 ---
 
 ## demo/__main__.py
 
-**Purpose:** Single-command entry for `python -m demo`: starts the API server in demo mode in the background, waits for readiness (GET /demo), then runs the interactive chat client; on quit/exit the server is stopped.
+**Purpose:** Single-command entry for `python -m demo`: starts the API server in demo mode in the background, waits for readiness (GET /demo), then runs the interactive chat client; on quit/exit the server is stopped. This is the only documented entry point for running the demo (backends + static LLM).
 
 ---
 
@@ -909,7 +924,7 @@ state = get_conversation("uuid-here")
 
 # data/
 
-**Purpose:** CLI entry point for backend data services. Create, update, and delete data in PostgreSQL, Neo4j, and Milvus. Run with `python -m data` (requires `pip install -e ".[backends]"` and corresponding env vars in `.env`). **Populate:** `python -m data populate` seeds all configured backends with demo data (NVDA/NVIDIA) matching `demo.demo_data`; see [data/populate.py](data/populate.py).
+**Purpose:** CLI entry point for backend data services. Create, update, and delete data in PostgreSQL, Neo4j, and Milvus. Run with `python -m data` (requires `pip install -e ".[backends]"` and corresponding env vars in `.env`). **Populate:** `python -m data populate` seeds all configured backends with demo data (NVDA/NVIDIA) matching `demo.demo_data`; the orchestrator is [data/populate.py](data/populate.py); backend logic lives in [data/postgres.py](data/postgres.py), [data/neo4j.py](data/neo4j.py), and [data/milvus.py](data/milvus.py).
 
 ---
 
@@ -921,11 +936,35 @@ state = get_conversation("uuid-here")
 
 ---
 
+## data/postgres.py
+
+**Purpose:** PostgreSQL data management. Create schema and seed demo data via mcp.tools.sql_tool. For one-off queries use the CLI (`data sql`) or sql_tool.run_query directly.
+
+**Functions:** `populate_postgres() -> (bool, str)` — create funds table (if not exists), insert NVDA row; uses DATABASE_URL. Skips if DATABASE_URL unset.
+
+---
+
+## data/neo4j.py
+
+**Purpose:** Neo4j data management. Create nodes/edges and seed demo data via mcp.tools.kg_tool. Includes CredentialsExpired/Unauthorized hint logic for auth failures. For one-off Cypher use the CLI (`data neo4j`) or kg_tool.query_graph directly.
+
+**Functions:** `populate_neo4j() -> (bool, str)` — MERGE Company NVDA, Sector Technology, IN_SECTOR edge; uses NEO4J_URI. Skips if NEO4J_URI unset.
+
+---
+
+## data/milvus.py
+
+**Purpose:** Milvus data management. Index and delete demo documents via mcp.tools.vector_tool. Includes connection-error hint (e.g. start_milvus.sh). For one-off index/delete use the CLI (`data milvus index/delete`) or vector_tool directly.
+
+**Functions:** `populate_milvus() -> (bool, str)` — delete by source=="demo", index two demo docs; uses MILVUS_URI. Skips if MILVUS_URI unset.
+
+---
+
 ## data/populate.py
 
-**Purpose:** Seed PostgreSQL, Neo4j, and Milvus with demo data so real backends return the same logical content as `demo.demo_data` (funds table with NVDA row; Company/Sector/IN_SECTOR in Neo4j; two vector docs with source "demo"). Idempotent: Postgres ON CONFLICT, Neo4j MERGE, Milvus delete by source then index. Skips any backend whose env var is unset.
+**Purpose:** Thin orchestrator only. Load .env, call populate_postgres (from data.postgres), populate_neo4j (from data.neo4j), populate_milvus (from data.milvus), print results, return 0. No backend logic here; see data/postgres.py, data/neo4j.py, data/milvus.py.
 
-**Functions:** `_load_dotenv()`, `populate_postgres() -> (bool, str)`, `populate_neo4j() -> (bool, str)`, `populate_milvus() -> (bool, str)`, `run_populate() -> int`.
+**Functions:** `run_populate() -> int`.
 
 ---
 

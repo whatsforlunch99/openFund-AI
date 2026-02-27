@@ -1109,6 +1109,10 @@ def test_data_populate_skips_when_no_backends() -> None:
         if k not in ("DATABASE_URL", "NEO4J_URI", "MILVUS_URI")
     }
     env["PYTHONPATH"] = root
+    # Force backends unset so populate skips them even if .env is loaded in subprocess
+    env["DATABASE_URL"] = ""
+    env["NEO4J_URI"] = ""
+    env["MILVUS_URI"] = ""
     result = subprocess.run(
         [sys.executable, "-m", "data", "populate"],
         cwd=root,

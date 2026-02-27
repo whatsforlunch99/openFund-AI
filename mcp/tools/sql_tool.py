@@ -15,16 +15,16 @@ def _get_connection():
         import psycopg2
         from psycopg2.extras import RealDictCursor
     except ImportError:
-        return None, None
+        return None, "PostgreSQL driver not installed. Run: pip install -e '.[backends]'"
     url = os.environ.get("DATABASE_URL")
     if not url:
         return None, None
     try:
         conn = psycopg2.connect(url, cursor_factory=RealDictCursor)
-        return conn, RealDictCursor
+        return conn, None
     except Exception as e:
         logger.exception("sql_tool: failed to connect to PostgreSQL: %s", e)
-        return None, None
+        return None, f"PostgreSQL connection failed: {e}"
 
 
 def run_query(query: str, params: Optional[dict] = None) -> dict:
@@ -45,10 +45,10 @@ def run_query(query: str, params: Optional[dict] = None) -> dict:
             "schema": ["id", "value"],
             "params": params or {},
         }
-    conn, _ = _get_connection()
+    conn, err = _get_connection()
     if conn is None:
         return {
-            "error": "PostgreSQL driver not available or connection failed.",
+            "error": err or "PostgreSQL driver not available or connection failed.",
             "rows": [],
             "schema": [],
             "params": params or {},
@@ -59,10 +59,14 @@ def run_query(query: str, params: Optional[dict] = None) -> dict:
                 cur.execute(query, params)
             else:
                 cur.execute(query)
-            rows = cur.fetchall()
-            # RealDictCursor returns list of dicts; normalize to plain dicts
-            rows = [dict(r) for r in rows] if rows else []
-            schema = list(rows[0].keys()) if rows else []
+            # DDL/INSERT/UPDATE/DELETE without RETURNING have no result set; fetchall() would raise.
+            if cur.description:
+                rows = cur.fetchall()
+                rows = [dict(r) for r in rows] if rows else []
+                schema = list(rows[0].keys()) if rows else []
+            else:
+                rows = []
+                schema = []
         conn.commit()
         return {"rows": rows, "schema": schema, "params": params or {}}
     except Exception as e:

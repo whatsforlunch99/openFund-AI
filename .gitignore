@@ -36,6 +36,7 @@ ENV/
 
 # Project-specific (docs)
 memory/
+volumes/
 
 # Local env (secrets)
 .env

@@ -21,30 +21,41 @@ def _parse_milvus_uri(uri: str) -> tuple:
     u = (uri or "").strip().replace("http://", "").replace("https://", "")
     if ":" in u:
         host, port = u.rsplit(":", 1)
-        return host.strip(), str(port.strip())
-    return u or "localhost", "19530"
+        try:
+            port = int(port.strip())
+        except ValueError:
+            port = 19530
+        return host.strip(), port
+    return (u or "localhost", 19530)
 
 
-def _ensure_milvus_connection() -> bool:
-    """Connect to Milvus if MILVUS_URI is set. Lazy import pymilvus."""
+def _ensure_milvus_connection() -> tuple[bool, str | None]:
+    """Connect to Milvus if MILVUS_URI is set. Returns (ok, error_message). Retries a few times for slow container startup."""
     global _milvus_connected
     if _milvus_connected:
-        return True
+        return True, None
     uri = os.environ.get("MILVUS_URI")
     if not uri:
-        return False
+        return False, None
     try:
         from pymilvus import connections
     except ImportError:
-        return False
-    try:
-        host, port = _parse_milvus_uri(uri)
-        connections.connect(alias="default", host=host, port=port)
-        _milvus_connected = True
-        return True
-    except Exception as e:
-        logger.exception("vector_tool: failed to connect to Milvus: %s", e)
-        return False
+        return False, "Milvus driver not installed. Run: pip install -e '.[backends]'"
+    host, port = _parse_milvus_uri(uri)
+    last_error = None
+    for attempt in range(5):
+        try:
+            connections.connect(alias="default", host=host, port=port)
+            _milvus_connected = True
+            return True, None
+        except Exception as e:
+            last_error = e
+            logger.debug("Milvus connection attempt %s failed: %s", attempt + 1, e)
+            if attempt < 4:
+                import time
+                time.sleep(2)
+    logger.exception("vector_tool: failed to connect to Milvus: %s", last_error)
+    return False, f"Milvus connection failed: {last_error}"
 
 
 def _get_embedding_model():
@@ -122,7 +133,8 @@ def search(
             {"content": f"mock doc for: {query}", "score": 0.9, "id": "mock1"},
             {"content": "second mock doc", "score": 0.8, "id": "mock2"},
         ][: max(1, min(top_k, 10))]
-    if not _ensure_milvus_connection():
+    ok, err = _ensure_milvus_connection()
+    if not ok:
         return []
     model, dim = _get_embedding_model()
     if model is None:
@@ -178,8 +190,9 @@ def index_documents(docs: list[dict]) -> dict:
     """
     if not os.environ.get("MILVUS_URI"):
         return {"error": "MILVUS_URI not set", "indexed": 0, "status": "error"}
-    if not _ensure_milvus_connection():
-        return {"error": "Could not connect to Milvus", "indexed": 0, "status": "error"}
+    ok, err = _ensure_milvus_connection()
+    if not ok:
+        return {"error": err or "Could not connect to Milvus", "indexed": 0, "status": "error"}
     model, dim = _get_embedding_model()
     if model is None:
         return {
@@ -219,8 +232,9 @@ def delete_by_expr(expr: str) -> dict:
     """
     if not os.environ.get("MILVUS_URI"):
         return {"error": "MILVUS_URI not set", "deleted": 0}
-    if not _ensure_milvus_connection():
-        return {"error": "Could not connect to Milvus", "deleted": 0}
+    ok, err = _ensure_milvus_connection()
+    if not ok:
+        return {"error": err or "Could not connect to Milvus", "deleted": 0}
     try:
         coll = _get_collection()
         coll.load()

@@ -17,6 +17,60 @@ Target users: beginner fund traders, long-term equity holders, and financial dat
 
 ---
 
+## First-time setup and run (3 steps)
+
+**Requirements:** Python ≥3.9, macOS or Linux (scripts use Homebrew and Docker for backends).
+
+### Step 1: Clone and install
+
+```bash
+git clone https://github.com/whatsforlunch99/openFund-AI.git
+cd openFund-AI
+
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+pip install -e ".[dev,backends]"
+```
+
+### Step 2: Run the demo (one script)
+
+From the project root:
+
+```bash
+chmod +x demo/run.sh
+./demo/run.sh
+```
+
+- **First run:** If `.env` is missing, the script creates it and runs backend installation (Postgres, Neo4j, Milvus via Homebrew/Docker). It then asks you to **edit `.env`** (set `NEO4J_PASSWORD`, and `DATABASE_URL` user to your Mac username if needed) and run `./demo/run.sh` again.
+- **Second run (after editing .env):** Starts Postgres/Neo4j/Milvus, creates the DB and seeds demo data, then starts the API and opens the chat. Type `quit` or `exit` to stop.
+
+### Step 3: Use the demo
+
+In the chat, try: *"Should I invest in Nvidia?"* or *"What do you know about NVDA?"* The demo uses real backends (SQL, graph, vector) when configured; file/market/analyst use static data. No API keys required for the static-LLM demo.
+
+**Summary:** Install once (`pip install -e ".[dev,backends]"`), then run `./demo/run.sh`. Edit `.env` when prompted and run again once. After that, `./demo/run.sh` is the only command you need to start the demo.
+
+---
+
+## Run the demo (later runs)
+
+If backends are already installed and `.env` is set:
+
+```bash
+./demo/run.sh
+```
+
+Or start backends and chat separately:
+
+```bash
+./scripts/start_services.sh
+python -m data populate   # only if you haven’t seeded yet
+python -m demo
+```
+
+---
+
 ## Architecture
 
 | Layer | Role |
@@ -34,223 +88,81 @@ All agent communication is ACL-only; only the Responder may trigger conversation
 
 ---
 
-## Quick start
+## Commands (reference)
 
-**Requirements:** Python ≥3.9
-
-```bash
-# Clone and enter project
-git clone https://github.com/whatsforlunch99/openFund-AI.git
-cd openFund-AI
-
-# Optional: create a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate   # or .venv\Scripts\activate on Windows
-
-# Install (dev deps for tests)
-pip install -e ".[dev]"
-
-# Optional: install backend drivers (Neo4j, PostgreSQL, Milvus + embeddings)
-# Required for real backends and for the data CLI (create/update/delete).
-pip install -e ".[backends]"
-# Or: pip install neo4j psycopg2-binary pymilvus sentence-transformers
-```
-
-**Run tests:**
-
-```bash
-pytest tests/test-stages.py -v
-# Or a single stage: pytest tests/test-stages.py -k stage_2_1 -v
-```
-
----
-
-## Commands to run
-
-Copy-paste reference for common tasks.
-
-| Task | Commands |
-|------|----------|
-| **Install (dev + backends)** | `pip install -e ".[dev]"` then `pip install -e ".[backends]"` |
+| Task | Command |
+|------|---------|
+| **Run demo (setup + start + chat)** | `./demo/run.sh` |
+| **Run demo (chat only, backends already running)** | `python -m demo` |
+| **Install backends + create .env** | `./scripts/install_backends.sh` |
+| **Start Postgres, Neo4j, Milvus** | `./scripts/start_services.sh` |
+| **Create Postgres DB `openfund`** | `./scripts/create_db.sh` |
+| **Seed demo data** | `python -m data populate` |
 | **Run tests** | `pytest tests/test-stages.py -v` |
-| **Run demo** (one command) | `python -m demo` |
-| **Run demo** (two terminals) | Terminal 1: `python main.py --demo` — Terminal 2: `python -m demo.demo_chat` |
-| **Run real API** | `python main.py` |
-| **Run demo chat vs API** | `python -m demo.demo_chat --base-url http://localhost:8000` |
-| **Seed demo data into backends** | `python -m data populate` |
-| **Data CLI help** | `python -m data --help` |
-| **SQL query** | `python -m data sql "SELECT * FROM funds LIMIT 5"` |
-| **Neo4j query** | `python -m data neo4j "MATCH (n) RETURN count(n)"` |
-| **Milvus index** | `python -m data milvus index docs.json` |
-| **Milvus delete** | `python -m data milvus delete 'fund_id == "F1"'` |
-
-See sections below for full context (env vars, two-terminal demo, real backends + static LLM).
+| **Check/start backends (Python)** | `python scripts/start_backends.py` (optional `--check-only`) |
+| **Data CLI** | `python -m data --help` (sql, neo4j, milvus index/delete) |
 
 ---
 
-## Run demo (static data, no backends)
+## Demo package (`demo/`)
 
-Use demo mode to try the full flow. **SQL, KG, and vector** use real backends (PostgreSQL, Neo4j, Milvus) when configured and seeded with `python -m data populate`; **file, market, analyst, and LLM** stay static (no external APIs or keys).
+| File | Purpose |
+|------|---------|
+| **run.sh** | Single entry: first-time setup (install backends, .env), start services, seed data, run `python -m demo`. Run from project root. |
+| **__main__.py** | `python -m demo`: starts API in demo mode, then interactive chat; server stops on quit. |
+| **demo_client.py** | DemoMCPClient: real SQL/KG/vector when env set; file/market/analyst static. |
+| **demo_data.py** | Static response data for tools when backends are not used. |
+| **demo_chat.py** | Chat CLI (POST /chat loop). |
 
-**One command** (starts the API in the background, then opens the chat):
-
-```bash
-python -m demo
-```
-
-When you type `quit` or `exit`, the server stops. Run from the project root. With no backend env vars set, all tool responses are static.
-
-**Alternatively**, use two terminals:
-
-```bash
-# Terminal 1: start the API in demo mode
-python main.py --demo
-
-# Terminal 2: run the interactive chat
-python -m demo.demo_chat
-```
-
-You’ll be prompted for your name, then can ask questions (e.g. “should I invest in Nvidia?”). Each reply shows the system flow and the final answer. See [docs/demo.md](docs/demo.md).
+See [docs/demo.md](docs/demo.md) for troubleshooting (Postgres role, Neo4j password, Milvus connection).
 
 ---
 
-## Run real project (with backends)
+## Backend data services (data CLI)
 
-When you have **PostgreSQL**, **Neo4j**, and/or **Milvus** running, set the corresponding env vars in `.env` (see [.env.example](.env.example)), then start the API and use the chat.
-
-```bash
-# 1. Copy and edit env (set DATABASE_URL, NEO4J_URI, MILVUS_URI, etc.)
-cp .env.example .env
-# Edit .env with your connection strings.
-
-# 2. Install backend drivers (if not already)
-pip install -e ".[backends]"
-
-# 3. Start the API (loads .env automatically)
-python main.py
-
-# 4. In another terminal: chat via API or run the demo chat against the real API
-python -m demo.demo_chat --base-url http://localhost:8000
-# Or: curl -X POST http://localhost:8000/chat -H "Content-Type: application/json" -d '{"query":"..."}'
-```
-
----
-
-## Backend data services (create, modify, delete)
-
-The **data** CLI lets you **input, update, and delete** data in PostgreSQL, Neo4j, and Milvus from the command line. Use it to seed or maintain backends. Requires `.env` with the right `DATABASE_URL`, `NEO4J_URI`, or `MILVUS_URI`, and `pip install -e ".[backends]"`.
+The **data** CLI creates, updates, and deletes data in PostgreSQL, Neo4j, and Milvus. Requires `.env` with `DATABASE_URL`, `NEO4J_URI`, or `MILVUS_URI`, and `pip install -e ".[backends]"`.
 
 ```bash
-# From the project root (or set PYTHONPATH=. if not installed in editable mode)
 python -m data --help
 ```
 
-### PostgreSQL (sql)
+- **PostgreSQL:** Set `DATABASE_URL`. Example: `python -m data sql "SELECT * FROM funds LIMIT 5"`.
+- **Neo4j:** Set `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`. Example: `python -m data neo4j "MATCH (n) RETURN count(n)"`.
+- **Milvus:** Set `MILVUS_URI`. Start Milvus with `./scripts/start_milvus.sh`. Index/delete: `python -m data milvus index docs.json`, `python -m data milvus delete 'fund_id == "F1"'`.
 
-Run any SQL (SELECT, INSERT, UPDATE, DELETE). Set `DATABASE_URL` in `.env`.
-
-```bash
-# Select
-python -m data sql "SELECT * FROM funds LIMIT 5"
-
-# Insert (use params to avoid injection)
-python -m data sql "INSERT INTO funds (id, name) VALUES (%(id)s, %(name)s)" --params id=F1 name="Fund One"
-
-# Update
-python -m data sql "UPDATE funds SET name = %(name)s WHERE id = %(id)s" --params id=F1 name="Fund One Updated"
-
-# Delete
-python -m data sql "DELETE FROM funds WHERE id = %(id)s" --params id=F1
-```
-
-### Neo4j (neo4j)
-
-Run any Cypher (CREATE, MERGE, SET, DELETE, MATCH). Set `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` in `.env`.
-
-```bash
-# Create nodes
-python -m data neo4j "CREATE (f:Fund {id: $id, name: $name})" --params id=F1 name="Fund One"
-
-# Query
-python -m data neo4j "MATCH (f:Fund) RETURN f.id, f.name LIMIT 5"
-
-# Update (SET)
-python -m data neo4j "MATCH (f:Fund {id: $id}) SET f.name = $name" --params id=F1 name="Updated"
-
-# Delete
-python -m data neo4j "MATCH (f:Fund {id: $id}) DETACH DELETE f" --params id=F1
-```
-
-### Milvus (vector store)
-
-**Index** documents from a JSON file (each doc: `content`, optional `fund_id`, `source`). **Delete** by filter expression. Set `MILVUS_URI`, and optionally `MILVUS_COLLECTION`, `EMBEDDING_MODEL`, `EMBEDDING_DIM` in `.env`.
-
-```bash
-# Create / add documents (file: array of {"content": "text...", "fund_id": "X", "source": "fact_sheet"})
-echo '[{"content": "Fund X overview...", "fund_id": "F1", "source": "fact_sheet"}]' > docs.json
-python -m data milvus index docs.json
-
-# Delete by expression (e.g. by id or fund_id)
-python -m data milvus delete 'id in ["uuid-1", "uuid-2"]'
-python -m data milvus delete 'fund_id == "F1"'
-```
-
-See [data_prep/neo4j_postgres_milvus_integration.md](data_prep/neo4j_postgres_milvus_integration.md) for schema and data-model guidance.
+See [data_prep/neo4j_postgres_milvus_integration.md](data_prep/neo4j_postgres_milvus_integration.md) for schema guidance.
 
 ---
-
-## Run with real backends and static LLM
-
-You can run the app against **real PostgreSQL, Neo4j, and Milvus** while keeping **LLM responses static** (no API key). Tool responses then come from the real backends, and the planner uses a fixed three-step decomposition.
-
-1. **Set backend env vars** in `.env` (do **not** set `OPENFUND_DEMO` so `demo=False` and real MCP is used):
-   - `DATABASE_URL` — PostgreSQL connection string
-   - `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` — Neo4j
-   - `MILVUS_URI`, and optionally `MILVUS_COLLECTION`, `EMBEDDING_MODEL`, `EMBEDDING_DIM`
-
-2. **Do not set `LLM_API_KEY`** if you want static planner responses (fixed three steps; no OpenAI calls). When `LLM_API_KEY` is unset, `get_llm_client` returns `StaticLLMClient`.
-
-3. **Seed demo data once:**
-   ```bash
-   python -m data populate
-   ```
-   This creates/updates the `funds` table and inserts NVDA, creates Neo4j nodes/edges (Company NVDA, Sector Technology, IN_SECTOR), and indexes the two demo documents in Milvus so tool responses match the static demo content.
-
-4. **Start the app and use the demo chat or API:**
-   ```bash
-   python main.py
-   python -m demo.demo_chat --base-url http://localhost:8000
-   ```
-
 
 ## Project structure
 
 ```
-├── agents/          # Planner, Librarian, WebSearcher, Analyst, Responder (BaseAgent)
-├── a2a/             # ACLMessage, MessageBus, ConversationManager
-├── api/             # REST and WebSocket (FastAPI)
-├── data/            # Data services CLI: create/update/delete in PostgreSQL, Neo4j, Milvus
-├── demo/            # Demo mode: static data, CLI chat (demo_data, demo_client, demo_chat)
-├── safety/          # SafetyGateway
-├── output/          # OutputRail
-├── mcp/             # MCPClient, MCPServer, tools (file, vector, kg, market, analyst, sql)
-├── config/          # Config, load_config()
-├── main.py          # Entry point
-├── tests/           # test-stages.py (per-stage tests)
-└── docs/            # PRD, backend, progress, project-status, test plan
+├── agents/     # Planner, Librarian, WebSearcher, Analyst, Responder (BaseAgent)
+├── a2a/        # ACLMessage, MessageBus, ConversationManager
+├── api/        # REST and WebSocket (FastAPI)
+├── data/       # Data CLI: populate, sql, neo4j, milvus (Postgres, Neo4j, Milvus)
+├── demo/       # Demo: run.sh (setup+run), python -m demo (API + chat)
+├── scripts/    # install_backends.sh, start_services.sh, start_milvus.sh, create_db.sh
+├── safety/     # SafetyGateway
+├── output/     # OutputRail
+├── mcp/        # MCPClient, MCPServer, tools (file, vector, kg, market, analyst, sql)
+├── config/     # Config, load_config()
+├── main.py     # Entry point (--e2e-once, --demo, or config load)
+├── tests/      # test-stages.py (per-stage tests)
+└── docs/       # PRD, backend, demo, progress, project-status, file-structure
 ```
 
-Full file layout and per-module contracts: [docs/file-structure.md](docs/file-structure.md).
+Full layout and per-module contracts: [docs/file-structure.md](docs/file-structure.md).
 
 ---
 
 ## Documentation
 
 | Doc | Description |
-|-----|--------------|
+|-----|-------------|
 | [docs/prd.md](docs/prd.md) | Product requirements, user segments, scope |
 | [docs/backend.md](docs/backend.md) | API contracts, data models, persistence, timeouts |
-| [docs/demo.md](docs/demo.md) | Demo mode: static data, CLI chat, demo/ package |
+| [docs/demo.md](docs/demo.md) | Demo flow, troubleshooting (Postgres, Neo4j, Milvus) |
 | [docs/progress.md](docs/progress.md) | Slices/stages, runnable commands, test matrix |
 | [docs/project-status.md](docs/project-status.md) | Capability status (Live / Not Started) |
 | [docs/file-structure.md](docs/file-structure.md) | Module and file responsibilities |

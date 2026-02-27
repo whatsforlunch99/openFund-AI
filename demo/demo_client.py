@@ -12,12 +12,17 @@ from typing import Any
 
 from demo.demo_data import DEMO_RESPONSES, DEMO_TIMESTAMP
 
+# Project root so .env is found when the server is started from any cwd
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 def _load_dotenv() -> None:
-    """Load .env so backend env vars are available."""
+    """Load .env from project root so backends are configured regardless of cwd."""
     try:
-        from dotenv import load_dotenv
-        load_dotenv()
+        from dotenv import load_dotenv as _load
+
+        path = os.path.join(_PROJECT_ROOT, ".env")
+        _load(path)
     except ImportError:
         pass
 

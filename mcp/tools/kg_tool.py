@@ -12,25 +12,25 @@ _driver = None
 
 
 def _get_driver():
-    """Create or return Neo4j driver when NEO4J_URI is set. Lazy import."""
+    """Create or return Neo4j driver when NEO4J_URI is set. Lazy import. Returns (driver, error_msg)."""
     global _driver
     uri = os.environ.get("NEO4J_URI")
     if not uri:
-        return None
+        return None, None
     if _driver is not None:
-        return _driver
+        return _driver, None
     try:
         from neo4j import GraphDatabase
     except ImportError:
-        return None
+        return None, "Neo4j driver not installed. Run: pip install -e '.[backends]'"
     user = os.environ.get("NEO4J_USER", "")
     password = os.environ.get("NEO4J_PASSWORD", "")
     try:
         _driver = GraphDatabase.driver(uri, auth=(user, password))
-        return _driver
+        return _driver, None
     except Exception as e:
         logger.exception("kg_tool: failed to create Neo4j driver: %s", e)
-        return None
+        return None, f"Neo4j connection failed: {e}"
 
 
 def _node_to_dict(node) -> dict:
@@ -69,10 +69,10 @@ def query_graph(cypher: str, params: Optional[dict] = None) -> dict:
             "edges": [],
             "params": params or {},
         }
-    driver = _get_driver()
+    driver, err = _get_driver()
     if driver is None:
         return {
-            "error": "Neo4j driver not available or connection failed.",
+            "error": err or "Neo4j driver not available or connection failed.",
             "nodes": [],
             "edges": [],
             "params": params or {},
@@ -123,10 +123,10 @@ def get_relations(entity: str) -> dict:
             "edges": [],
             "entity": entity,
         }
-    driver = _get_driver()
+    driver, err = _get_driver()
     if driver is None:
         return {
-            "error": "Neo4j driver not available.",
+            "error": err or "Neo4j driver not available.",
             "nodes": [],
             "edges": [],
             "entity": entity,

@@ -308,8 +308,21 @@ class PlannerAgent(BaseAgent):
             except Exception:
                 pass
         # No LLM or parse failed; use fixed three steps (librarian, websearcher, analyst)
+        # Pass vector_query and fund so the librarian calls vector_tool and kg_tool
+        # (demo can then use populated backends; file_tool uses path=query)
+        q_lower = query.lower()
+        fund = "NVDA" if ("nvidia" in q_lower or "nvda" in q_lower) else ""
         return [
-            TaskStep(agent="librarian", action="read_file", params={"query": query}),
+            TaskStep(
+                agent="librarian",
+                action="read_file",
+                params={
+                    "query": query,
+                    "path": query,
+                    "vector_query": query,
+                    "fund": fund,
+                },
+            ),
             TaskStep(
                 agent="websearcher", action="fetch_market", params={"query": query}
             ),

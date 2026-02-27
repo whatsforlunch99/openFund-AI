@@ -33,14 +33,14 @@ class ChatRequest(BaseModel):
 
     @field_validator("query")
     @classmethod
-    def query_not_empty(_cls, v: str) -> str:
+    def query_not_empty(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("query is required and must be non-empty")
         return v.strip()
 
     @field_validator("user_profile")
     @classmethod
-    def normalize_user_profile(_cls, v: str) -> str:
+    def normalize_user_profile(cls, v: str) -> str:
         p = (v or "").strip().lower()
         if not p or p not in VALID_USER_PROFILES:
             raise ValueError(
@@ -50,14 +50,14 @@ class ChatRequest(BaseModel):
 
     @field_validator("user_id")
     @classmethod
-    def normalize_user_id(_cls, v: Any) -> str:
+    def normalize_user_id(cls, v: Any) -> str:
         if v is None:
             return ""
         return str(v).strip()
 
     @field_validator("conversation_id")
     @classmethod
-    def normalize_conversation_id(_cls, v: Any) -> Optional[str]:
+    def normalize_conversation_id(cls, v: Any) -> Optional[str]:
         if v is None:
             return None
         s = str(v).strip()
@@ -71,7 +71,7 @@ class RegisterRequest(BaseModel):
 
     @field_validator("display_name")
     @classmethod
-    def normalize_display_name(_cls, v: Any) -> str:
+    def normalize_display_name(cls, v: Any) -> str:
         if v is None:
             return ""
         return str(v).strip() or "Guest"
@@ -146,19 +146,32 @@ def create_app(
             "planner", bus, llm_client=llm_client, conversation_manager=manager
         )
         librarian = LibrarianAgent(
-            "librarian", bus, mcp_client=mcp_client, conversation_manager=manager
+            "librarian",
+            bus,
+            mcp_client=mcp_client,
+            conversation_manager=manager,
+            llm_client=llm_client,
         )
         websearcher = WebSearcherAgent(
-            "websearcher", bus, mcp_client=mcp_client, conversation_manager=manager
+            "websearcher",
+            bus,
+            mcp_client=mcp_client,
+            conversation_manager=manager,
+            llm_client=llm_client,
         )
         analyst = AnalystAgent(
-            "analyst", bus, mcp_client=mcp_client, conversation_manager=manager
+            "analyst",
+            bus,
+            mcp_client=mcp_client,
+            conversation_manager=manager,
+            llm_client=llm_client,
         )
         responder = ResponderAgent(
             "responder",
             bus,
             conversation_manager=manager,
             output_rail=OutputRail(),
+            llm_client=llm_client,
         )
         agents = (planner, librarian, websearcher, analyst, responder)
         for agent in agents:

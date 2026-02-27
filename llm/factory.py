@@ -25,12 +25,16 @@ def get_llm_client(config: Config) -> LLMClient:
         LLMClient implementation (static mock or live when key + deps available).
     """
     if config.llm_api_key and config.llm_api_key.strip():
-        # Use live OpenAI client when key is set and openai package is installed
         try:
             from llm.live_client import LiveLLMClient
 
             model = (config.llm_model or "gpt-4o-mini").strip() or "gpt-4o-mini"
-            return LiveLLMClient(api_key=config.llm_api_key.strip(), model=model)
+            base_url = (config.llm_base_url or "").strip() or None
+            return LiveLLMClient(
+                api_key=config.llm_api_key.strip(),
+                model=model,
+                base_url=base_url,
+            )
         except ImportError as e:
             logger.warning(
                 "LLM_API_KEY set but live client unavailable (install [llm] extra): %s. Using static mock.",

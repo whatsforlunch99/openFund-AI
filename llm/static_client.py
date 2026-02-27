@@ -41,3 +41,7 @@ class StaticLLMClient:
             step["params"] = params
             result.append(step)
         return result
+
+    def complete(self, system_prompt: str, user_content: str) -> str:
+        """Return user_content unchanged (no LLM call)."""
+        return user_content

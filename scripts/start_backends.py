@@ -42,7 +42,7 @@ def _port_open(host: str, port: int, timeout: float = 2.0) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
-    except (socket.error, OSError, socket.timeout):
+    except (OSError, socket.timeout):
         return False
 
 

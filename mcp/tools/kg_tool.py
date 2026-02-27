@@ -549,7 +549,7 @@ def bulk_export(
             "format": format,
         }
     for forbidden in ("MERGE", "SET", "DELETE", "DETACH", "CREATE", "REMOVE", "DROP"):
-        if forbidden in stripped:
+        if re.search(r"\b" + re.escape(forbidden) + r"\b", stripped):
             return {
                 "error": f"Write operations not allowed (e.g. {forbidden}).",
                 "data": [] if format == "json" else "",

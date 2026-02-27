@@ -2,12 +2,15 @@
 
 import logging
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
+
+if TYPE_CHECKING:
+    from llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +29,12 @@ class AnalystAgent(BaseAgent):
         message_bus: MessageBus,
         mcp_client: Any = None,
         conversation_manager: Any = None,
+        llm_client: "LLMClient | None" = None,
     ) -> None:
         super().__init__(name, message_bus)
         self.mcp_client = mcp_client
         self.conversation_manager = conversation_manager
+        self._llm_client = llm_client
 
     def handle_message(self, message: ACLMessage) -> None:
         """Process analysis requests and send INFORM to planner.
@@ -71,6 +76,17 @@ class AnalystAgent(BaseAgent):
                 },
             )
         result = self.analyze(structured_data, market_data)
+        # Optional LLM analysis summary from structured_data + market_data
+        if self._llm_client is not None:
+            from llm.prompts import ANALYST_SYSTEM, get_analyst_user_content
+
+            user_content = get_analyst_user_content(structured_data, market_data)
+            summary = self._llm_client.complete(ANALYST_SYSTEM, user_content)
+            if isinstance(result, dict):
+                result = dict(result)
+                result["summary"] = summary
+            else:
+                result = {"analysis": result, "summary": summary}
         confidence = result.get("confidence")
         keys = list(result.keys()) if isinstance(result, dict) else []
         trace(

@@ -22,7 +22,8 @@ class Config:
         analyst_api_key: Optional auth for Analyst API.
         mcp_server_endpoint: MCP server endpoint (e.g. URL or stdio).
         llm_api_key: Optional LLM provider API key.
-        llm_model: Optional model name.
+        llm_model: Optional model name (e.g. gpt-4o-mini or deepseek-chat).
+        llm_base_url: Optional base URL for LLM API (e.g. https://api.deepseek.com for DeepSeek).
         memory_store_path: Root dir for conversation persistence (default memory/).
         e2e_timeout_seconds: E2E timeout in seconds (default 30).
         demo: If True, use static demo tool responses (no external APIs/DBs).
@@ -47,6 +48,7 @@ class Config:
     mcp_server_endpoint: str = ""
     llm_api_key: Optional[str] = None
     llm_model: Optional[str] = None
+    llm_base_url: Optional[str] = None
     memory_store_path: str = "memory"
     e2e_timeout_seconds: int = 30
     demo: bool = False
@@ -113,6 +115,7 @@ def load_config() -> Config:
         mcp_server_endpoint=os.getenv("MCP_SERVER_ENDPOINT", ""),
         llm_api_key=os.getenv("LLM_API_KEY") or None,
         llm_model=os.getenv("LLM_MODEL") or None,
+        llm_base_url=os.getenv("LLM_BASE_URL") or None,
         memory_store_path=os.getenv("MEMORY_STORE_PATH", "memory"),
         e2e_timeout_seconds=_int("E2E_TIMEOUT_SECONDS", 30),
         demo=_bool("OPENFUND_DEMO", False) or _bool("DEMO", False),

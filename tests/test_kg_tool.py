@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 
@@ -199,12 +197,32 @@ def test_bulk_export_invalid_cypher_rejected(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_bulk_export_write_keyword_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """bulk_export rejects cypher containing SET/DELETE/etc."""
+    """bulk_export rejects cypher containing SET/DELETE/etc. as standalone keywords."""
     from mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_export("MATCH (n) SET n.x = 1 RETURN n")
     assert "error" in out
+
+
+def test_bulk_export_allows_identifiers_containing_forbidden_substrings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """bulk_export allows read-only queries when property/label names contain SET/CREATE/MERGE as substrings."""
+    from mcp.tools import kg_tool
+
+    monkeypatch.delenv("NEO4J_URI", raising=False)
+    for cypher in (
+        "MATCH (n) RETURN n.ASSET",
+        "MATCH (n) RETURN n.CREATED_AT",
+        "MATCH (n) RETURN n.OFFSET LIMIT 1",
+        "MATCH (n) RETURN n.MERGE_KEY",
+    ):
+        out = kg_tool.bulk_export(cypher, format="json")
+        assert "error" not in out or "Write" not in str(out.get("error", "")), (
+            f"Expected no write-op error for: {cypher!r}, got: {out}"
+        )
+        assert "data" in out
 
 
 def test_bulk_create_nodes_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,12 +1,15 @@
 """Responder agent: confidence evaluation, termination, and output formatting."""
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
+
+if TYPE_CHECKING:
+    from llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,7 @@ class ResponderAgent(BaseAgent):
         message_bus: MessageBus,
         output_rail: Any = None,
         conversation_manager: Any = None,
+        llm_client: "LLMClient | None" = None,
     ) -> None:
         """Initialize the responder agent.
 
@@ -32,10 +36,12 @@ class ResponderAgent(BaseAgent):
             message_bus: Shared A2A transport.
             output_rail: Optional OutputRail for compliance and user-profile formatting.
             conversation_manager: ConversationManager for register_reply and broadcast_stop.
+            llm_client: Optional LLM client for format_response (uses RESPONDER_SYSTEM when set).
         """
         super().__init__(name, message_bus)
         self.output_rail = output_rail
         self.conversation_manager = conversation_manager
+        self._llm_client = llm_client
 
     def handle_message(self, message: ACLMessage) -> None:
         """Register reply and broadcast STOP.
@@ -85,15 +91,17 @@ class ResponderAgent(BaseAgent):
             )
 
         # Format by profile and check compliance; append disclaimer if blocked phrase found
+        final_text = (
+            final_response if isinstance(final_response, str) else str(final_response)
+        )
         if self.output_rail is not None:
-            draft = self.output_rail.format_for_user(
-                (
-                    final_response
-                    if isinstance(final_response, str)
-                    else str(final_response)
-                ),
-                user_profile,
-            )
+            if self._llm_client is not None:
+                from llm.prompts import RESPONDER_SYSTEM, get_responder_user_content
+
+                user_content = get_responder_user_content(user_profile, final_text)
+                draft = self._llm_client.complete(RESPONDER_SYSTEM, user_content)
+            else:
+                draft = self.output_rail.format_for_user(final_text, user_profile)
             trace(
                 13,
                 "responder_format_for_user",

@@ -65,6 +65,16 @@ python -m demo
 
 Configuration via `.env` (copy from `.env.example`). See [docs/backend.md](docs/backend.md) and [docs/demo.md](docs/demo.md).
 
+### Using a live LLM (e.g. DeepSeek)
+
+To use a live model for task decomposition and agent summaries (instead of the static mock), set in `.env`:
+
+- `LLM_API_KEY=sk-your-key` — your API key (required for live LLM)
+- `LLM_BASE_URL=https://api.deepseek.com` — for DeepSeek; leave unset for OpenAI
+- `LLM_MODEL=deepseek-chat` — or `gpt-4o-mini` for OpenAI
+
+Then install the LLM extra: `pip install -e ".[llm]"`. **Do not commit your real API key;** `.env` is for local use only and should be in `.gitignore`.
+
 ---
 
 ## Data CLI

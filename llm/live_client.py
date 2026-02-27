@@ -1,39 +1,41 @@
-"""Live LLM client (OpenAI). Used when LLM_API_KEY is set and openai is installed."""
+"""Live LLM client (OpenAI-compatible). Used when LLM_API_KEY is set and openai is installed."""
 
 from __future__ import annotations
 
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Optional
+
+from llm.prompts import PLANNER_DECOMPOSE
 
 logger = logging.getLogger(__name__)
 
 ALLOWED_AGENTS = ("librarian", "websearcher", "analyst")
 
-DECOMPOSE_SYSTEM = """You are a task decomposer for an investment research assistant.
-Given a user query, output a JSON array of steps. Each step has:
-- "agent": one of librarian, websearcher, analyst
-- "action": string (e.g. read_file, fetch_market, analyze)
-- "params": object with at least "query" (the user query)
-
-Output only the JSON array, no markdown or explanation. Example:
-[{"agent":"librarian","action":"read_file","params":{"query":"..."}},{"agent":"websearcher","action":"fetch_market","params":{"query":"..."}},{"agent":"analyst","action":"analyze","params":{"query":"..."}}]"""
-
 
 class LiveLLMClient:
-    """OpenAI-backed LLM client for task decomposition."""
+    """OpenAI-compatible LLM client for task decomposition and completion (e.g. DeepSeek, OpenAI)."""
 
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gpt-4o-mini",
+        base_url: Optional[str] = None,
+    ) -> None:
         self._api_key = api_key
         self._model = model
+        self._base_url = (base_url or "").strip() or None
         self._client: Any = None
 
     def _get_client(self) -> Any:
         if self._client is None:
             from openai import OpenAI
 
-            self._client = OpenAI(api_key=self._api_key)
+            kwargs: dict[str, Any] = {"api_key": self._api_key}
+            if self._base_url:
+                kwargs["base_url"] = self._base_url
+            self._client = OpenAI(**kwargs)
         return self._client
 
     def decompose_to_steps(self, query: str) -> list[dict[str, Any]]:
@@ -41,19 +43,17 @@ class LiveLLMClient:
         try:
             # Call OpenAI and parse response into step dicts
             client = self._get_client()
+            planner_messages: list[dict[str, str]] = [
+                {"role": "system", "content": PLANNER_DECOMPOSE},  # type: ignore[dict-item]
+                {"role": "user", "content": query},
+            ]
             response = client.chat.completions.create(
                 model=self._model,
-                messages=[
-                    {"role": "system", "content": DECOMPOSE_SYSTEM},
-                    {"role": "user", "content": query},
-                ],
+                messages=planner_messages,
                 max_tokens=500,
             )
-            text = (
-                response.choices[0].message.content
-                if response.choices and response.choices[0].message
-                else ""
-            ).strip()
+            raw = response.choices[0].message.content if response.choices and response.choices[0].message else None
+            text = (raw or "").strip()
             steps = self._parse_steps(text, query)
             if steps:
                 return steps
@@ -63,7 +63,7 @@ class LiveLLMClient:
         from llm.static_client import DEFAULT_STATIC_STEPS
 
         return [
-            {**s, "params": {**(s.get("params") or {}), "query": query}}
+            {**s, "params": {**(s.get("params") or {}), "query": query}}  # type: ignore[dict-item]
             for s in DEFAULT_STATIC_STEPS
         ]
 
@@ -93,3 +93,26 @@ class LiveLLMClient:
             params.setdefault("query", query)
             result.append({"agent": agent, "action": action, "params": params})
         return result
+
+    def complete(self, system_prompt: str, user_content: str) -> str:
+        """Call the LLM for a single completion (e.g. Responder format_response)."""
+        try:
+            client = self._get_client()
+            completion_messages: list[dict[str, str]] = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
+            response = client.chat.completions.create(
+                model=self._model,
+                messages=completion_messages,
+                max_tokens=1500,
+            )  # type: ignore[dict-item]
+            text = (
+                (response.choices[0].message.content or "")
+                if response.choices and response.choices[0].message
+                else ""
+            ).strip()
+            return text or user_content
+        except Exception as e:
+            logger.warning("LLM complete failed: %s", e)
+            return user_content

@@ -333,7 +333,7 @@ class PlannerAgent(BaseAgent):
         self,
         query: str,
         step: TaskStep,
-        _context: Optional[dict[str, Any]] = None,
+        context: Optional[dict[str, Any]] = None,
     ) -> ACLMessage:
         """Build a request ACL message for Librarian, WebSearcher, or Analyst.
 

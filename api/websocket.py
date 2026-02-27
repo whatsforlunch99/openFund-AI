@@ -159,10 +159,10 @@ async def handle_websocket(
         if remaining <= 0:
             break
         wait_time = min(COMPLETION_POLL_INTERVAL, remaining)
-        signaled = await loop.run_in_executor(
-            None,
-            (lambda wt=wait_time: state.completion_event.wait(timeout=wt)),
-        )
+        def _wait() -> bool:
+            return state.completion_event.wait(timeout=wait_time)
+
+        signaled = await loop.run_in_executor(None, _wait)
         if signaled:
             break
         await asyncio.sleep(FLOW_POLL_INTERVAL)

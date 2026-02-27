@@ -16,9 +16,7 @@ from __future__ import annotations
 import sys
 
 from data.env_loader import load_dotenv as _load_dotenv
-from mcp.tools import kg_tool
-from mcp.tools import sql_tool
-from mcp.tools import vector_tool
+from mcp.tools import kg_tool, sql_tool, vector_tool
 
 
 def run_populate() -> int:

@@ -1,12 +1,15 @@
 """Librarian agent: vector and graph retrieval via MCP (Milvus, Neo4j)."""
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
+
+if TYPE_CHECKING:
+    from llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,7 @@ class LibrarianAgent(BaseAgent):
         message_bus: MessageBus,
         mcp_client: Any = None,
         conversation_manager: Any = None,
+        llm_client: "LLMClient | None" = None,
     ) -> None:
         """Initialize the librarian agent.
 
@@ -32,10 +36,12 @@ class LibrarianAgent(BaseAgent):
             message_bus: Shared A2A transport.
             mcp_client: MCP client for file_tool, vector_tool, kg_tool, sql_tool.
             conversation_manager: Optional ConversationManager for flow events.
+            llm_client: Optional LLM client for summarizing combined results (LIBRARIAN_SYSTEM).
         """
         super().__init__(name, message_bus)
         self.mcp_client = mcp_client
         self.conversation_manager = conversation_manager
+        self._llm_client = llm_client
 
     def handle_message(self, message: ACLMessage) -> None:
         """Process data retrieval requests.
@@ -85,7 +91,7 @@ class LibrarianAgent(BaseAgent):
             )
 
         # Call each requested tool and collect results
-        parts = {}
+        parts: dict[str, Any] = {}
         if path:
             result = self.mcp_client.call_tool("file_tool.read_file", {"path": path})
             parts["file"] = (
@@ -128,17 +134,31 @@ class LibrarianAgent(BaseAgent):
 
         # Build reply: file-only keeps Slice 3 shape; else combined structure
         if not parts:
-            reply_content = {"error": "Missing path, vector_query, fund, or sql_query"}
+            reply_content: Any = {"error": "Missing path, vector_query, fund, or sql_query"}
         elif len(parts) == 1 and "file" in parts:
             reply_content = parts["file"]
         else:
-            docs_list = parts.get("documents", [])
+            docs_list = (
+                list(parts["documents"])
+                if isinstance(parts.get("documents"), list)
+                else []
+            )
             graph_data = parts.get("graph", {})
             reply_content = self.combine_results(docs_list, graph_data)
             if parts.get("file"):
                 reply_content["file"] = parts["file"]
             if parts.get("sql"):
                 reply_content["sql"] = parts["sql"]
+
+        # Optional LLM summary of combined data for the planner
+        if self._llm_client is not None and isinstance(reply_content, dict):
+            from llm.prompts import LIBRARIAN_SYSTEM, get_librarian_user_content
+
+            query = content.get("query") or content.get("path") or ""
+            user_content = get_librarian_user_content(str(query)[:500], reply_content)
+            summary = self._llm_client.complete(LIBRARIAN_SYSTEM, user_content)
+            reply_content = dict(reply_content)
+            reply_content["summary"] = summary
 
         reply_to = getattr(message, "reply_to", None) or message.sender
         reply = ACLMessage(

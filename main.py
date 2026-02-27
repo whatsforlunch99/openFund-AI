@@ -45,14 +45,21 @@ def _run_e2e_once() -> None:
     client = MCPClient(server)
     llm_client = get_llm_client(cfg)
     planner = PlannerAgent("planner", bus, llm_client=llm_client)
-    librarian = LibrarianAgent("librarian", bus, mcp_client=client)
-    websearcher = WebSearcherAgent("websearcher", bus, mcp_client=client)
-    analyst = AnalystAgent("analyst", bus, mcp_client=client)
+    librarian = LibrarianAgent(
+        "librarian", bus, mcp_client=client, llm_client=llm_client
+    )
+    websearcher = WebSearcherAgent(
+        "websearcher", bus, mcp_client=client, llm_client=llm_client
+    )
+    analyst = AnalystAgent(
+        "analyst", bus, mcp_client=client, llm_client=llm_client
+    )
     responder = ResponderAgent(
         "responder",
         bus,
         conversation_manager=mgr,
         output_rail=OutputRail(),
+        llm_client=llm_client,
     )
 
     for agent in (planner, librarian, websearcher, analyst, responder):

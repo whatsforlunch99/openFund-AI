@@ -578,13 +578,15 @@ result = planner.resolve_conflicts({"librarian": d1, "analyst": d2})
 
 **Purpose:** Retrieve documents and knowledge-graph data via MCP only; no direct DB access. Content may include path, vector_query, fund/entity, sql_query; combine_results merges documents and graph for downstream.
 
+**Constructor:** Accepts optional `llm_client` (LLMClient). When set, after building combined result, calls complete(LIBRARIAN_SYSTEM, get_librarian_user_content(query, combined_data)) and adds `summary` to INFORM content; when not set, behavior unchanged.
+
 **Docstring:** `Retrieves structured data from knowledge graph and vector database. Uses MCP vector_tool (Milvus) and kg_tool (Neo4j); does not access databases directly.`
 
 ---
 
 ## Method: `LibrarianAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Process data retrieval requests. Dispatch to file_tool (path), vector_tool (vector_query), kg_tool (fund/entity), sql_tool (sql_query) per content; combine results and send INFORM to reply_to. When only path is provided, reply is file result only (backward compat).
+**Purpose:** Process data retrieval requests. Dispatch to file_tool (path), vector_tool (vector_query), kg_tool (fund/entity), sql_tool (sql_query) per content; combine results; when llm_client is set, call LLM to produce a summary and add it to reply content; send INFORM to reply_to. When only path is provided, reply is file result only (backward compat).
 
 **Docstring:** `Process data retrieval requests. Dispatches to file_tool (path), vector_tool (vector_query), kg_tool (fund/entity), sql_tool (sql_query) per content; combines results and sends INFORM to reply_to. Content may include path, vector_query, fund, entity, sql_query, top_k, sql_params.`
 
@@ -637,13 +639,15 @@ combined = agent.combine_results(docs, graph_data)
 
 ## Class: `WebSearcherAgent(BaseAgent)`
 
+**Constructor:** Accepts optional `llm_client` (LLMClient). When set, after fetching market/sentiment/regulatory, calls complete(WEBSEARCHER_SYSTEM, get_websearcher_user_content(query, fetched_data)) and adds `summary` to INFORM content; when not set, behavior unchanged.
+
 **Docstring:** `Fetches real-time market and regulatory information. Uses MCP market_tool (Tavily + Yahoo APIs). All returned data must include a timestamp.`
 
 ---
 
 ## Method: `WebSearcherAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Process requests, call fetch_market_data / fetch_sentiment / fetch_regulatory via MCP, send reply with timestamp in content.
+**Purpose:** Process requests, call fetch_market_data / fetch_sentiment / fetch_regulatory via MCP; when llm_client is set, call LLM to summarize and add `summary` to reply content; send INFORM with timestamp in content.
 
 **Docstring:** `Process market/sentiment/regulatory requests. Args: message: The received ACL message.`
 
@@ -687,13 +691,15 @@ assert "timestamp" in data
 
 ## Class: `AnalystAgent(BaseAgent)`
 
+**Constructor:** Accepts optional `llm_client` (LLMClient). When set, after analyze(), calls complete(ANALYST_SYSTEM, get_analyst_user_content(structured_data, market_data)) and adds `summary` to the analysis result in INFORM content; when not set, behavior unchanged.
+
 **Docstring:** `Performs quantitative reasoning and uncertainty estimation. Uses MCP analyst_tool (custom API) for heavy quant; may use local helpers for sharpe_ratio, max_drawdown, monte_carlo_simulation.`
 
 ---
 
 ## Method: `AnalystAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Receive structured_data and market_data from content; call analyze; if needs_more_data send refinement to Planner else send result to Planner (INFORM to planner).
+**Purpose:** Receive structured_data and market_data from content; call analyze; when llm_client is set, call LLM to produce analysis summary and add it to result; send INFORM to Planner (or refinement request if needs_more_data).
 
 **Docstring:** `Process analysis requests: receive structured_data and market_data, call analyze; if needs_more_data send refinement request else send result to Planner (INFORM). Args: message: The received ACL message.`
 
@@ -759,11 +765,13 @@ sr = agent.sharpe_ratio([0.01, -0.02, 0.015], 0.02)
 
 **Docstring:** `Evaluates sufficiency and terminates or continues the research loop. Uses OutputRail for compliance check and user-profile formatting. Only this agent may trigger STOP.`
 
+**Constructor:** Accepts optional `llm_client` (LLMClient). When set, handle_message uses llm_client.complete(RESPONDER_SYSTEM, user_content) to format the final answer before compliance check; otherwise uses OutputRail.format_for_user.
+
 ---
 
 ## Method: `ResponderAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** On INFORM with final_response and conversation_id, get user_profile from content, format via OutputRail.format_for_user, check_compliance, register reply and broadcast STOP (Slice 8). Phase 2: evaluate_confidence, should_terminate, format_response, request_refinement not yet implemented.
+**Purpose:** On INFORM with final_response and conversation_id, get user_profile from content. If llm_client is set, format via llm_client.complete(RESPONDER_SYSTEM, get_responder_user_content(...)); else format via OutputRail.format_for_user. Then check_compliance, register reply and broadcast STOP (Slice 8). Phase 2: evaluate_confidence, should_terminate, format_response, request_refinement not yet implemented.
 
 **Docstring:** `On INFORM with final_response and conversation_id: get user_profile from content, format via OutputRail.format_for_user, check_compliance, register_reply, broadcast_stop. Args: message: The received ACL message (expected INFORM with final_response).`
 
@@ -1111,13 +1119,13 @@ cfg = load_config()
 
 # llm/base.py
 
-**Purpose:** Abstract interface for LLM-backed task decomposition. Defines the LLMClient protocol used by PlannerAgent when LLM_API_KEY is set (Stage 10.2).
+**Purpose:** Abstract interface for LLM-backed task decomposition and completion. Defines the LLMClient protocol used by PlannerAgent (decompose_to_steps) and optionally ResponderAgent (complete) when LLM_API_KEY is set (Stage 10.2).
 
 ---
 
 ## Class: `LLMClient` (Protocol)
 
-**Purpose:** Protocol for LLM clients used by Planner for task decomposition. When no API key is set, use StaticLLMClient (mock). When LLM_API_KEY is set, use a live client (e.g. OpenAI) if the optional dependency is installed.
+**Purpose:** Protocol for LLM clients used by Planner for task decomposition and optionally by Responder for format_response. When no API key is set, use StaticLLMClient (mock). When LLM_API_KEY is set, use a live client (e.g. OpenAI) if the optional dependency is installed.
 
 **Method: `decompose_to_steps(self, query: str) -> list[dict[str, Any]]`**
 
@@ -1126,6 +1134,38 @@ cfg = load_config()
 **Args:** query — Raw user investment query.
 
 **Returns:** List of step dicts, e.g. [{"agent": "librarian", "action": "read_file", "params": {"query": "..."}}].
+
+**Method: `complete(self, system_prompt: str, user_content: str) -> str`**
+
+**Purpose:** Produce a completion given system and user content. Used optionally by Responder (and other agents). Static client returns user_content unchanged; live client calls the LLM.
+
+---
+
+# llm/prompts.py
+
+**Purpose:** Central prompts for all agents; single source of truth aligned with PRD and user-flow.
+
+**Constants:** PLANNER_DECOMPOSE (task decomposition for Planner), LIBRARIAN_SYSTEM (retrieve/combine for Librarian; optional LLM), WEBSEARCHER_SYSTEM (market/sentiment/regulatory for WebSearcher; optional LLM), ANALYST_SYSTEM (quantitative analysis summary for Analyst; optional LLM), RESPONDER_SYSTEM (final user-facing answer by profile for Responder; used when llm_client set).
+
+**Function: `get_responder_user_content(user_profile: str, aggregated_research: str) -> str`**
+
+**Purpose:** Build user message for Responder LLM complete() call (user_profile + aggregated_research).
+
+**Function: `get_librarian_user_content(query: str, combined_data: Any) -> str`**
+
+**Purpose:** Build user message for Librarian LLM complete() call (query + serialized combined_data).
+
+**Function: `get_websearcher_user_content(query: str, fetched_data: Any) -> str`**
+
+**Purpose:** Build user message for WebSearcher LLM complete() call (query + serialized fetched_data).
+
+**Function: `get_analyst_user_content(structured_data: Any, market_data: Any) -> str`**
+
+**Purpose:** Build user message for Analyst LLM complete() call (structured_data + market_data).
+
+**Function: `_data_summary(data: Any, max_chars: int = 4000) -> str`**
+
+**Purpose:** Serialize dict/list to string for LLM user content; truncate if longer than max_chars.
 
 ---
 
@@ -1153,6 +1193,10 @@ cfg = load_config()
 
 **Purpose:** Return static steps with query filled into params for each step.
 
+**Method: `complete(self, system_prompt: str, user_content: str) -> str`**
+
+**Purpose:** Return user_content unchanged (no LLM call).
+
 ---
 
 # llm/live_client.py
@@ -1163,7 +1207,7 @@ cfg = load_config()
 
 ## Class: `LiveLLMClient`
 
-**Purpose:** OpenAI-backed LLM client for task decomposition.
+**Purpose:** OpenAI-backed LLM client for task decomposition and completion. Uses PLANNER_DECOMPOSE from llm.prompts for decompose_to_steps.
 
 **Method: `__init__(self, api_key: str, model: str = "gpt-4o-mini") -> None`**
 
@@ -1171,7 +1215,11 @@ cfg = load_config()
 
 **Method: `decompose_to_steps(self, query: str) -> list[dict[str, Any]]`**
 
-**Purpose:** Call the LLM to decompose the query into steps; parse and validate. On failure or parse error, falls back to DEFAULT_STATIC_STEPS with query injected.
+**Purpose:** Call the LLM to decompose the query into steps; parse and validate. Uses PLANNER_DECOMPOSE as system message. On failure or parse error, falls back to DEFAULT_STATIC_STEPS with query injected.
+
+**Method: `complete(self, system_prompt: str, user_content: str) -> str`**
+
+**Purpose:** Call the LLM for a single completion (e.g. Responder format_response). On failure returns user_content.
 
 **Method: `_parse_steps(self, text: str, query: str) -> list[dict[str, Any]]`**
 
@@ -1263,7 +1311,7 @@ cfg = load_config()
 
 ## Function: `_run_e2e_once() -> None`
 
-**Purpose:** Run one E2E conversation (Slice 5): wire InMemoryMessageBus, ConversationManager, MCPServer (register_default_tools), MCPClient, get_llm_client(cfg), all five agents (PlannerAgent with llm_client, LibrarianAgent, WebSearcherAgent, AnalystAgent, ResponderAgent with OutputRail); start agent threads; create temp file, send REQUEST to planner with path; block on completion_event; print final response and exit 0.
+**Purpose:** Run one E2E conversation (Slice 5): wire InMemoryMessageBus, ConversationManager, MCPServer (register_default_tools), MCPClient, get_llm_client(cfg), all five agents (PlannerAgent, LibrarianAgent, WebSearcherAgent, AnalystAgent, ResponderAgent) each with the same llm_client when not demo; ResponderAgent also has OutputRail; start agent threads; create temp file, send REQUEST to planner with path; block on completion_event; print final response and exit 0.
 
 ---
 

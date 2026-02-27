@@ -1,12 +1,15 @@
 """Web Searcher agent: real-time market and regulatory data via MCP (Tavily, Yahoo)."""
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
+
+if TYPE_CHECKING:
+    from llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +28,12 @@ class WebSearcherAgent(BaseAgent):
         message_bus: MessageBus,
         mcp_client: Any = None,
         conversation_manager: Any = None,
+        llm_client: "LLMClient | None" = None,
     ) -> None:
         super().__init__(name, message_bus)
         self.mcp_client = mcp_client
         self.conversation_manager = conversation_manager
+        self._llm_client = llm_client
 
     def handle_message(self, message: ACLMessage) -> None:
         """Process market/sentiment/regulatory requests and send INFORM to planner.
@@ -68,11 +73,20 @@ class WebSearcherAgent(BaseAgent):
         market = self.fetch_market_data(fund)
         sentiment = self.fetch_sentiment(fund)
         regulatory = self.fetch_regulatory(fund)
-        reply_content = {
+        reply_content: dict[str, Any] = {
             "market_data": market,
             "sentiment": sentiment,
             "regulatory": regulatory,
         }
+        # Optional LLM summary for the planner
+        if self._llm_client is not None:
+            from llm.prompts import WEBSEARCHER_SYSTEM, get_websearcher_user_content
+
+            query = content.get("query") or fund
+            user_content = get_websearcher_user_content(str(query)[:500], reply_content)
+            summary = self._llm_client.complete(WEBSEARCHER_SYSTEM, user_content)
+            reply_content = dict(reply_content)
+            reply_content["summary"] = summary
         reply_to = getattr(message, "reply_to", None) or message.sender
         reply = ACLMessage(
             performative=Performative.INFORM,

@@ -6,6 +6,7 @@ from typing import Any
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
+from util.trace_log import trace
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +61,28 @@ class ResponderAgent(BaseAgent):
             user_profile = user_profile.strip() or "beginner"
         else:
             user_profile = "beginner"
-        logger.info(
-            "[trace] step=13 stage=responder_inform_received conversation_id=%s user_profile=%s draft_len=%s",
-            conversation_id, user_profile, len(final_response) if isinstance(final_response, str) else 0,
+        trace(
+            13,
+            "responder_inform_received",
+            in_={
+                "conversation_id": conversation_id,
+                "user_profile": user_profile,
+                "draft_len": len(final_response)
+                if isinstance(final_response, str)
+                else 0,
+            },
+            out="ok",
+            next_="format_for_user, check_compliance",
         )
+        if self.conversation_manager and conversation_id:
+            self.conversation_manager.append_flow(
+                conversation_id,
+                {
+                    "step": "responder_formatting",
+                    "message": f"**Responder** received the combined answer. Formatting for your profile ({user_profile}) and checking compliance.",
+                    "detail": {"user_profile": user_profile},
+                },
+            )
 
         # Format by profile and check compliance; append disclaimer if blocked phrase found
         if self.output_rail is not None:
@@ -75,9 +94,21 @@ class ResponderAgent(BaseAgent):
                 ),
                 user_profile,
             )
-            logger.info("[trace] step=13a stage=responder_format_for_user conversation_id=%s draft_len=%s", conversation_id, len(draft))
+            trace(
+                13,
+                "responder_format_for_user",
+                in_={"conversation_id": conversation_id},
+                out=f"draft_len={len(draft)}",
+                next_="check_compliance",
+            )
             comp = self.output_rail.check_compliance(draft)
-            logger.info("[trace] step=13b stage=responder_check_compliance conversation_id=%s passed=%s", conversation_id, comp.passed)
+            trace(
+                13,
+                "responder_check_compliance",
+                in_={"conversation_id": conversation_id},
+                out=f"passed={comp.passed}",
+                next_="register_reply or append disclaimer",
+            )
             if not comp.passed:
                 draft = f"{draft}\n\nThis is not investment advice."
             final_response = draft
@@ -95,9 +126,29 @@ class ResponderAgent(BaseAgent):
             conversation_id=conversation_id,
         )
         if self.conversation_manager:
-            logger.debug("[trace] step=13c stage=responder_register_reply conversation_id=%s", conversation_id)
+            trace(
+                13,
+                "responder_register_reply",
+                in_={"conversation_id": conversation_id},
+                out="final_response stored",
+                next_="broadcast_stop",
+            )
+            self.conversation_manager.append_flow(
+                conversation_id,
+                {
+                    "step": "response_ready",
+                    "message": "Your answer is ready.",
+                    "detail": {},
+                },
+            )
+            trace(
+                13,
+                "responder_broadcast_stop",
+                in_={"conversation_id": conversation_id},
+                out="STOP sent",
+                next_="agents exit",
+            )
             self.conversation_manager.register_reply(conversation_id, reply_msg)
-            logger.debug("[trace] step=13d stage=responder_broadcast_stop conversation_id=%s", conversation_id)
             self.conversation_manager.broadcast_stop(conversation_id)
 
     def evaluate_confidence(self, analysis: dict) -> float:

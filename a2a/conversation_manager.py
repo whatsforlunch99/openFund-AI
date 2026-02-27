@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
+from util.trace_log import trace
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class ConversationState:
         final_response: Set by register_reply when Responder delivers answer; None until then.
         created_at: Creation datetime.
         completion_event: threading.Event set when final_response is written; callers block with event.wait(timeout=...).
+        flow_events: Append-only list of flow step dicts for UI (e.g. {"step": "...", "message": "...", "detail": {...}}).
     """
 
     def __init__(
@@ -51,6 +53,13 @@ class ConversationState:
         self.completion_event = (
             completion_event if completion_event is not None else threading.Event()
         )
+        self.flow_events: list[dict[str, Any]] = []
+        self._flow_lock = threading.Lock()
+
+    def append_flow(self, event: dict[str, Any]) -> None:
+        """Append a flow step (thread-safe). event: at least 'step' and 'message'; optional 'detail'."""
+        with self._flow_lock:
+            self.flow_events.append(event)
 
 
 class ConversationManager:
@@ -136,11 +145,31 @@ class ConversationManager:
         )
         self._conversations[cid] = state
         self._save_user(user_id)
-        logger.info(
-            "[trace] step=3 stage=create_conversation conversation_id=%s user_id=%s",
-            cid, user_id,
+        trace(
+            3,
+            "create_conversation",
+            in_={"user_id": user_id, "initial_query": initial_query[:50]},
+            out=f"conversation_id={cid}",
+            next_="return to API",
         )
         return cid
+
+    def append_flow(self, conversation_id: str, event: dict[str, Any]) -> None:
+        """Append a flow step for a conversation (for UI). Safe if state not found."""
+        state = self._conversations.get(conversation_id)
+        if state is not None and hasattr(state, "append_flow"):
+            state.append_flow(event)
+
+    def get_flow_events(self, conversation_id: str) -> list[dict[str, Any]]:
+        """Return a copy of flow_events for the conversation (for polling). Thread-safe when state has _flow_lock."""
+        state = self._conversations.get(conversation_id)
+        if state is None or not hasattr(state, "flow_events"):
+            return []
+        lock = getattr(state, "_flow_lock", None)
+        if lock is not None:
+            with lock:
+                return list(state.flow_events)
+        return list(getattr(state, "flow_events", []))
 
     def get_conversation(self, conversation_id: str) -> Optional[ConversationState]:
         """Return current state for a conversation.
@@ -173,9 +202,12 @@ class ConversationManager:
             state.final_response = content["final_response"]
             state.status = "complete"
             state.completion_event.set()  # Unblock POST /chat or --e2e-once waiting on event.wait()
-            logger.info(
-                "[trace] step=13e stage=register_reply conversation_id=%s status=complete response_len=%s",
-                conversation_id, len(state.final_response or ""),
+            trace(
+                13,
+                "register_reply",
+                in_={"conversation_id": conversation_id},
+                out=f"status=complete response_len={len(state.final_response or '')}",
+                next_="save_user, then API unblocks",
             )
         self._save_user(state.user_id)
 
@@ -194,4 +226,10 @@ class ConversationManager:
             content={"conversation_id": conversation_id},
         )
         self._bus.broadcast(msg)
-        logger.info("[trace] step=13g stage=broadcast_stop conversation_id=%s", conversation_id)
+        trace(
+            13,
+            "broadcast_stop",
+            in_={"conversation_id": conversation_id},
+            out="STOP sent to all agents",
+            next_="agents exit run loop",
+        )

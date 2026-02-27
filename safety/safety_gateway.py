@@ -5,7 +5,10 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from util.trace_log import trace
+
 logger = logging.getLogger(__name__)
+# Max input length enforced so very long payloads are rejected before processing (backend contract).
 MAX_INPUT_LENGTH = 10_000
 
 # Phrases that indicate illegal investment advice (case-insensitive).
@@ -152,16 +155,40 @@ class SafetyGateway:
         # Validate length and charset; raise if invalid
         vr = self.validate_input(raw_input)
         if not vr.valid:
-            logger.debug("[trace] step=2a stage=validate_input result=invalid reason=%s", vr.reason)
+            trace(
+                2,
+                "validate_input",
+                in_={"raw_len": len(raw_input)},
+                out=f"invalid reason={vr.reason}",
+                next_="raise SafetyError",
+            )
             raise SafetyError(vr.reason or "Validation failed")
-        logger.debug("[trace] step=2a stage=validate_input result=valid")
+        trace(
+            2,
+            "validate_input",
+            in_={"raw_len": len(raw_input)},
+            out="valid",
+            next_="check_guardrails",
+        )
 
         # Block disallowed phrases (e.g. investment advice)
         gr = self.check_guardrails(raw_input)
         if not gr.allowed:
-            logger.debug("[trace] step=2b stage=check_guardrails result=blocked reason=%s", gr.reason)
+            trace(
+                2,
+                "check_guardrails",
+                in_={"text": raw_input[:50]},
+                out=f"blocked reason={gr.reason}",
+                next_="raise SafetyError",
+            )
             raise SafetyError(gr.reason or "Guardrails blocked input")
-        logger.debug("[trace] step=2b stage=check_guardrails result=allowed")
+        trace(
+            2,
+            "check_guardrails",
+            in_={"text": raw_input[:50]},
+            out="allowed",
+            next_="mask_pii",
+        )
 
         # Mask PII then return cleaned input and metadata
         masked_text = self.mask_pii(raw_input)
@@ -170,8 +197,11 @@ class SafetyGateway:
             raw_length=len(raw_input),
             masked=(masked_text != raw_input),
         )
-        logger.info(
-            "[trace] step=2c stage=process_user_input result=ProcessedInput raw_length=%s masked=%s",
-            result.raw_length, result.masked,
+        trace(
+            2,
+            "process_user_input",
+            in_={"raw_length": len(raw_input)},
+            out=f"ProcessedInput raw_length={result.raw_length} masked={result.masked}",
+            next_="return to API",
         )
         return result

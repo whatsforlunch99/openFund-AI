@@ -1,6 +1,7 @@
 """Entry point: wire MessageBus, agents, API, and optional MCP server."""
 
 import logging
+import os
 import sys
 
 from config.config import load_config
@@ -109,6 +110,7 @@ def main() -> None:
     MCP client (with config); instantiates all agents with bus and MCP client;
     starts FastAPI (REST + WebSocket) and agent runners; optionally starts MCP server.
     If --e2e-once is in sys.argv, runs one E2E conversation and exits.
+    If --demo is in sys.argv, sets OPENFUND_DEMO=1 and starts the API server (uvicorn).
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -116,6 +118,20 @@ def main() -> None:
     )
     if "--e2e-once" in sys.argv:
         _run_e2e_once()
+        return
+
+    if "--demo" in sys.argv:
+        os.environ["OPENFUND_DEMO"] = "1"
+        import uvicorn
+
+        # Demo: static MCP responses only; no external APIs or LLM (see docs/demo.md).
+        logger.info("Starting API in demo mode (static tool responses)")
+        uvicorn.run(
+            "api.rest:create_app",
+            factory=True,
+            host="0.0.0.0",
+            port=8000,
+        )
         return
 
     cfg = load_config()

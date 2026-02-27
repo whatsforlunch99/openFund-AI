@@ -7,6 +7,7 @@ from typing import Any
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
+from util.trace_log import trace
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +21,15 @@ class AnalystAgent(BaseAgent):
     """
 
     def __init__(
-        self, name: str, message_bus: MessageBus, mcp_client: Any = None
+        self,
+        name: str,
+        message_bus: MessageBus,
+        mcp_client: Any = None,
+        conversation_manager: Any = None,
     ) -> None:
         super().__init__(name, message_bus)
         self.mcp_client = mcp_client
+        self.conversation_manager = conversation_manager
 
     def handle_message(self, message: ACLMessage) -> None:
         """Process analysis requests and send INFORM to planner.
@@ -48,16 +54,31 @@ class AnalystAgent(BaseAgent):
             structured_data = {"data": structured_data}
         if not isinstance(market_data, dict):
             market_data = {"data": market_data}
-        logger.info(
-            "[trace] step=11 stage=analyst_request_received conversation_id=%s",
-            conversation_id,
+        trace(
+            11,
+            "analyst_request_received",
+            in_={"conversation_id": conversation_id},
+            out="ok",
+            next_="analyze()",
         )
+        if self.conversation_manager and conversation_id:
+            self.conversation_manager.append_flow(
+                conversation_id,
+                {
+                    "step": "analyst_start",
+                    "message": "**Analyst** received request. Running quantitative analysis on the gathered data.",
+                    "detail": {},
+                },
+            )
         result = self.analyze(structured_data, market_data)
         confidence = result.get("confidence")
         keys = list(result.keys()) if isinstance(result, dict) else []
-        logger.info(
-            "[trace] step=11a stage=analyst_analyze_done conversation_id=%s confidence=%s keys=%s",
-            conversation_id, confidence, keys,
+        trace(
+            11,
+            "analyst_analyze_done",
+            in_={"conversation_id": conversation_id},
+            out=f"confidence={confidence} keys={keys}",
+            next_="send INFORM to planner",
         )
         reply_to = getattr(message, "reply_to", None) or message.sender
         reply = ACLMessage(
@@ -69,7 +90,23 @@ class AnalystAgent(BaseAgent):
             reply_to=message.sender,
         )
         self.bus.send(reply)
-        logger.info("[trace] step=11c stage=analyst_inform_sent conversation_id=%s", conversation_id)
+        trace(
+            11,
+            "analyst_inform_sent",
+            in_={"conversation_id": conversation_id},
+            out="sent",
+            next_="planner receives",
+        )
+        if self.conversation_manager and conversation_id:
+            conf = result.get("confidence")
+            self.conversation_manager.append_flow(
+                conversation_id,
+                {
+                    "step": "analyst_done",
+                    "message": f"**Analyst** has returned analysis (confidence={conf}).",
+                    "detail": {"confidence": conf},
+                },
+            )
 
     def analyze(self, structured_data: dict, market_data: dict) -> dict:
         """

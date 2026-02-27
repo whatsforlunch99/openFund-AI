@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
+from util.trace_log import trace
 
 logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
@@ -49,18 +50,20 @@ class PlannerAgent(BaseAgent):
         name: str,
         message_bus: MessageBus,
         llm_client: Optional[LLMClient] = None,
+        conversation_manager: Any = None,
     ) -> None:
         super().__init__(name, message_bus)
         self._llm_client = llm_client
-        self._round_pending: dict[str, set[str]] = (
-            {}
-        )  # conversation_id -> agents we're waiting for
-        self._collected: dict[str, dict[str, Any]] = (
-            {}
-        )  # conversation_id -> { agent: content }
-        self._user_profile_by_conversation: dict[str, str] = (
-            {}
-        )  # conversation_id -> user_profile
+        self._conversation_manager = conversation_manager
+        self._round_pending: dict[
+            str, set[str]
+        ] = {}  # conversation_id -> agents we're waiting for
+        self._collected: dict[
+            str, dict[str, Any]
+        ] = {}  # conversation_id -> { agent: content }
+        self._user_profile_by_conversation: dict[
+            str, str
+        ] = {}  # conversation_id -> user_profile
 
     def handle_message(self, message: ACLMessage) -> None:
         """Handle incoming messages directed to the Planner.
@@ -89,19 +92,53 @@ class PlannerAgent(BaseAgent):
                 return
             self._collected[conversation_id][message.sender] = content
             self._round_pending[conversation_id].discard(message.sender)
-            logger.info(
-                "[trace] step=12a stage=planner_inform_received conversation_id=%s sender=%s pending=%s",
-                conversation_id, message.sender, self._round_pending[conversation_id],
+            trace(
+                12,
+                "planner_inform_received",
+                in_={
+                    "conversation_id": conversation_id,
+                    "sender": message.sender,
+                    "pending": list(self._round_pending[conversation_id]),
+                },
+                out="stored",
+                next_="all received → format_final else wait",
             )
+            if self._conversation_manager:
+                self._conversation_manager.append_flow(
+                    conversation_id,
+                    {
+                        "step": "agent_returned",
+                        "message": f"**{message.sender}** has returned results to the planner (pending: {list(self._round_pending[conversation_id]) or 'none'}).",
+                        "detail": {
+                            "agent": message.sender,
+                            "pending": list(self._round_pending[conversation_id]),
+                        },
+                    },
+                )
             if not self._round_pending[conversation_id]:
                 final = self._format_final(self._collected[conversation_id])
                 user_profile = self._user_profile_by_conversation.get(
                     conversation_id, "beginner"
                 )
-                logger.info(
-                    "[trace] step=12b stage=planner_format_final conversation_id=%s user_profile=%s final_len=%s",
-                    conversation_id, user_profile, len(final),
+                trace(
+                    12,
+                    "planner_format_final",
+                    in_={
+                        "conversation_id": conversation_id,
+                        "user_profile": user_profile,
+                    },
+                    out=f"final_len={len(final)}",
+                    next_="send INFORM to responder",
                 )
+                if self._conversation_manager:
+                    self._conversation_manager.append_flow(
+                        conversation_id,
+                        {
+                            "step": "planner_complete",
+                            "message": f"Planner has combined all results (final length {len(final)} chars) and is sending the answer to the responder.",
+                            "detail": {"final_length": len(final)},
+                        },
+                    )
                 self.bus.send(
                     ACLMessage(
                         performative=Performative.INFORM,
@@ -115,7 +152,13 @@ class PlannerAgent(BaseAgent):
                         conversation_id=conversation_id,
                     )
                 )
-                logger.info("[trace] step=12c stage=planner_sent_to_responder conversation_id=%s", conversation_id)
+                trace(
+                    12,
+                    "planner_sent_to_responder",
+                    in_={"conversation_id": conversation_id},
+                    out="sent",
+                    next_="responder handles",
+                )
                 del self._round_pending[conversation_id]
                 del self._collected[conversation_id]
                 self._user_profile_by_conversation.pop(conversation_id, None)
@@ -125,10 +168,24 @@ class PlannerAgent(BaseAgent):
         query = content.get("query", "")
         if not query:
             return
-        logger.info(
-            "[trace] step=6 stage=planner_request_received conversation_id=%s query_len=%s",
-            conversation_id, len(query),
+        trace(
+            6,
+            "planner_request_received",
+            in_={"conversation_id": conversation_id, "query_len": len(query)},
+            out="ok",
+            next_="decompose_task",
         )
+        if self._conversation_manager:
+            self._conversation_manager.append_flow(
+                conversation_id,
+                {
+                    "step": "planner_invoked",
+                    "message": "Planner is decomposing your query into research steps.",
+                    "detail": {
+                        "query": query[:200] + ("..." if len(query) > 200 else "")
+                    },
+                },
+            )
         raw_profile = content.get("user_profile") or "beginner"
         if isinstance(raw_profile, str):
             profile = raw_profile.strip().lower()
@@ -140,10 +197,32 @@ class PlannerAgent(BaseAgent):
         steps = self.decompose_task(query)
         if not steps:
             return
-        logger.info(
-            "[trace] step=7 stage=planner_handle_request conversation_id=%s query_len=%s user_profile=%s steps=%s",
-            conversation_id, len(query), profile, [s.agent for s in steps],
+        trace(
+            7,
+            "planner_handle_request",
+            in_={
+                "conversation_id": conversation_id,
+                "query_len": len(query),
+                "user_profile": profile,
+                "steps": [s.agent for s in steps],
+            },
+            out="ok",
+            next_="send REQUEST to each agent",
         )
+        if self._conversation_manager:
+            for s in steps:
+                self._conversation_manager.append_flow(
+                    conversation_id,
+                    {
+                        "step": "planner_sent",
+                        "message": f"Planner is sending a request to **{s.agent}**: content (action: {s.action}, query: '{query[:80]}{'...' if len(query) > 80 else ''}'). Your query: \"{query[:60]}{'...' if len(query) > 60 else ''}\"",
+                        "detail": {
+                            "agent": s.agent,
+                            "action": s.action,
+                            "query_preview": query[:100],
+                        },
+                    },
+                )
         self._round_pending[conversation_id] = {s.agent for s in steps}
         self._collected[conversation_id] = {}
         for step in steps:
@@ -156,7 +235,13 @@ class PlannerAgent(BaseAgent):
             req.conversation_id = conversation_id
             req.reply_to = self.name
             self.bus.send(req)
-        logger.info("[trace] step=7c stage=planner_sent_requests conversation_id=%s receivers=librarian,websearcher,analyst", conversation_id)
+        trace(
+            7,
+            "planner_sent_requests",
+            in_={"conversation_id": conversation_id},
+            out="sent to librarian, websearcher, analyst",
+            next_="wait INFORMs",
+        )
 
     def _format_final(self, collected: dict[str, Any]) -> str:
         """Turn collected agent outputs into a single string for Responder.

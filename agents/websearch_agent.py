@@ -6,6 +6,7 @@ from typing import Any
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
+from util.trace_log import trace
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +20,15 @@ class WebSearcherAgent(BaseAgent):
     """
 
     def __init__(
-        self, name: str, message_bus: MessageBus, mcp_client: Any = None
+        self,
+        name: str,
+        message_bus: MessageBus,
+        mcp_client: Any = None,
+        conversation_manager: Any = None,
     ) -> None:
         super().__init__(name, message_bus)
         self.mcp_client = mcp_client
+        self.conversation_manager = conversation_manager
 
     def handle_message(self, message: ACLMessage) -> None:
         """Process market/sentiment/regulatory requests and send INFORM to planner.
@@ -43,16 +49,25 @@ class WebSearcherAgent(BaseAgent):
             or "AAPL"
         )
         conversation_id = getattr(message, "conversation_id", "") or ""
-        logger.info(
-            "[trace] step=10 stage=websearcher_request_received conversation_id=%s fund=%s",
-            conversation_id, fund,
+        trace(
+            10,
+            "websearcher_request_received",
+            in_={"conversation_id": conversation_id, "fund": fund},
+            out="ok",
+            next_="fetch market, sentiment, regulatory",
         )
+        if self.conversation_manager and conversation_id:
+            self.conversation_manager.append_flow(
+                conversation_id,
+                {
+                    "step": "websearcher_start",
+                    "message": f'**Web Searcher** received request: fund="{fund}" (from your query). Fetching market data, news, and sentiment.',
+                    "detail": {"symbol_or_fund": fund},
+                },
+            )
         market = self.fetch_market_data(fund)
-        logger.debug("[trace] step=10a stage=websearcher_fetch_market keys=%s", list(market.keys()) if isinstance(market, dict) else "n/a")
         sentiment = self.fetch_sentiment(fund)
-        logger.debug("[trace] step=10b stage=websearcher_fetch_sentiment keys=%s", list(sentiment.keys()) if isinstance(sentiment, dict) else "n/a")
         regulatory = self.fetch_regulatory(fund)
-        logger.debug("[trace] step=10d stage=websearcher_fetch_regulatory keys=%s", list(regulatory.keys()) if isinstance(regulatory, dict) else "n/a")
         reply_content = {
             "market_data": market,
             "sentiment": sentiment,
@@ -68,10 +83,22 @@ class WebSearcherAgent(BaseAgent):
             reply_to=message.sender,
         )
         self.bus.send(reply)
-        logger.info(
-            "[trace] step=10 stage=websearcher_inform_sent conversation_id=%s",
-            conversation_id,
+        trace(
+            10,
+            "websearcher_inform_sent",
+            in_={"conversation_id": conversation_id},
+            out="sent",
+            next_="planner receives",
         )
+        if self.conversation_manager and conversation_id:
+            self.conversation_manager.append_flow(
+                conversation_id,
+                {
+                    "step": "websearcher_done",
+                    "message": "**Web Searcher** has returned market data, sentiment, and regulatory news.",
+                    "detail": {},
+                },
+            )
 
     def fetch_market_data(self, fund: str) -> dict:
         """

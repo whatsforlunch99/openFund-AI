@@ -6,6 +6,7 @@ from typing import Any
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
+from util.trace_log import trace
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,11 @@ class LibrarianAgent(BaseAgent):
     """
 
     def __init__(
-        self, name: str, message_bus: MessageBus, mcp_client: Any = None
+        self,
+        name: str,
+        message_bus: MessageBus,
+        mcp_client: Any = None,
+        conversation_manager: Any = None,
     ) -> None:
         """Initialize the librarian agent.
 
@@ -26,9 +31,11 @@ class LibrarianAgent(BaseAgent):
             name: Unique agent name (receiver address).
             message_bus: Shared A2A transport.
             mcp_client: MCP client for file_tool, vector_tool, kg_tool, sql_tool.
+            conversation_manager: Optional ConversationManager for flow events.
         """
         super().__init__(name, message_bus)
         self.mcp_client = mcp_client
+        self.conversation_manager = conversation_manager
 
     def handle_message(self, message: ACLMessage) -> None:
         """Process data retrieval requests.
@@ -53,21 +60,45 @@ class LibrarianAgent(BaseAgent):
         vector_query = content.get("vector_query")
         fund = content.get("fund") or content.get("entity") or ""
         sql_query = content.get("sql_query") or content.get("sql") or ""
-        logger.info(
-            "[trace] step=8 stage=librarian_request_received conversation_id=%s path=%s fund=%s has_vector=%s has_sql=%s",
-            conversation_id, path or "(none)", fund or "(none)", bool(vector_query), bool(sql_query),
+        trace(
+            8,
+            "librarian_request_received",
+            in_={
+                "conversation_id": conversation_id,
+                "path": path or "(none)",
+                "fund": fund or "(none)",
+            },
+            out="ok",
+            next_="call tools (file, vector, kg, sql)",
         )
+        if self.conversation_manager and conversation_id:
+            path_preview = (path or "(query)")[:60] + (
+                "..." if len(path or "") > 60 else ""
+            )
+            self.conversation_manager.append_flow(
+                conversation_id,
+                {
+                    "step": "librarian_start",
+                    "message": f'**Librarian** received request: path="{path_preview}", fund={fund or "(none)"}. Retrieving documents and knowledge graph data.',
+                    "detail": {"path": path or "(query)", "fund": fund or "(none)"},
+                },
+            )
 
         # Call each requested tool and collect results
         parts = {}
         if path:
-            logger.debug("[trace] step=9a stage=librarian_read_file path=%s", path)
             result = self.mcp_client.call_tool("file_tool.read_file", {"path": path})
             parts["file"] = (
                 result if isinstance(result, dict) else {"content": str(result)}
             )
             has_error = isinstance(parts["file"], dict) and "error" in parts["file"]
-            logger.info("[trace] step=9b stage=librarian_read_file_done path=%s error=%s", path, has_error)
+            trace(
+                9,
+                "librarian_read_file_done",
+                in_={"path": path},
+                out=f"error={has_error}",
+                next_="build reply",
+            )
         if vector_query:
             docs_result = self.mcp_client.call_tool(
                 "vector_tool.search",
@@ -119,10 +150,37 @@ class LibrarianAgent(BaseAgent):
             reply_to=message.sender,
         )
         self.bus.send(reply)
-        logger.info(
-            "[trace] step=9 stage=librarian_inform_sent conversation_id=%s reply_keys=%s",
-            conversation_id, list(reply_content.keys()) if isinstance(reply_content, dict) else "n/a",
+        trace(
+            9,
+            "librarian_inform_sent",
+            in_={"conversation_id": conversation_id},
+            out=f"reply_keys={list(reply_content.keys()) if isinstance(reply_content, dict) else []}",
+            next_="planner receives",
         )
+        if self.conversation_manager and conversation_id:
+            summary = "file content" if parts.get("file") else "documents and graph"
+            nchars = 0
+            if isinstance(reply_content, dict) and reply_content.get("content"):
+                nchars = len(str(reply_content["content"]))
+            elif (
+                isinstance(reply_content, dict)
+                and reply_content.get("file")
+                and isinstance(reply_content["file"], dict)
+            ):
+                nchars = len(str(reply_content["file"].get("content", "")))
+            size_str = f" ({nchars} chars)" if nchars else ""
+            self.conversation_manager.append_flow(
+                conversation_id,
+                {
+                    "step": "librarian_done",
+                    "message": f"**Librarian** has returned {summary}{size_str}.",
+                    "detail": {
+                        "reply_keys": list(reply_content.keys())
+                        if isinstance(reply_content, dict)
+                        else []
+                    },
+                },
+            )
 
     def retrieve_knowledge_graph(self, fund: str) -> dict:
         """Query knowledge graph for fund relationships via MCP kg_tool (Neo4j).

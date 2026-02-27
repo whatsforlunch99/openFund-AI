@@ -185,9 +185,9 @@ def test_stage_1_3() -> None:
                 else:
                     os.environ.pop("MEMORY_STORE_PATH", None)
     if persistence_ok and os.path.exists(default_path):
-        assert os.path.isdir(
-            os.path.dirname(default_path)
-        ), "Persistence (D2): dir auto-created for memory/<user_id>/conversations.json"
+        assert os.path.isdir(os.path.dirname(default_path)), (
+            "Persistence (D2): dir auto-created for memory/<user_id>/conversations.json"
+        )
 
     with tempfile.TemporaryDirectory() as tmp:
         prev = os.environ.get("MEMORY_STORE_PATH")
@@ -197,9 +197,9 @@ def test_stage_1_3() -> None:
             try:
                 _ = mgr3.create_conversation("u3", "Q")
                 custom_path = os.path.join(tmp, "u3", "conversations.json")
-                assert os.path.exists(
-                    custom_path
-                ), "MEMORY_STORE_PATH should configure root dir (D2)"
+                assert os.path.exists(custom_path), (
+                    "MEMORY_STORE_PATH should configure root dir (D2)"
+                )
             except NotImplementedError:
                 pass
         finally:
@@ -215,9 +215,9 @@ def test_stage_1_3() -> None:
             pass
         else:
             anon_path = os.path.join(memory_root, "anonymous", "conversations.json")
-            assert os.path.exists(
-                anon_path
-            ), "user_id='' must persist to memory/anonymous/conversations.json (D2)"
+            assert os.path.exists(anon_path), (
+                "user_id='' must persist to memory/anonymous/conversations.json (D2)"
+            )
 
     try:
         mgr.broadcast_stop(cid)
@@ -945,6 +945,16 @@ def test_stage_7_1() -> None:
     app = create_app(timeout_seconds=5)
     client = TestClient(app)
 
+    # Invalid user_profile is rejected (PRD: invalid profile rejected)
+    r_bad = client.post(
+        "/chat",
+        json={
+            "query": "What is fund X?",
+            "user_profile": "expert",
+        },
+    )
+    assert r_bad.status_code == 422, r_bad.text
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         f.write("Fund X is a sample fund.")
         path = f.name
@@ -1022,6 +1032,8 @@ def test_stage_9_1() -> None:
                 }
             )
             data = ws.receive_json()
+            while data.get("event") == "flow":
+                data = ws.receive_json()
         assert "event" in data
         assert data["event"] in ("response", "timeout", "error")
         if data["event"] == "response":
@@ -1049,9 +1061,9 @@ def test_stage_10_1() -> None:
         capture_output=True,
         text=True,
     )
-    assert (
-        result.returncode == 0
-    ), f"E2E exited {result.returncode}; stdout={result.stdout!r}; stderr={result.stderr!r}"
+    assert result.returncode == 0, (
+        f"E2E exited {result.returncode}; stdout={result.stdout!r}; stderr={result.stderr!r}"
+    )
 
 
 def test_stage_10_2_llm_static_mock() -> None:
@@ -1083,3 +1095,32 @@ def test_stage_10_2_llm_static_mock() -> None:
     assert len(plan_steps) == 3
     assert all(isinstance(s, TaskStep) for s in plan_steps)
     assert [s.agent for s in plan_steps] == ["librarian", "websearcher", "analyst"]
+
+
+# --- Data populate (demo seed): no backends configured ---
+
+
+def test_data_populate_skips_when_no_backends() -> None:
+    """data populate exits 0 and skips each backend when DATABASE_URL, NEO4J_URI, MILVUS_URI are unset."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("DATABASE_URL", "NEO4J_URI", "MILVUS_URI")
+    }
+    env["PYTHONPATH"] = root
+    result = subprocess.run(
+        [sys.executable, "-m", "data", "populate"],
+        cwd=root,
+        env=env,
+        timeout=30,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"data populate exited {result.returncode}; stderr={result.stderr!r}"
+    )
+    out = result.stdout + result.stderr
+    assert "skipping PostgreSQL" in out or "DATABASE_URL" in out
+    assert "skipping Neo4j" in out or "NEO4J_URI" in out
+    assert "skipping Milvus" in out or "MILVUS_URI" in out

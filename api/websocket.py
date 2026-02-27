@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from a2a.acl_message import ACLMessage, Performative
@@ -11,6 +12,8 @@ from a2a.message_bus import MessageBus
 from safety.safety_gateway import SafetyError, SafetyGateway
 
 VALID_USER_PROFILES = ("beginner", "long_term", "analyst")
+FLOW_POLL_INTERVAL = 0.2
+COMPLETION_POLL_INTERVAL = 0.25
 
 
 async def handle_websocket(
@@ -100,6 +103,18 @@ async def handle_websocket(
             )
             await websocket.close()
             return
+        display = f" (welcome, user {user_id})" if user_id else ""
+        manager.append_flow(
+            conversation_id,
+            {
+                "step": "user_created",
+                "message": f"New conversation started.{display} You can ask your question below.",
+                "detail": {
+                    "user_id": user_id or "anonymous",
+                    "conversation_id": conversation_id,
+                },
+            },
+        )
 
     # Build REQUEST content and send to planner
     content = {
@@ -119,12 +134,43 @@ async def handle_websocket(
             conversation_id=conversation_id,
         )
     )
-
-    # Block until responder sets final_response or timeout; then send one event and close
-    loop = asyncio.get_running_loop()
-    signaled = await loop.run_in_executor(
-        None, lambda: state.completion_event.wait(timeout=timeout_seconds)
+    manager.append_flow(
+        conversation_id,
+        {
+            "step": "request_sent",
+            "message": f'Your query has been sent to the planner. Research steps will run next. Your query: "{(query or "")[:80]}{"..." if len(query or "") > 80 else ""}"',
+            "detail": {"query_preview": (query or "")[:100]},
+        },
     )
+
+    # Stream flow events one-by-one, then send response or timeout
+    loop = asyncio.get_running_loop()
+    sent_count = 0
+    start = time.monotonic()
+    signaled = False
+    while (time.monotonic() - start) < timeout_seconds:
+        # Send any new flow events
+        flow = manager.get_flow_events(conversation_id)
+        for i in range(sent_count, len(flow)):
+            await websocket.send_json({"event": "flow", **flow[i]})
+        sent_count = len(flow)
+        # Check completion with short wait
+        remaining = timeout_seconds - (time.monotonic() - start)
+        if remaining <= 0:
+            break
+        wait_time = min(COMPLETION_POLL_INTERVAL, remaining)
+        signaled = await loop.run_in_executor(
+            None,
+            (lambda wt=wait_time: state.completion_event.wait(timeout=wt)),
+        )
+        if signaled:
+            break
+        await asyncio.sleep(FLOW_POLL_INTERVAL)
+
+    # Send any final flow events that arrived
+    flow = manager.get_flow_events(conversation_id)
+    for i in range(sent_count, len(flow)):
+        await websocket.send_json({"event": "flow", **flow[i]})
 
     if signaled:
         await websocket.send_json(
@@ -133,6 +179,7 @@ async def handle_websocket(
                 "conversation_id": conversation_id,
                 "status": state.status,
                 "response": state.final_response or "",
+                "flow": manager.get_flow_events(conversation_id),
             }
         )
     else:
@@ -141,6 +188,7 @@ async def handle_websocket(
                 "event": "timeout",
                 "conversation_id": conversation_id,
                 "response": None,
+                "flow": manager.get_flow_events(conversation_id),
             }
         )
 

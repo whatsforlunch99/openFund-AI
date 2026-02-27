@@ -153,7 +153,9 @@ class MCPServer:
                     (
                         p.get("limit")
                         if "limit" in p
-                        else p.get("count") if "count" in p else None
+                        else p.get("count")
+                        if "count" in p
+                        else None
                     ),
                     p.get("start_date"),
                     p.get("end_date"),
@@ -210,7 +212,9 @@ class MCPServer:
                     (
                         p.get("limit")
                         if "limit" in p
-                        else p.get("count") if "count" in p else None
+                        else p.get("count")
+                        if "count" in p
+                        else None
                     ),
                     p.get("start_date"),
                     p.get("end_date"),

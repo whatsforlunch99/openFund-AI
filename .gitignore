@@ -36,3 +36,7 @@ ENV/
 
 # Project-specific (docs)
 memory/
+
+# Local env (secrets)
+.env
+.env.local

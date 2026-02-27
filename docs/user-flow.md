@@ -4,9 +4,9 @@ Application behavioral flow from the user perspective. See [prd.md](prd.md) for 
 
 ---
 
-## Current implementation (Slice 3)
+## Current implementation (Slices 1–9)
 
-The codebase currently implements **one round** without REST: `python main.py --e2e-once` runs a single conversation (api → planner → librarian (file_tool.read_file) → responder). The planner sends one REQUEST to the librarian; the librarian replies with INFORM; the planner forwards to the responder with final_response; the responder calls register_reply and broadcast_stop. No POST /chat or GET /conversations yet; full flow below applies once Slices 6–7+ are implemented.
+The codebase implements **one round** with REST and WebSocket: `python main.py --e2e-once` runs a single conversation (api → planner → librarian + websearcher + analyst → responder). The planner sends REQUEST to all three specialists; each replies with INFORM; the planner aggregates and forwards to the responder with `final_response`; the responder formats via OutputRail, checks compliance, calls register_reply and broadcast_stop. **POST /chat** and **GET /conversations/{id}** are implemented (Slice 7). **SafetyGateway** runs on all input (Slice 6). **WebSocket /ws** (Slice 9) follows the same flow as POST /chat. The flow below applies to both REST and WebSocket.
 
 ---
 
@@ -133,8 +133,8 @@ Optional: `conversation_id` omitted for a new conversation.
 
 5. **Block for completion**  
    - Get `ConversationState` for `conversation_id`; call `state.completion_event.wait(timeout=<configured_timeout_seconds>)` (default 30s).  
-   - On timeout: return HTTP 408 `{ "status": "timeout", "conversation_id": "...", "response": null }`.  
-   - When unblocked: read `state.final_response`; return 200 `{ "conversation_id", "status", "response": state.final_response }`.
+   - On timeout: return HTTP 408 `{ "status": "timeout", "conversation_id": "...", "response": null, "flow": [...] }`.  
+   - When unblocked: read `state.final_response`; return 200 `{ "conversation_id", "status", "response": state.final_response, "flow": [...] }`.
 
 — **Agent threads (parallel to the above):** —
 
@@ -171,7 +171,7 @@ Optional: `conversation_id` omitted for a new conversation.
 
 11. **API** (blocking caller)  
     - Unblocks on `completion_event.set()`.  
-    - Reads `state.final_response`; returns JSON `{ "conversation_id", "status", "response": "<formatted answer for beginner>" }`.
+    - Reads `state.final_response` and flow events; returns JSON `{ "conversation_id", "status", "response": "<formatted answer for beginner>", "flow": [...] }`.
 
 ---
 
@@ -214,5 +214,5 @@ The **function call sequence is the same** as in §1 (steps 1–11). Only the fo
 | 5 | api/rest | completion_event.wait(timeout) | ✓ | ✓ | ✓ |
 | 6–9 | agents | **Planner rounds:** choose one or more of Librarian, WebSearcher, Analyst; send REQUEST(s); collect INFORM(s); if insufficient, new round with new queries from all current info; when sufficient → Responder | ✓ | ✓ | ✓ |
 | 10 | agents + output | Responder.evaluate_confidence, should_terminate; format_response → **OutputRail.format_for_user(_, user_profile)**; check_compliance; register_reply; broadcast_stop | beginner wording | long_term wording | analyst wording |
-| 11 | api/rest | Return { conversation_id, status, response } | ✓ | ✓ | ✓ |
+| 11 | api/rest | Return { conversation_id, status, response, flow } | ✓ | ✓ | ✓ |
 

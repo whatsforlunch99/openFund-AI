@@ -84,10 +84,10 @@ DataManagerAgent supports three trigger modes:
 python -m data_manager collect --symbols NVDA,AAPL --date 2024-01-15
 
 # Distribute collected data to databases
-python -m data_manager distribute --symbols NVDA --date 2024-01-15
+python -m data_manager distribute --symbol NVDA --date 2024-01-15
 
 # Distribute all pending files
-python -m data_manager distribute-pending
+python -m data_manager distribute --all
 
 # Query data status
 python -m data_manager status --symbol NVDA
@@ -793,6 +793,9 @@ pytest tests/test_data_manager.py -v
 
 # Integration tests (requires backend services)
 pytest tests/test_data_manager_integration.py -v --runslow
+
+# List available collection tasks
+python -m data_manager list
 ```
 
 ---
@@ -806,13 +809,16 @@ pytest tests/test_data_manager_integration.py -v --runslow
 python -m data_manager collect --symbols NVDA,AAPL --date 2024-01-15
 
 # Distribute collected data
-python -m data_manager distribute --symbols NVDA --date 2024-01-15
+python -m data_manager distribute --symbol NVDA --date 2024-01-15
 
 # Distribute all pending
-python -m data_manager distribute-pending
+python -m data_manager distribute --all
 
 # Query status
 python -m data_manager status --symbol NVDA
+
+# List available tasks
+python -m data_manager list
 ```
 
 ### API Call
@@ -833,6 +839,242 @@ msg = ACLMessage(
     }
 )
 message_bus.send(msg)
+```
+
+---
+
+## Fund Data Distribution Guide
+
+This section describes how to import fund data from `datasets/funds/` into the three databases (PostgreSQL, Neo4j, Milvus).
+
+### Prerequisites
+
+#### 1. Start Database Services (Docker)
+
+```bash
+# Start PostgreSQL
+docker run -d --name openfund-postgres \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=openfund \
+  -p 5432:5432 \
+  postgres:15-alpine
+
+# Start Neo4j
+docker run -d --name openfund-neo4j \
+  -e NEO4J_AUTH=neo4j/password123 \
+  -p 7474:7474 \
+  -p 7687:7687 \
+  neo4j:5-community
+
+# Start Milvus (optional, for vector storage)
+docker run -d --name openfund-milvus \
+  -p 19530:19530 \
+  -p 9091:9091 \
+  milvusdb/milvus:v2.3.4 milvus run standalone
+```
+
+#### 2. Verify Containers Are Running
+
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+```
+
+Expected output:
+```
+NAMES               STATUS         PORTS
+openfund-milvus     Up X minutes   0.0.0.0:19530->19530/tcp, 0.0.0.0:9091->9091/tcp
+openfund-neo4j      Up X minutes   0.0.0.0:7474->7474/tcp, 0.0.0.0:7687->7687/tcp
+openfund-postgres   Up X minutes   0.0.0.0:5432->5432/tcp
+```
+
+#### 3. Install Python Dependencies
+
+```bash
+pip install -e ".[backends]"
+# Or install individually:
+pip install psycopg2-binary neo4j pymilvus
+```
+
+### Distribution Commands
+
+#### Set Environment Variables
+
+**Linux/macOS (bash):**
+```bash
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/openfund"
+export NEO4J_URI="bolt://localhost:7687"
+export NEO4J_USER="neo4j"
+export NEO4J_PASSWORD="password123"
+export MILVUS_URI="http://localhost:19530"  # Optional
+```
+
+**Windows (PowerShell):**
+```powershell
+$env:DATABASE_URL="postgresql://postgres:postgres@localhost:5432/openfund"
+$env:NEO4J_URI="bolt://localhost:7687"
+$env:NEO4J_USER="neo4j"
+$env:NEO4J_PASSWORD="password123"
+$env:MILVUS_URI="http://localhost:19530"  # Optional
+```
+
+#### Distribute All Fund Files
+
+```bash
+python -m data_manager distribute-funds --funds-dir datasets/funds
+```
+
+This command processes all JSON files in `datasets/funds/` and distributes data to:
+- **PostgreSQL**: Fund info, performance, risk metrics, holdings, sector allocation, fund flows
+- **Neo4j**: Fund nodes, Company nodes, Sector nodes, HOLDS and INVESTS_IN_SECTOR relationships
+
+#### Distribute a Single Fund File
+
+```bash
+python -m data_manager distribute-funds --file datasets/funds/top_etfs_2025.json
+```
+
+### Expected Output
+
+```
+Distributing all fund files from datasets/funds...
+
+Results:
+  Total files: 7
+  Success: 7
+
+Database writes:
+  PostgreSQL rows: 463
+  Neo4j nodes: 375
+  Neo4j edges: 283
+  Milvus docs: 0
+```
+
+### Data Written to Each Database
+
+#### PostgreSQL Tables
+
+| Table | Description |
+|-------|-------------|
+| `fund_info` | Fund name, symbol, expense ratio, total assets, investment style |
+| `fund_performance` | 1/3/5/10-year annualized returns, YTD return |
+| `fund_risk_metrics` | Beta, Sharpe ratio, standard deviation, max drawdown |
+| `fund_holdings` | Top 10 holdings per fund with weights |
+| `fund_sector_allocation` | Sector weights (Technology, Healthcare, etc.) |
+| `fund_flows` | Quarterly/annual inflows and outflows |
+
+**Sample Query:**
+```sql
+SELECT symbol, name, total_assets_billion, expense_ratio
+FROM fund_info
+ORDER BY total_assets_billion DESC
+LIMIT 10;
+```
+
+#### Neo4j Graph
+
+| Node Label | Description |
+|------------|-------------|
+| `Fund` | ETF or mutual fund (symbol, name, category, expense_ratio) |
+| `Company` | Held companies (symbol, name) |
+| `Sector` | Industry sectors (Technology, Healthcare, etc.) |
+
+| Relationship | Description |
+|--------------|-------------|
+| `(Fund)-[:HOLDS]->(Company)` | Fund holds company stock with weight |
+| `(Fund)-[:INVESTS_IN_SECTOR]->(Sector)` | Fund allocates to sector with weight |
+
+**Sample Query:**
+```cypher
+// Find all companies held by VOO
+MATCH (f:Fund {symbol: 'VOO'})-[r:HOLDS]->(c:Company)
+RETURN c.symbol, c.name, r.weight
+ORDER BY r.weight DESC
+LIMIT 10;
+
+// Find sector allocation for a fund
+MATCH (f:Fund {symbol: 'QQQ'})-[r:INVESTS_IN_SECTOR]->(s:Sector)
+RETURN s.name, r.weight
+ORDER BY r.weight DESC;
+```
+
+#### Milvus (Optional)
+
+Fund data is primarily structured; Milvus storage is not used for current fund files. Milvus is intended for text-based data like fund descriptions, news, or report summaries when available.
+
+### Verification Commands
+
+**Check PostgreSQL:**
+```bash
+python -c "
+from mcp.tools import sql_tool
+import os
+os.environ['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:5432/openfund'
+print(sql_tool.list_tables())
+"
+```
+
+**Check Neo4j:**
+```bash
+python -c "
+from mcp.tools import kg_tool
+import os
+os.environ['NEO4J_URI'] = 'bolt://localhost:7687'
+os.environ['NEO4J_USER'] = 'neo4j'
+os.environ['NEO4J_PASSWORD'] = 'password123'
+print(kg_tool.get_graph_schema())
+"
+```
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| `psycopg2` not found | Run `pip install psycopg2-binary` |
+| `neo4j` not found | Run `pip install neo4j` |
+| PostgreSQL connection refused | Ensure container is running: `docker ps` |
+| Neo4j authentication failed | Verify `NEO4J_PASSWORD` matches the value set in `NEO4J_AUTH` |
+| No data written | Check environment variables are set correctly |
+
+### Fund Data File Structure
+
+Fund files in `datasets/funds/` have this structure:
+
+```json
+{
+  "metadata": {
+    "description": "Top ETFs 2025",
+    "as_of_date": "2025-02-27",
+    "last_updated": "2025-02-27T12:00:00Z"
+  },
+  "sp500_etfs": [
+    {
+      "symbol": "VOO",
+      "name": "Vanguard S&P 500 ETF",
+      "total_assets_billion": 502.2,
+      "expense_ratio": 0.0003,
+      "performance": {
+        "return_1yr": 0.2845,
+        "return_3yr": 0.1123,
+        "return_5yr": 0.1567
+      },
+      "risk_metrics": {
+        "beta": 1.0,
+        "sharpe_ratio": 1.45,
+        "max_drawdown": -0.2376
+      },
+      "top_10_holdings": [
+        {"symbol": "AAPL", "name": "Apple Inc.", "weight": 0.072},
+        ...
+      ],
+      "sector_allocation": {
+        "Technology": 0.31,
+        "Healthcare": 0.12,
+        ...
+      }
+    }
+  ]
+}
 ```
 
 ---

@@ -1,0 +1,200 @@
+{
+  "metadata": {
+    "description": "International and Emerging Markets ETFs",
+    "as_of_date": "2025-02-28",
+    "data_sources": ["ETF.com", "Vanguard", "iShares", "Schwab"],
+    "last_updated": "2026-02-28"
+  },
+  "developed_international_etfs": [
+    {
+      "symbol": "VXUS",
+      "name": "Vanguard Total International Stock ETF",
+      "category": "International Developed & Emerging",
+      "index": "FTSE Global All Cap ex US",
+      "total_assets_billion": 120.7,
+      "expense_ratio": 0.0007,
+      "dividend_yield": 0.025,
+      "holdings_count": 9950,
+      "turnover_rate": 0.03,
+      "performance": {
+        "ytd_2025": 0.08,
+        "return_1yr": 0.12,
+        "return_3yr": 0.04,
+        "return_5yr": 0.06
+      },
+      "risk_metrics": {
+        "beta": 0.85,
+        "standard_deviation": 0.16,
+        "max_drawdown": -0.32
+      },
+      "top_10_holdings": [
+        {"symbol": "TSM", "name": "Taiwan Semiconductor Manufacturing", "weight": 0.029},
+        {"symbol": "700.HK", "name": "Tencent Holdings Ltd.", "weight": 0.0127},
+        {"symbol": "ASML", "name": "ASML Holding NV", "weight": 0.0108},
+        {"symbol": "BABA", "name": "Alibaba Group Holding", "weight": 0.0091},
+        {"symbol": "NVO", "name": "Novo Nordisk A/S", "weight": 0.0085},
+        {"symbol": "SAP", "name": "SAP SE", "weight": 0.0078},
+        {"symbol": "TM", "name": "Toyota Motor Corp.", "weight": 0.0072},
+        {"symbol": "SHEL", "name": "Shell PLC", "weight": 0.0068},
+        {"symbol": "AZN", "name": "AstraZeneca PLC", "weight": 0.0065},
+        {"symbol": "NESN", "name": "Nestle SA", "weight": 0.0062}
+      ],
+      "sector_allocation": {
+        "Financials": 0.2453,
+        "Industrials": 0.1646,
+        "Technology": 0.1296,
+        "Consumer Goods": 0.1038,
+        "Healthcare": 0.0920,
+        "Consumer Services": 0.0850,
+        "Basic Materials": 0.0680,
+        "Energy": 0.0550,
+        "Utilities": 0.0320,
+        "Telecommunications": 0.0247
+      },
+      "geographic_allocation": {
+        "Europe": 0.42,
+        "Asia Pacific": 0.32,
+        "Emerging Markets": 0.26
+      }
+    },
+    {
+      "symbol": "EFA",
+      "name": "iShares MSCI EAFE ETF",
+      "category": "International Developed",
+      "index": "MSCI EAFE",
+      "total_assets_billion": 65.0,
+      "expense_ratio": 0.0032,
+      "dividend_yield": 0.022,
+      "holdings_count": 800,
+      "performance": {
+        "ytd_2025": 0.06,
+        "return_1yr": 0.10,
+        "return_3yr": 0.05,
+        "return_5yr": 0.07
+      },
+      "risk_metrics": {
+        "beta": 0.82,
+        "standard_deviation": 0.155,
+        "max_drawdown": -0.30
+      },
+      "geographic_allocation": {
+        "Japan": 0.22,
+        "United Kingdom": 0.14,
+        "France": 0.11,
+        "Switzerland": 0.09,
+        "Germany": 0.08,
+        "Australia": 0.07,
+        "Other Developed": 0.29
+      }
+    },
+    {
+      "symbol": "VEU",
+      "name": "Vanguard FTSE All-World ex-US ETF",
+      "category": "International Developed & Emerging",
+      "index": "FTSE All-World ex US",
+      "total_assets_billion": 45.0,
+      "expense_ratio": 0.0007,
+      "dividend_yield": 0.026,
+      "performance": {
+        "ytd_2025": 0.07,
+        "return_1yr": 0.11,
+        "return_3yr": 0.04,
+        "return_5yr": 0.06
+      }
+    }
+  ],
+  "emerging_markets_etfs": [
+    {
+      "symbol": "VWO",
+      "name": "Vanguard FTSE Emerging Markets ETF",
+      "category": "Emerging Markets",
+      "index": "FTSE Emerging Markets All Cap China A Inclusion",
+      "total_assets_billion": 141.0,
+      "expense_ratio": 0.0008,
+      "dividend_yield": 0.0283,
+      "holdings_count": 6146,
+      "performance": {
+        "ytd_2024": 0.0913,
+        "return_1yr": 0.231,
+        "return_3yr": 0.02,
+        "return_5yr": 0.05
+      },
+      "risk_metrics": {
+        "beta": 0.95,
+        "standard_deviation": 0.20,
+        "max_drawdown": -0.42
+      },
+      "top_10_holdings": [
+        {"symbol": "TSM", "name": "Taiwan Semiconductor Manufacturing", "weight": 0.095},
+        {"symbol": "700.HK", "name": "Tencent Holdings Ltd.", "weight": 0.038},
+        {"symbol": "BABA", "name": "Alibaba Group Holding", "weight": 0.028},
+        {"symbol": "005930.KS", "name": "Samsung Electronics", "weight": 0.025},
+        {"symbol": "3690.HK", "name": "Meituan", "weight": 0.015},
+        {"symbol": "RELIANCE.NS", "name": "Reliance Industries", "weight": 0.014},
+        {"symbol": "9988.HK", "name": "Alibaba Group (HK)", "weight": 0.012},
+        {"symbol": "HDFC.NS", "name": "HDFC Bank", "weight": 0.011},
+        {"symbol": "PDD", "name": "PDD Holdings Inc.", "weight": 0.010},
+        {"symbol": "INFY", "name": "Infosys Ltd.", "weight": 0.009}
+      ],
+      "geographic_allocation": {
+        "China": 0.32,
+        "Taiwan": 0.18,
+        "India": 0.15,
+        "South Korea": 0.10,
+        "Brazil": 0.06,
+        "South Africa": 0.04,
+        "Other Emerging": 0.15
+      },
+      "sector_allocation": {
+        "Technology": 0.26,
+        "Financials": 0.21,
+        "Consumer Discretionary": 0.13,
+        "Communication Services": 0.10,
+        "Industrials": 0.08,
+        "Materials": 0.07
+      }
+    },
+    {
+      "symbol": "IEMG",
+      "name": "iShares Core MSCI Emerging Markets ETF",
+      "category": "Emerging Markets",
+      "index": "MSCI Emerging Markets Investable Market",
+      "total_assets_billion": 117.0,
+      "expense_ratio": 0.0009,
+      "dividend_yield": 0.028,
+      "holdings_count": 2725,
+      "performance": {
+        "return_1yr": 0.292,
+        "return_3yr": 0.03,
+        "return_5yr": 0.06
+      },
+      "risk_metrics": {
+        "beta": 0.98,
+        "standard_deviation": 0.21,
+        "max_drawdown": -0.40
+      }
+    },
+    {
+      "symbol": "EEM",
+      "name": "iShares MSCI Emerging Markets ETF",
+      "category": "Emerging Markets",
+      "index": "MSCI Emerging Markets",
+      "total_assets_billion": 17.24,
+      "expense_ratio": 0.0070,
+      "expense_ratio_warning": false,
+      "dividend_yield": 0.0242,
+      "holdings_count": 1197,
+      "performance": {
+        "return_6mo": 0.039,
+        "return_1yr": 0.098,
+        "return_3yr": 0.01,
+        "return_5yr": 0.04
+      },
+      "note": "Higher expense ratio than VWO/IEMG alternatives"
+    }
+  ],
+  "fund_flows_international": {
+    "em_inflows_july_2024_billion": 36.5,
+    "note": "Highest EM inflows since January 2024"
+  }
+}

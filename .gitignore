@@ -37,6 +37,10 @@ ENV/
 # Project-specific (docs)
 memory/
 volumes/
+datasets/
+!datasets/examples/
+!datasets/raw/
+!datasets/funds/
 
 # Local env (secrets)
 .env

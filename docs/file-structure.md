@@ -15,7 +15,8 @@ OpenFund-AI/
 │   ├── librarian_agent.py
 │   ├── websearch_agent.py
 │   ├── analyst_agent.py
-│   └── responder_agent.py
+│   ├── responder_agent.py
+│   └── data_manager_agent.py  # Background data collection/distribution agent
 ├── a2a/
 │   ├── __init__.py
 │   ├── acl_message.py
@@ -38,6 +39,15 @@ OpenFund-AI/
 │   ├── cli.py            # CLI: populate, sql, neo4j, milvus index/delete
 │   ├── env_loader.py      # load_dotenv from project root
 │   └── populate.py       # Orchestrator: load .env, call sql/kg/vector_tool.populate_demo()
+├── data_manager/              # Agent-based data collection/distribution (see data-manager-agent.md)
+│   ├── __init__.py
+│   ├── __main__.py            # Entry point for python -m data_manager
+│   ├── collector.py           # DataCollector: fetch from market_tool/analyst_tool, save to files
+│   ├── distributor.py         # DataDistributor: read files, write to sql/kg/vector_tool
+│   ├── classifier.py          # DataClassifier: route data to appropriate database
+│   ├── transformer.py         # DataTransformer: convert to PG rows / Neo4j nodes / Milvus docs
+│   ├── tasks.py               # CollectionTask definitions and COLLECTION_TASKS registry
+│   └── schemas.py             # Database schema definitions (SQL DDL, Cypher patterns)
 ├── scripts/
 │   ├── install_backends.sh   # Install Homebrew, Postgres, Neo4j, .env, pip [backends]
 │   ├── start_services.sh     # Start Postgres, Neo4j, Milvus (loads .env)
@@ -72,6 +82,16 @@ OpenFund-AI/
 ├── config/
 │   ├── __init__.py
 │   └── config.py
+├── datasets/                     # Data files collected by DataManagerAgent (gitignored except examples)
+│   ├── raw/                      # Raw collected JSON files (per symbol)
+│   ├── processed/                # Successfully distributed files
+│   ├── failed/                   # Failed collection/distribution records
+│   └── examples/                 # Data format examples (not gitignored)
+│       ├── README.md             # Format documentation
+│       ├── raw/                  # Raw data file examples
+│       ├── postgres/             # PostgreSQL row format examples
+│       ├── neo4j/                # Neo4j node/edge format examples
+│       └── milvus/               # Milvus vector document examples
 ├── memory/
 │   ├── __init__.py
 │   └── situation_memory.py
@@ -92,6 +112,7 @@ OpenFund-AI/
     ├── frontend.md
     ├── file-structure.md
     ├── backend-tools-design.md   # Suggested MCP tool functions and community-common patterns (Neo4j, Postgres, Milvus)
+    ├── data-manager-agent.md     # Data Manager Agent design: data collection + distribution to DBs
     ├── test_plan.md
     ├── progress.md
     └── project-status.md
@@ -956,6 +977,127 @@ state = get_conversation("uuid-here")
 ## data/__main__.py
 
 **Purpose:** Entry point for `python -m data`; calls `data.cli.main()`.
+
+---
+
+# data_manager/
+
+**Purpose:** Agent-based data collection and distribution. Background infrastructure for fetching market data via MCP tools and distributing to PostgreSQL, Neo4j, and Milvus. Extends `data/` module with A2A integration and configurable collection tasks. See [data-manager-agent.md](data-manager-agent.md) for full design.
+
+**Relationship with `data/` module:**
+- `data/` provides direct CLI access (`python -m data sql`, `python -m data populate`)
+- `data_manager/` provides agent-based orchestration (scheduled, on-demand via Planner REQUEST)
+- Both use the same underlying `mcp/tools/*_tool.py` for database operations
+
+---
+
+## data_manager/collector.py
+
+**Purpose:** Fetch data from MCP market_tool and analyst_tool, save as structured JSON files locally.
+
+**Class:** `DataCollector`
+
+**Methods:**
+- `collect_symbol(symbol: str, as_of_date: str) -> CollectionResult` — Collect all data for a single symbol
+- `collect_batch(symbols: list[str], as_of_date: str) -> BatchResult` — Batch collect for multiple symbols
+
+---
+
+## data_manager/distributor.py
+
+**Purpose:** Read local JSON files and distribute to PostgreSQL, Neo4j, and Milvus via MCP tools.
+
+**Class:** `DataDistributor`
+
+**Methods:**
+- `distribute_file(filepath: str) -> DistributionResult` — Distribute a single file
+- `distribute_symbol(symbol: str, as_of_date: str) -> BatchResult` — Distribute all files for a symbol
+- `distribute_pending() -> BatchResult` — Distribute all pending files
+- `_write_to_postgres(table: str, rows: list[dict]) -> int` — Write via sql_tool
+- `_write_to_neo4j(nodes: list, edges: list) -> int` — Write via kg_tool
+- `_write_to_milvus(docs: list[dict]) -> int` — Write via vector_tool
+
+---
+
+## data_manager/classifier.py
+
+**Purpose:** Route data to appropriate database based on task_type and content characteristics.
+
+**Class:** `DataClassifier`
+
+**Constants:**
+- `STATIC_ROUTING` — task_type → database mapping (e.g. "stock_data" → "postgres")
+- `MULTI_TARGET` — task_types that write to multiple databases (e.g. "fundamentals" → ["postgres", "neo4j"])
+
+**Methods:**
+- `classify(task_type: str, content: dict) -> list[str]` — Return list of target databases
+
+---
+
+## data_manager/transformer.py
+
+**Purpose:** Transform raw data to formats required by each database.
+
+**Class:** `DataTransformer`
+
+**Methods:**
+- `to_postgres_rows(task_type: str, symbol: str, content: dict) -> list[dict]` — Transform to PostgreSQL rows
+- `to_neo4j_nodes_edges(task_type: str, symbol: str, content: dict) -> tuple[list, list]` — Transform to Neo4j nodes/edges
+- `to_milvus_docs(task_type: str, symbol: str, content: dict) -> list[dict]` — Transform to Milvus documents
+
+---
+
+## data_manager/tasks.py
+
+**Purpose:** CollectionTask definitions and COLLECTION_TASKS registry.
+
+**Dataclass:** `CollectionTask` — task_type, tool_name, payload_builder, output_filename
+
+**Constant:** `COLLECTION_TASKS` — List of predefined collection tasks (stock_data, fundamentals, news, indicators, etc.)
+
+---
+
+## data_manager/schemas.py
+
+**Purpose:** Database schema definitions (PostgreSQL DDL, Neo4j node/edge patterns, Milvus collection schema).
+
+---
+
+## data_manager/__main__.py
+
+**Purpose:** Entry point for `python -m data_manager`; parses CLI args and calls collector/distributor.
+
+**Usage:**
+```bash
+python -m data_manager collect --symbols NVDA,AAPL --date 2024-01-15
+python -m data_manager distribute --symbols NVDA --date 2024-01-15
+python -m data_manager distribute-pending
+python -m data_manager status --symbol NVDA
+```
+
+---
+
+# agents/data_manager_agent.py
+
+**Purpose:** Agent wrapper for DataCollector and DataDistributor. Handles A2A messages for data collection, distribution, and status queries. Background agent, not part of real-time user query flow.
+
+---
+
+## Class: `DataManagerAgent(BaseAgent)`
+
+**Docstring:** `Data Manager Agent. Handles data collection requests (collect from MCP tools and store locally), data distribution requests (distribute from local files to databases), and data status queries. Message types: REQUEST (action=collect|distribute|status), INFORM (return results).`
+
+---
+
+## Method: `DataManagerAgent.handle_message(self, message: ACLMessage) -> None`
+
+**Purpose:** Handle incoming messages. Dispatch to collector or distributor based on action in content.
+
+**Content format:**
+- `{"action": "collect", "symbols": [...], "as_of_date": "...", "tasks": [...]}` — Collect data
+- `{"action": "distribute", "symbols": [...], "as_of_date": "..."}` — Distribute data
+- `{"action": "distribute_pending"}` — Distribute all pending files
+- `{"action": "status", "symbol": "..."}` — Query status
 
 ---
 

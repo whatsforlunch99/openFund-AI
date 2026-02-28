@@ -82,6 +82,15 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend
 
 - **Deferred community-common tools implemented:** kg_tool: `shortest_path`, `get_similar_nodes`, `fulltext_search`, `bulk_export`, `bulk_create_nodes`; vector_tool: `create_collection_from_config`. All registered in `register_default_tools`; mock when NEO4J_URI/MILVUS_URI unset. Tests in tests/test_kg_tool.py and tests/test_vector_tool.py. Fulltext search requires an existing Neo4j fulltext index; bulk_export allows only read-only Cypher (MATCH/CALL).
 
+- **DataManagerAgent Phase 1 (Collector) implemented:** `data_manager/collector.py`: DataCollector class fetches data from market_tool and analyst_tool (yfinance) for OHLCV, fundamentals, info, balance_sheet, cashflow, income_statement, insider_transactions, indicators, and news. Saves raw JSON files to `datasets/raw/{symbol}/` with metadata. `data_manager/tasks.py`: CollectionTask dataclass and COLLECTION_TASKS registry. CLI: `python -m data_manager collect --symbols NVDA,AAPL --date 2024-01-15`, `python -m data_manager global-news`, `python -m data_manager status`, `python -m data_manager list`. Design doc: [docs/data-manager-agent.md](data-manager-agent.md).
+
+- **DataManagerAgent Phase 2-4 (Distributor, Classifier, Transformer) implemented:**
+  - `data_manager/schemas.py`: PostgreSQL DDL (stock_ohlcv, company_fundamentals, financial_statements, insider_transactions, technical_indicators); UPSERT templates; Neo4j Cypher templates (Company, Sector, Industry, Officer nodes and edges); Milvus collection config.
+  - `data_manager/classifier.py`: DataClassifier routes task_types to target databases (postgres, neo4j, milvus) with STATIC_ROUTING (single target) and MULTI_TARGET (e.g. info → all three).
+  - `data_manager/transformer.py`: DataTransformer converts raw data: to_postgres_rows (CSV/JSON → table rows), to_neo4j_nodes_edges (extract Company, Sector, Industry, Officer nodes + relationships), to_milvus_docs (news/description → vector documents with content for embedding).
+  - `data_manager/distributor.py`: DataDistributor reads local JSON files, classifies, transforms, and writes to PostgreSQL (sql_tool.run_query), Neo4j (kg_tool.query_graph), and Milvus (vector_tool.upsert_documents). Moves files to processed/failed after.
+  - CLI: `python -m data_manager distribute --symbol NVDA`, `python -m data_manager distribute --all`, `python -m data_manager distribute --file path/to/file.json`. Options: `--no-move` (keep files in raw/), `--verbose` (show per-file details).
+
 ---
 
 ## Future implementation tracker

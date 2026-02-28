@@ -10,6 +10,7 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 - **Layers:** User Interaction (API), Safety, Orchestration (Planner), Research Execution (Librarian, WebSearcher, Analyst), Tool/Data (MCP), Output Review (OutputRail).
 - **Termination:** Only the Responder may signal conversation complete (broadcast STOP); all agent threads exit on STOP.
 - **Hub-and-spoke:** Planner is the sole orchestrator; specialists reply only to Planner. Planner sends consolidated data to Responder when information is sufficient.
+- **Background data management:** DataManagerAgent handles data collection (from market_tool/analyst_tool) and distribution (to PostgreSQL/Neo4j/Milvus). Not part of real-time query flow; triggered via CLI, scheduler, or on-demand REQUEST from Planner when data is stale. See [data-manager-agent.md](data-manager-agent.md).
 
 ---
 

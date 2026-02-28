@@ -90,6 +90,7 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend
   - `data_manager/transformer.py`: DataTransformer converts raw data: to_postgres_rows (CSV/JSON → table rows), to_neo4j_nodes_edges (extract Company, Sector, Industry, Officer nodes + relationships), to_milvus_docs (news/description → vector documents with content for embedding).
   - `data_manager/distributor.py`: DataDistributor reads local JSON files, classifies, transforms, and writes to PostgreSQL (sql_tool.run_query), Neo4j (kg_tool.query_graph), and Milvus (vector_tool.upsert_documents). Moves files to processed/failed after.
   - CLI: `python -m data_manager distribute --symbol NVDA`, `python -m data_manager distribute --all`, `python -m data_manager distribute --file path/to/file.json`. Options: `--no-move` (keep files in raw/), `--verbose` (show per-file details).
+  - Fund data distribution: `python -m data_manager distribute-funds --funds-dir datasets/funds`. Schema reference: [docs/fund-data-schema.md](fund-data-schema.md).
 
 ---
 

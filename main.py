@@ -1,7 +1,6 @@
 """Entry point: wire MessageBus, agents, API, and optional MCP server."""
 
 import logging
-import os
 import sys
 
 from config.config import load_config
@@ -43,7 +42,12 @@ def _run_e2e_once() -> None:
     server = MCPServer()
     server.register_default_tools()
     client = MCPClient(server)
-    llm_client = get_llm_client(cfg)
+    try:
+        llm_client = get_llm_client(cfg)
+    except (ValueError, ImportError):
+        from llm.static_client import StaticLLMClient
+
+        llm_client = StaticLLMClient()
     planner = PlannerAgent("planner", bus, llm_client=llm_client)
     librarian = LibrarianAgent(
         "librarian", bus, mcp_client=client, llm_client=llm_client
@@ -113,11 +117,10 @@ def _run_e2e_once() -> None:
 def main() -> None:
     """Initialize and start the OpenFund-AI stack.
 
-    Creates MessageBus (e.g. in-memory), ConversationManager, SafetyGateway,
-    MCP client (with config); instantiates all agents with bus and MCP client;
-    starts FastAPI (REST + WebSocket) and agent runners; optionally starts MCP server.
+    Creates MessageBus, ConversationManager, SafetyGateway, MCP client,
+    all agents with live LLM when LLM_API_KEY is set; starts FastAPI (REST + WebSocket).
     If --e2e-once is in sys.argv, runs one E2E conversation and exits.
-    If --demo is in sys.argv, sets OPENFUND_DEMO=1 and starts the API server (uvicorn).
+    Otherwise starts the API server (uvicorn).
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -127,19 +130,7 @@ def main() -> None:
         _run_e2e_once()
         return
 
-    if "--demo" in sys.argv:
-        os.environ["OPENFUND_DEMO"] = "1"
-        import uvicorn
-
-        # Demo: static MCP responses only; no external APIs or LLM (see docs/demo.md).
-        logger.info("Starting API in demo mode (static tool responses)")
-        uvicorn.run(
-            "api.rest:create_app",
-            factory=True,
-            host="0.0.0.0",
-            port=8000,
-        )
-        return
+    import uvicorn
 
     cfg = load_config()
     # Optional: load BM25 situation memory from MEMORY_STORE_PATH/situation_memory.json
@@ -149,7 +140,13 @@ def main() -> None:
         get_situation_memory(cfg.memory_store_path)
     except ImportError as e:
         logger.info("Situation memory unavailable: %s", e)
-    logger.info("OpenFund-AI ready (config loaded)")
+    logger.info("OpenFund-AI starting (LLM_API_KEY required for /chat)")
+    uvicorn.run(
+        "api.rest:create_app",
+        factory=True,
+        host="0.0.0.0",
+        port=8000,
+    )
 
 
 if __name__ == "__main__":

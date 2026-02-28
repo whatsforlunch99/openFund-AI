@@ -23,6 +23,7 @@ def run_populate() -> int:
     """Load .env, run Postgres, Neo4j, and Milvus populate; print status; return 0."""
     _load_dotenv()
 
+    # Run each backend's populate_demo; each returns (success: bool, message: str)
     results = []
     results.append(sql_tool.populate_demo())
     results.append(kg_tool.populate_demo())
@@ -30,6 +31,7 @@ def run_populate() -> int:
 
     for ok, msg in results:
         print(msg, file=sys.stdout if ok else sys.stderr)
+    # Warn if no env vars set so user knows to configure .env
     if not any(ok for ok, _ in results):
         print(
             "No backends configured. Set DATABASE_URL, NEO4J_URI, and/or MILVUS_URI in .env.",

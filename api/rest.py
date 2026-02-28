@@ -85,6 +85,7 @@ def create_app(
     mcp_client: Optional[Any] = None,
     agents: Optional[tuple] = None,
     timeout_seconds: Optional[int] = None,
+    llm_client: Optional[Any] = None,
 ) -> FastAPI:
     """
     Build and return a FastAPI app with POST /chat and GET /conversations/{id}.
@@ -100,6 +101,7 @@ def create_app(
         mcp_client: Optional MCPClient (default: MCPServer().register_default_tools + MCPClient).
         agents: Optional (planner, librarian, websearcher, analyst, responder) tuple.
         timeout_seconds: Optional E2E timeout override (default: from config).
+        llm_client: Optional LLM client for agents (default: from get_llm_client(config); required if not provided).
 
     Returns:
         FastAPI app instance.
@@ -119,18 +121,14 @@ def create_app(
         manager = ConversationManager(bus)
     if safety_gateway is None:
         safety_gateway = SafetyGateway()
+    # Wire MCP server with all tools so agents can call file_tool, vector_tool, market_tool, etc.
     if mcp_client is None:
-        if cfg.demo:
-            from demo.demo_client import DemoMCPClient
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
 
-            mcp_client = DemoMCPClient()
-        else:
-            from mcp.mcp_client import MCPClient
-            from mcp.mcp_server import MCPServer
-
-            server = MCPServer()
-            server.register_default_tools()
-            mcp_client = MCPClient(server)
+        server = MCPServer()
+        server.register_default_tools()
+        mcp_client = MCPClient(server)
     if agents is None:
         from agents.analyst_agent import AnalystAgent
         from agents.librarian_agent import LibrarianAgent
@@ -140,8 +138,14 @@ def create_app(
         from llm.factory import get_llm_client
         from output.output_rail import OutputRail
 
-        # In demo mode use no LLM so planner uses fixed decomposition and static MCP data only
-        llm_client = None if cfg.demo else get_llm_client(cfg)
+        # Resolve LLM client so planner and specialists can decompose queries and select tools
+        if llm_client is None:
+            try:
+                llm_client = get_llm_client(cfg)
+            except (ValueError, ImportError) as e:
+                raise RuntimeError(
+                    "LLM is required. Set LLM_API_KEY in .env and install: pip install openfund-ai[llm]. See README."
+                ) from e
         planner = PlannerAgent(
             "planner", bus, llm_client=llm_client, conversation_manager=manager
         )
@@ -174,18 +178,14 @@ def create_app(
             llm_client=llm_client,
         )
         agents = (planner, librarian, websearcher, analyst, responder)
+        # Start each agent in its own thread so they can receive and handle messages
         for agent in agents:
             t = threading.Thread(target=agent.run, daemon=True)
             t.start()
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI):
-        if getattr(app.state, "demo_mode", False):
-            logger.info(
-                "Demo mode: ON — backends (sql/kg/vector) when configured; file/market/analyst static"
-            )
-        else:
-            logger.info("Demo mode: OFF — using live MCP tools")
+        logger.info("OpenFund-AI API: live MCP and LLM when configured")
         yield
 
     app = FastAPI(title="OpenFund-AI REST API", lifespan=_lifespan)
@@ -193,14 +193,11 @@ def create_app(
     app.state.manager = manager
     app.state.safety_gateway = safety_gateway
     app.state.e2e_timeout_seconds = effective_timeout
-    app.state.demo_mode = cfg.demo
 
     @app.get("/demo")
     def get_demo_mode() -> JSONResponse:
-        """Return whether the server is running in demo mode (static data)."""
-        return JSONResponse(
-            status_code=200, content={"demo": getattr(app.state, "demo_mode", False)}
-        )
+        """Return demo flag (always false; endpoint kept for chat client compatibility)."""
+        return JSONResponse(status_code=200, content={"demo": False})
 
     @app.post("/register")
     def post_register_endpoint(body: RegisterRequest) -> JSONResponse:
@@ -336,7 +333,7 @@ def create_app(
             conversation_id,
             {
                 "step": "request_sent",
-                "message": f'Your query has been sent to the planner. Research steps will run next. Your query: "{query[:80]}{"..." if len(query) > 80 else ""}"',
+                "message": "Query received. Sent to Planner; you will see decomposition and agent steps as they run.",
                 "detail": {"query_preview": query[:100]},
             },
         )

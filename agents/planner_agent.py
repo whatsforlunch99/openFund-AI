@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
@@ -64,6 +66,8 @@ class PlannerAgent(BaseAgent):
         self._user_profile_by_conversation: dict[
             str, str
         ] = {}  # conversation_id -> user_profile
+        self._round_number: dict[str, int] = {}  # conversation_id -> 1 or 2 (max 2 rounds)
+        self._original_query_by_conversation: dict[str, str] = {}  # for sufficiency/refined
 
     def handle_message(self, message: ACLMessage) -> None:
         """Handle incoming messages directed to the Planner.
@@ -104,64 +108,141 @@ class PlannerAgent(BaseAgent):
                 next_="all received → format_final else wait",
             )
             if self._conversation_manager:
+                pending_list = list(self._round_pending[conversation_id])
+                still_waiting = ", ".join(pending_list) if pending_list else "none"
+                snippet = self._agent_content_snippet(content)
                 self._conversation_manager.append_flow(
                     conversation_id,
                     {
                         "step": "agent_returned",
-                        "message": f"**{message.sender}** has returned results to the planner (pending: {list(self._round_pending[conversation_id]) or 'none'}).",
+                        "message": f"**{message.sender}** has responded. Still waiting for: {still_waiting}. {snippet}",
                         "detail": {
                             "agent": message.sender,
-                            "pending": list(self._round_pending[conversation_id]),
+                            "pending": pending_list,
+                            "result_summary": snippet,
+                            "result_keys": [k for k in (content or {}).keys() if k != "query"],
                         },
                     },
                 )
             if not self._round_pending[conversation_id]:
-                final = self._format_final(self._collected[conversation_id])
+                collected = self._collected[conversation_id]
+                final = self._format_final(collected)
                 user_profile = self._user_profile_by_conversation.get(
                     conversation_id, "beginner"
                 )
-                trace(
-                    12,
-                    "planner_format_final",
-                    in_={
-                        "conversation_id": conversation_id,
-                        "user_profile": user_profile,
-                    },
-                    out=f"final_len={len(final)}",
-                    next_="send INFORM to responder",
+                original_query = self._original_query_by_conversation.get(
+                    conversation_id, ""
                 )
-                if self._conversation_manager:
-                    self._conversation_manager.append_flow(
-                        conversation_id,
-                        {
-                            "step": "planner_complete",
-                            "message": f"Planner has combined all results (final length {len(final)} chars) and is sending the answer to the responder.",
-                            "detail": {"final_length": len(final)},
-                        },
-                    )
-                self.bus.send(
-                    ACLMessage(
-                        performative=Performative.INFORM,
-                        sender=self.name,
-                        receiver="responder",
-                        content={
-                            "final_response": final,
+                round_num = self._round_number.get(conversation_id, 1)
+                send_to_responder = True
+                insufficient = False
+                if self._llm_client and original_query:
+                    aggregated = self._format_aggregated_for_sufficiency(collected)
+                    sufficient = self._check_sufficiency(original_query, aggregated)
+                    if sufficient:
+                        pass
+                    elif round_num < 2:
+                        refined_steps = self._get_refined_steps(
+                            original_query, aggregated
+                        )
+                        if refined_steps:
+                            self._round_number[conversation_id] = 2
+                            self._round_pending[conversation_id] = {
+                                s.agent for s in refined_steps
+                            }
+                            if self._conversation_manager:
+                                self._conversation_manager.append_flow(
+                                    conversation_id,
+                                    {
+                                        "step": "planner_round2",
+                                        "message": "Information insufficient after first round. Starting second round with refined queries.",
+                                        "detail": {
+                                            "steps": [
+                                                {"agent": s.agent, "action": s.action}
+                                                for s in refined_steps
+                                            ],
+                                        },
+                                    },
+                                )
+                            for step in refined_steps:
+                                step.params = dict(step.params)
+                                req = self.create_research_request(
+                                    original_query, step, context=collected
+                                )
+                                req.conversation_id = conversation_id
+                                req.reply_to = self.name
+                                self.bus.send(req)
+                                if self._conversation_manager:
+                                    q = step.params.get("query", original_query)
+                                    q_display = q if len(q) <= 120 else (q[:100] + "...")
+                                    self._conversation_manager.append_flow(
+                                        conversation_id,
+                                        {
+                                            "step": "planner_sent",
+                                            "message": f"Request sent to **{step.agent}** (action: {step.action}, query: \"{q_display}\").",
+                                            "detail": {
+                                                "agent": step.agent,
+                                                "action": step.action,
+                                                "query": q,
+                                                "query_preview": q[:100],
+                                            },
+                                        },
+                                    )
+                            send_to_responder = False
+                        else:
+                            insufficient = True
+                    else:
+                        insufficient = True
+                if send_to_responder:
+                    if insufficient:
+                        final = "Insufficient information."
+                    trace(
+                        12,
+                        "planner_format_final",
+                        in_={
                             "conversation_id": conversation_id,
                             "user_profile": user_profile,
                         },
-                        conversation_id=conversation_id,
+                        out=f"final_len={len(final)}",
+                        next_="send INFORM to responder",
                     )
-                )
-                trace(
-                    12,
-                    "planner_sent_to_responder",
-                    in_={"conversation_id": conversation_id},
-                    out="sent",
-                    next_="responder handles",
-                )
-                del self._round_pending[conversation_id]
-                del self._collected[conversation_id]
-                self._user_profile_by_conversation.pop(conversation_id, None)
+                    if self._conversation_manager:
+                        self._conversation_manager.append_flow(
+                            conversation_id,
+                            {
+                                "step": "planner_complete",
+                                "message": "All agents have responded. Sending combined results to Responder to format your answer."
+                                if not insufficient
+                                else "Information still insufficient after 2 rounds. Responder will reply with insufficient.",
+                                "detail": {"final_length": len(final)},
+                            },
+                        )
+                    self.bus.send(
+                        ACLMessage(
+                            performative=Performative.INFORM,
+                            sender=self.name,
+                            receiver="responder",
+                            content={
+                                "final_response": final,
+                                "conversation_id": conversation_id,
+                                "user_profile": user_profile,
+                                "insufficient": insufficient,
+                            },
+                            conversation_id=conversation_id,
+                        )
+                    )
+                    trace(
+                        12,
+                        "planner_sent_to_responder",
+                        in_={"conversation_id": conversation_id},
+                        out="sent",
+                        next_="responder handles",
+                    )
+                    del self._round_pending[conversation_id]
+                    del self._collected[conversation_id]
+                    self._user_profile_by_conversation.pop(conversation_id, None)
+                    self._round_number.pop(conversation_id, None)
+                    self._original_query_by_conversation.pop(conversation_id, None)
             return
 
         # New request from API: send REQUEST to all three agents (one round)
@@ -175,17 +256,6 @@ class PlannerAgent(BaseAgent):
             out="ok",
             next_="decompose_task",
         )
-        if self._conversation_manager:
-            self._conversation_manager.append_flow(
-                conversation_id,
-                {
-                    "step": "planner_invoked",
-                    "message": "Planner is decomposing your query into research steps.",
-                    "detail": {
-                        "query": query[:200] + ("..." if len(query) > 200 else "")
-                    },
-                },
-            )
         raw_profile = content.get("user_profile") or "beginner"
         if isinstance(raw_profile, str):
             profile = raw_profile.strip().lower()
@@ -194,9 +264,33 @@ class PlannerAgent(BaseAgent):
         if profile not in VALID_USER_PROFILES:
             profile = "beginner"
         self._user_profile_by_conversation[conversation_id] = profile
+        self._original_query_by_conversation[conversation_id] = query
+        self._round_number[conversation_id] = 1
         steps = self.decompose_task(query)
         if not steps:
             return
+        # Flow: one summary message with actual decomposed steps and full sub-queries
+        query_short = query[:80] + ("..." if len(query) > 80 else "")
+        step_parts = [f"{s.agent} ({s.action})" for s in steps]
+        agents_waiting = ", ".join(s.agent for s in steps)
+        waiting_set = {s.agent for s in steps}
+        if self._conversation_manager:
+            steps_detail = [
+                {"agent": s.agent, "action": s.action, "query": s.params.get("query", query)}
+                for s in steps
+            ]
+            self._conversation_manager.append_flow(
+                conversation_id,
+                {
+                    "step": "planner_decomposed",
+                    "message": f'Planner has decomposed your query "{query_short}" into: {"; ".join(step_parts)}. Waiting for {agents_waiting} to respond.',
+                    "detail": {
+                        "query_preview": query[:200] + ("..." if len(query) > 200 else ""),
+                        "steps": steps_detail,
+                        "waiting_for": list(waiting_set),
+                    },
+                },
+            )
         trace(
             7,
             "planner_handle_request",
@@ -211,19 +305,22 @@ class PlannerAgent(BaseAgent):
         )
         if self._conversation_manager:
             for s in steps:
+                q = s.params.get("query", query)
+                q_display = q if len(q) <= 120 else (q[:100] + "...")
                 self._conversation_manager.append_flow(
                     conversation_id,
                     {
                         "step": "planner_sent",
-                        "message": f"Planner is sending a request to **{s.agent}**: content (action: {s.action}, query: '{query[:80]}{'...' if len(query) > 80 else ''}'). Your query: \"{query[:60]}{'...' if len(query) > 60 else ''}\"",
+                        "message": f"Request sent to **{s.agent}** (action: {s.action}, query: \"{q_display}\").",
                         "detail": {
                             "agent": s.agent,
                             "action": s.action,
-                            "query_preview": query[:100],
+                            "query": q,
+                            "query_preview": q[:100],
                         },
                     },
                 )
-        self._round_pending[conversation_id] = {s.agent for s in steps}
+        self._round_pending[conversation_id] = waiting_set
         self._collected[conversation_id] = {}
         for step in steps:
             step.params = dict(step.params)
@@ -276,6 +373,119 @@ class PlannerAgent(BaseAgent):
             if a.get("analysis"):
                 parts.append("Analyst: analysis complete.")
         return " ".join(parts) if parts else "Research round complete."
+
+    def _agent_content_snippet(self, content: dict[str, Any], max_chars: int = 350) -> str:
+        """Human-readable summary of agent result for flow display (errors, summary, or key fields)."""
+        if not content:
+            return ""
+        # Explicit error (e.g. from tool or MCP)
+        err = content.get("error")
+        if isinstance(err, str) and err.strip():
+            s = err.strip()[:250]
+            return f"Error: {s}{'...' if len(err) > 250 else ''}"
+        if isinstance(content.get("market_data"), dict) and content["market_data"].get("error"):
+            e = content["market_data"]["error"]
+            s = str(e)[:250]
+            return f"Error: {s}{'...' if len(str(e)) > 250 else ''}"
+        # Summary from LLM or agent
+        summary = content.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            s = summary.strip()[:max_chars]
+            return f"Summary: {s}{'...' if len(summary) > max_chars else ''}"
+        # File content
+        if content.get("file") and isinstance(content["file"], dict):
+            fc = content["file"].get("content")
+            if isinstance(fc, str) and fc.strip():
+                s = fc.strip()[:250]
+                return f"Content: {s}{'...' if len(fc) > 250 else ''}"
+        # Structured keys: describe what's present and show a short preview
+        parts = []
+        for key in ("market_data", "sentiment", "analysis", "documents", "graph", "combined_data"):
+            val = content.get(key)
+            if val is None:
+                continue
+            if isinstance(val, dict) and val.get("error"):
+                parts.append(f"{key}: Error: {str(val['error'])[:120]}")
+            elif isinstance(val, dict):
+                parts.append(f"{key}: present ({len(val)} keys)")
+            elif isinstance(val, list):
+                parts.append(f"{key}: {len(val)} items")
+            else:
+                text = str(val)[:150]
+                parts.append(f"{key}: {text}{'...' if len(str(val)) > 150 else ''}")
+        if parts:
+            return " | ".join(parts)
+        text = str(content)[:max_chars]
+        return f"Result: {text}{'...' if len(str(content)) > max_chars else ''}"
+
+    def _format_aggregated_for_sufficiency(self, collected: dict[str, Any]) -> str:
+        """Build a string from collected agent outputs for LLM sufficiency check."""
+        parts = []
+        for agent in ("librarian", "websearcher", "analyst"):
+            if agent not in collected:
+                continue
+            c = collected[agent]
+            summary = c.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                parts.append(f"[{agent}]\n{summary.strip()}")
+            elif c.get("file") and isinstance(c["file"], dict) and c["file"].get("content"):
+                parts.append(f"[{agent}]\n{(c['file']['content'] or '')[:2000]}")
+            elif c.get("market_data") or c.get("sentiment"):
+                parts.append(f"[{agent}] market/sentiment data present.")
+            elif c.get("analysis") is not None:
+                parts.append(f"[{agent}]\n{str(c.get('analysis', ''))[:2000]}")
+            else:
+                parts.append(f"[{agent}] data retrieved.")
+        return "\n\n".join(parts) if parts else "No data."
+
+    def _check_sufficiency(self, user_query: str, aggregated: str) -> bool:
+        """Call LLM to decide if aggregated info is sufficient. Returns True if SUFFICIENT."""
+        assert self._llm_client is not None  # caller checks before invoking
+        try:
+            from llm.prompts import get_planner_sufficiency_user_content
+
+            system = "You decide if the research is sufficient to answer the user. Answer only SUFFICIENT or INSUFFICIENT."
+            user_content = get_planner_sufficiency_user_content(user_query, aggregated)
+            out = self._llm_client.complete(system, user_content)
+            return "SUFFICIENT" in (out or "").strip().upper()
+        except Exception as e:
+            logger.debug("Sufficiency check failed, treating as sufficient: %s", e)
+            return True
+
+    def _get_refined_steps(
+        self, user_query: str, aggregated: str
+    ) -> list[TaskStep]:
+        """Get steps for round 2 from LLM refined-queries JSON. Returns empty list on parse failure."""
+        assert self._llm_client is not None  # caller checks before invoking
+        try:
+            from llm.prompts import get_planner_refined_user_content
+
+            system = "You output a JSON object with keys librarian, websearcher, analyst (only include agents that can fill gaps). Each value is a query string."
+            user_content = get_planner_refined_user_content(user_query, aggregated)
+            out = self._llm_client.complete(system, user_content)
+            text = (out or "").strip()
+            if "```" in text:
+                match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
+                if match:
+                    text = match.group(1)
+            raw = json.loads(text)
+            if not isinstance(raw, dict):
+                return []
+            steps = []
+            for agent in ("librarian", "websearcher", "analyst"):
+                q = raw.get(agent)
+                if isinstance(q, str) and q.strip():
+                    steps.append(
+                        TaskStep(
+                            agent=agent,
+                            action="read_file" if agent == "librarian" else "fetch_market" if agent == "websearcher" else "analyze",
+                            params={"query": q.strip()},
+                        )
+                    )
+            return steps
+        except Exception as e:
+            logger.debug("Refined steps parse failed: %s", e)
+            return []
 
     def decompose_task(self, query: str) -> list[TaskStep]:
         """Produce a ReAct-style task chain from the user query.
@@ -345,8 +555,9 @@ class PlannerAgent(BaseAgent):
         Returns:
             ACL message addressed to the appropriate agent.
         """
-        # Content includes query, action, and any step.params (e.g. path for file_tool)
-        content = {"query": query, "action": step.action, **step.params}
+        # Content includes query (role-specific from step.params or fallback), action, and any step.params
+        step_query = step.params.get("query", query)
+        content = {"query": step_query, "action": step.action, **step.params}
         return ACLMessage(
             performative=Performative.REQUEST,
             sender=self.name,

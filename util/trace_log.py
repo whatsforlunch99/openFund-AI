@@ -40,4 +40,5 @@ def trace(
         lines.append(f"      Out:  {out_str}")
     if next_:
         lines.append(f"      Next: {next_}")
+    # Emit one log block so traces are easy to follow
     logger.info("\n" + "\n".join(lines))

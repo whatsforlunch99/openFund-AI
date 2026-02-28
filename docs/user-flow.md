@@ -142,15 +142,16 @@ Optional: `conversation_id` omitted for a new conversation.
    - Receives REQUEST from API (or from a prior round).  
    - Reads `message.content["query"]`, `message.content["conversation_id"]`, `message.content["user_profile"]`, and any accumulated context.
 
-7. **Planner decides round:** For this round, Planner chooses **one or more** of Librarian, WebSearcher, Analyst (e.g. via `decompose_task` or sufficiency logic). It may send to all three, to two, or to one, depending on the query and current information.  
-   - **PlannerAgent.decompose_task(query)** (or equivalent) returns a list of `TaskStep`s; each step targets one agent (`librarian` | `websearcher` | `analyst`).  
+7. **Planner decides round:** The Planner **selects which agents to call** (one or more of Librarian, WebSearcher, Analyst) and **decomposes the user query into a specific sub-query per chosen agent**. Each REQUEST sent to a specialist contains **that agent's sub-query** (and conversation/round context as needed).  
+   - **PlannerAgent.decompose_task(query)** (or equivalent) returns a list of `TaskStep`s; each step targets one agent (`librarian` | `websearcher` | `analyst`) and includes that agent's **decomposed sub-query**.  
    - For each chosen step: `PlannerAgent.create_research_request(query, step, context)` where `context` holds all information gathered so far (empty on first round).  
-   - **MessageBus.send("request")** for each chosen agent (one or more of librarian, websearcher, analyst), each with the same conversation_id and round-specific query/step in content.
+   - **MessageBus.send("request")** for each chosen agent (one or more of librarian, websearcher, analyst), each with the same conversation_id and **that agent's sub-query** in content.
 
 8. **Chosen agents run (this round); each replies INFORM to Planner.**  
-   - **LibrarianAgent.handle_message(message)** (if chosen): `retrieve_documents` → `MCPClient.call_tool("vector_tool.search", ...)`; `retrieve_knowledge_graph` → `MCPClient.call_tool("kg_tool.query_graph", ...)`; `MCPClient.call_tool("sql_tool.run_query", ...)`; `combine_results(docs, graph_data)`; **MessageBus.send("inform")** to planner.  
-   - **WebSearcherAgent.handle_message(message)** (if chosen): `fetch_market_data`, `fetch_sentiment`, `fetch_regulatory` via market_tool; all returns include `timestamp`; **MessageBus.send("inform")** to planner.  
-   - **AnalystAgent.handle_message(message)** (if chosen): receives structured_data/market_data (from context or prior round); `analyze(...)`; optionally `MCPClient.call_tool("analyst_tool.run_analysis", ...)`; **MessageBus.send("inform")** to planner.
+   On receiving the REQUEST, each chosen agent **uses an LLM** (when available) with a **prompt** and **tool descriptions** to decide **which tools to call and with what parameters**; it then **executes those tool calls** via `mcp_client.call_tool(tool_name, payload)`, combines or summarizes results, and sends INFORM to the Planner. (The "researcher" role is fulfilled by the WebSearcher agent — web and market research.)  
+   - **LibrarianAgent.handle_message(message)** (if chosen): uses LLM + tool descriptions to select tools (e.g. file_tool.read_file, vector_tool.search, kg_tool.get_relations, sql_tool.run_query) and parameters; executes those calls; `combine_results(...)`; **MessageBus.send("inform")** to planner.  
+   - **WebSearcherAgent.handle_message(message)** (if chosen): uses LLM + tool descriptions to select market_tool calls and parameters; executes those calls; all returns include `timestamp`; **MessageBus.send("inform")** to planner.  
+   - **AnalystAgent.handle_message(message)** (if chosen): uses LLM + tool descriptions to select analyst_tool (and any other) calls and parameters; executes those calls; runs `analyze(...)` on gathered data; **MessageBus.send("inform")** to planner.
 
 9. **PlannerAgent** (after collecting INFORM replies for this round)  
    - Aggregates results from whichever agents replied this round with all prior-round data.  

@@ -116,3 +116,51 @@ class LiveLLMClient:
         except Exception as e:
             logger.warning("LLM complete failed: %s", e)
             return user_content
+
+    def select_tools(
+        self,
+        system_prompt: str,
+        user_content: str,
+        tool_descriptions: str,
+    ) -> list[dict[str, Any]]:
+        """Call the LLM to get tool calls; parse JSON array of {tool, payload}. Returns [] on failure."""
+        try:
+            # system_prompt may contain {tool_descriptions} placeholder
+            if "{tool_descriptions}" in system_prompt:
+                system_prompt = system_prompt.format(tool_descriptions=tool_descriptions)
+            text = self.complete(system_prompt, user_content)
+            from llm.tool_descriptions import normalize_tool_calls
+
+            parsed = self._parse_tool_calls(text)
+            return normalize_tool_calls(parsed)
+        except Exception as e:
+            logger.warning("LLM select_tools failed: %s", e)
+            return []
+
+    def _parse_tool_calls(self, text: str) -> list[dict[str, Any]]:
+        """Extract JSON array of {tool, payload} from LLM response. Accepts 'tool' or 'tool_name'."""
+        if not (text or "").strip():
+            return []
+        text = text.strip()
+        if "```" in text:
+            match = re.search(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", text)
+            if match:
+                text = match.group(1)
+        try:
+            raw = json.loads(text)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(raw, list):
+            return []
+        result = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            tool = item.get("tool") or item.get("tool_name")
+            payload = item.get("payload")
+            if isinstance(tool, str) and tool.strip():
+                result.append({
+                    "tool": tool.strip(),
+                    "payload": payload if isinstance(payload, dict) else {},
+                })
+        return result

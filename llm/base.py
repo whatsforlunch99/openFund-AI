@@ -40,3 +40,24 @@ class LLMClient(Protocol):
             Model response text, or passthrough of user_content for static mock.
         """
         ...
+
+    def select_tools(
+        self,
+        system_prompt: str,
+        user_content: str,
+        tool_descriptions: str,
+    ) -> list[dict[str, Any]]:
+        """Return a list of tool calls: [{"tool": "tool_name", "payload": {...}}, ...].
+
+        Used by Librarian, WebSearcher, Analyst to decide which MCP tools to call.
+        When not implemented or parsing fails, caller should fall back to content-key dispatch.
+
+        Args:
+            system_prompt: System message (tool-selection instructions).
+            user_content: User message (e.g. decomposed query).
+            tool_descriptions: Text listing allowed tools and payload params.
+
+        Returns:
+            List of dicts with "tool" (str) and "payload" (dict). Empty list on failure or when no tools.
+        """
+        ...

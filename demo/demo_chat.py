@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""Interactive CLI demo chat: set your name, then chat with the OpenFund-AI API.
+"""Interactive CLI chat: set your name, then chat with the OpenFund-AI API.
 
 Usage:
-  # Start the API in demo mode first (in another terminal):
-  #   python main.py --demo
+  Ensure the API is running (e.g. python main.py or python -m demo).
 
   python -m demo.demo_chat
   python -m demo.demo_chat --base-url http://localhost:8000
-
-The script prompts for your name, registers you, then lets you type questions.
-Each response shows the system flow (planner, librarian, etc.) then the answer.
 """
 
 from __future__ import annotations
@@ -78,9 +74,9 @@ def chat(
 
 
 def main() -> int:
-    """Run the interactive demo chat loop. Returns 0 on success, 1 on error."""
+    """Run the interactive chat loop. Returns 0 on success, 1 on error."""
     parser = argparse.ArgumentParser(
-        description="Interactive CLI demo chat. Start the API with: python main.py --demo"
+        description="Interactive chat. Start the API with: python main.py or python -m demo"
     )
     parser.add_argument(
         "--base-url",
@@ -92,8 +88,8 @@ def main() -> int:
 
     print()
     print("  ╭─────────────────────────────────────────────────────────────╮")
-    print("  │  OpenFund-AI Demo Chat                                       │")
-    print("  │  Make sure the API is running: python main.py --demo         │")
+    print("  │  OpenFund-AI Chat                                            │")
+    print("  │  Make sure the API is running: python main.py  or  python -m demo")
     print("  ╰─────────────────────────────────────────────────────────────╯")
     print()
 
@@ -107,16 +103,7 @@ def main() -> int:
         print("  Could not register. Is the API running at", base_url, "?")
         return 1
     print(f"  New user created. Welcome, {display_name}! (user_id: {user_id})")
-    demo = check_demo_mode(base_url)
-    if demo is False:
-        print()
-        print("  ⚠ Server is NOT in demo mode — requests may be slow or time out.")
-        print(
-            "  For quick static answers, restart the API with:  python main.py --demo"
-        )
-        print()
-    elif demo is True:
-        print("  ✓ Demo mode: static data (answers in a few seconds)")
+    check_demo_mode(base_url)  # no-op; endpoint kept for compatibility
     print()
 
     conversation_id: str | None = None
@@ -157,6 +144,18 @@ def main() -> int:
                 msg = step.get("message", "")
                 if msg:
                     print(f"    • {msg}")
+                detail = step.get("detail") or {}
+                # Show full sub-queries for planner decomposition
+                if step.get("step") == "planner_decomposed" and detail.get("steps"):
+                    for s in detail["steps"]:
+                        q = s.get("query", "")
+                        print(f"      - {s.get('agent', '')} ({s.get('action', '')}): {q}")
+                # Show full query for each request sent to an agent
+                elif step.get("step") == "planner_sent" and detail.get("query"):
+                    print(f"      Sub-query: {detail['query']}")
+                # Show result summary from agent return (full text when in detail)
+                elif step.get("step") == "agent_returned" and detail.get("result_summary"):
+                    print(f"      Result: {detail['result_summary']}")
                 if i < len(flow) - 1:
                     print()
             print("  ──────────")
@@ -165,9 +164,6 @@ def main() -> int:
             print(f"  Assistant: {response}")
         elif status == "timeout":
             print("  Assistant: (Request timed out.)")
-            print(
-                "  Tip: Start the API with  python main.py --demo  for fast static answers."
-            )
         else:
             print("  Assistant: (No response.)")
         print()

@@ -8,6 +8,7 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 
 - **A2A:** FIPA-ACL messages over a message bus (in-memory or pluggable). Agents communicate via performatives (REQUEST, INFORM, STOP, etc.).
 - **Layers:** User Interaction (API), Safety, Orchestration (Planner), Research Execution (Librarian, WebSearcher, Analyst), Tool/Data (MCP), Output Review (OutputRail).
+- **Orchestration:** The Planner (orchestrator) decides **which** agents to call (one or more of Librarian, WebSearcher, Analyst) and **decomposes** the user query into **agent-specific sub-queries**. Each REQUEST to a specialist carries that agent's decomposed query (and any shared context). When information is sufficient, Planner sends consolidated data to Responder.
 - **Termination:** Only the Responder may signal conversation complete (broadcast STOP); all agent threads exit on STOP.
 - **Hub-and-spoke:** Planner is the sole orchestrator; specialists reply only to Planner. Planner sends consolidated data to Responder when information is sufficient.
 
@@ -39,7 +40,7 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 
 - **Conversation state:** id (UUID), user_id, initial_query, messages (append-only log), status ("active" | "complete" | "error"), final_response (set when response is delivered), created_at, completion_event (for blocking wait).
 - **Message (ACL):** performative, sender, receiver, content, conversation_id, reply_to, in_reply_to, timestamp. Performatives: REQUEST, INFORM, STOP, FAILURE, ACK, REFUSE, CANCEL. Performative type is `(str, Enum)` for Python 3.9 compatibility (StrEnum is 3.11+).
-- **Task step (orchestration):** agent ("librarian" | "websearcher" | "analyst"), action, params (forwarded in message content).
+- **Task step (orchestration):** agent ("librarian" | "websearcher" | "analyst"), action, params. Params include the **decomposed query** for that agent (and any tool-relevant hints). When sufficient information is gathered, Planner sends consolidated data to Responder.
 
 ---
 
@@ -84,6 +85,8 @@ All external data via MCP tools only:
 | Files          | —           | file_tool (read_file) |
 
 Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). All MCP tools accept a **payload** dict; required parameters (e.g. **symbol**, path, **as_of_date**, start_date, end_date, **limit**) must be passed in by the caller—no UI or client-side defaults. Payload keys: use **symbol** for the security identifier (ticker accepted for backward compatibility); **limit** for max items (e.g. get_news_yf, get_global_news_yf); **as_of_date** for reference date (curr_date accepted for backward compatibility). Analyst API stub: request `{ "returns", "horizon" }`; response `{ "sharpe", "max_drawdown", "distribution" }`. analyst_tool.get_indicators_yf and analyst_tool.get_indicators: symbol, indicator, as_of_date, look_back_days (get_indicators routes to yfinance/stockstats or Alpha Vantage via MCP_INDICATOR_VENDOR). **Vendor-agnostic tools** (route by config): market_tool.get_stock_data, market_tool.get_fundamentals, market_tool.get_balance_sheet, market_tool.get_cashflow, market_tool.get_income_statement, market_tool.get_news, market_tool.get_global_news, market_tool.get_insider_transactions; analyst_tool.get_indicators. Existing *_yf tools remain available. Embedding: sentence-transformers/all-MiniLM-L6-v2, 384 dims; config: EMBEDDING_MODEL, EMBEDDING_DIM.
+
+**Research execution — specialist tool selection:** Specialist agents (Librarian, WebSearcher, Analyst) determine **which MCP tools to call and with what parameters** via an **LLM call**: they receive the planner's request (including the decomposed query), are given a **prompt** and **tool descriptions** (see [agent-tools-reference.md](agent-tools-reference.md)), and the LLM returns tool calls (tool name + payload); the agent then executes those tool calls and returns results (e.g. INFORM to Planner). If no LLM is available, behavior may fall back to content-key-based dispatch.
 
 ---
 

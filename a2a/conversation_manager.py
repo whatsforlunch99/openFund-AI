@@ -119,6 +119,7 @@ class ConversationManager:
                         state.created_at.isoformat() if state.created_at else None
                     ),
                 }
+        # Write JSON so conversations survive restart
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
@@ -198,6 +199,7 @@ class ConversationManager:
             return
         state.messages.append(message.to_dict())
         content = message.content or {}
+        # If Responder sent final_response, mark conversation complete and unblock API waiters
         if "final_response" in content:
             state.final_response = content["final_response"]
             state.status = "complete"

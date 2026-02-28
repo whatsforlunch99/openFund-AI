@@ -36,6 +36,7 @@ def read_file(path: str) -> dict:
             }
         path = abs_path
     try:
+        # Read file as UTF-8; return content and path for agent consumption
         with open(path, encoding="utf-8") as f:
             content = f.read()
         return {"content": content, "path": path}

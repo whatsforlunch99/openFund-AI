@@ -62,6 +62,9 @@ class ResponderAgent(BaseAgent):
         final_response = content.get("final_response")
         if not conversation_id or final_response is None:
             return
+        # When planner marks insufficient after max rounds, force this exact message
+        if content.get("insufficient"):
+            final_response = "Insufficient information."
         user_profile = content.get("user_profile") or "beginner"
         if isinstance(user_profile, str):
             user_profile = user_profile.strip() or "beginner"

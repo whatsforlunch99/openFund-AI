@@ -138,7 +138,7 @@ async def handle_websocket(
         conversation_id,
         {
             "step": "request_sent",
-            "message": f'Your query has been sent to the planner. Research steps will run next. Your query: "{(query or "")[:80]}{"..." if len(query or "") > 80 else ""}"',
+            "message": "Query received. Sent to Planner; you will see decomposition and agent steps as they run.",
             "detail": {"query_preview": (query or "")[:100]},
         },
     )
@@ -148,6 +148,7 @@ async def handle_websocket(
     sent_count = 0
     start = time.monotonic()
     signaled = False
+    # Poll completion_event in executor so async loop stays responsive; stream flow as it arrives
     while (time.monotonic() - start) < timeout_seconds:
         # Send any new flow events
         flow = manager.get_flow_events(conversation_id)

@@ -2,7 +2,7 @@
 
 import logging
 import math
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
@@ -39,15 +39,61 @@ class AnalystAgent(BaseAgent):
     def handle_message(self, message: ACLMessage) -> None:
         """Process analysis requests and send INFORM to planner.
 
-        Extracts structured_data and market_data from content, runs analyze(),
-        then sends INFORM with analysis result to reply_to (Planner).
+        When llm_client is set: use LLM (prompt + tool descriptions) to select tools and
+        parameters, execute via call_tool, run analyze() on gathered data, then send INFORM.
+        If select_tools returns empty or fails, fall back to content-based flow (structured_data, market_data from message).
+        When llm_client is None: use content-based flow only.
 
         Args:
             message: The received ACL message; content may include structured_data,
-                market_data, documents, graph, market.
+                market_data, documents, graph, and query (decomposed from planner).
         """
         content = message.content or {}
         conversation_id = getattr(message, "conversation_id", "") or ""
+        query = content.get("query") or ""
+
+        # When LLM is available, try tool selection first; fall back to content-based if empty/fail
+        if self._llm_client is not None:
+            from llm.prompts import ANALYST_TOOL_SELECTION
+            from llm.tool_descriptions import (
+                ANALYST_ALLOWED_TOOL_NAMES,
+                filter_tool_calls_to_allowed,
+                get_analyst_tool_descriptions,
+                normalize_tool_calls,
+            )
+
+            tool_descriptions = get_analyst_tool_descriptions()
+            user_content = f"Sub-query from planner: {query}"
+            tool_calls = self._llm_client.select_tools(
+                ANALYST_TOOL_SELECTION, user_content, tool_descriptions
+            )
+            # Discard any tool the LLM returned that is not in this agent's allowed pool
+            tool_calls = filter_tool_calls_to_allowed(tool_calls, ANALYST_ALLOWED_TOOL_NAMES)
+            tool_calls = normalize_tool_calls(tool_calls)
+            if tool_calls:
+                gathered = self._execute_tool_calls_analyst(tool_calls)
+                if gathered is not None:
+                    structured_data = content.get("structured_data") or content.get("documents") or content.get("graph") or {}
+                    market_data = content.get("market_data") or content.get("market") or {}
+                    if not isinstance(structured_data, dict):
+                        structured_data = {"data": structured_data}
+                    if not isinstance(market_data, dict):
+                        market_data = {"data": market_data}
+                    structured_data = dict(structured_data)
+                    structured_data["tool_results"] = gathered
+                    result = self.analyze(structured_data, market_data)
+                    if self._llm_client is not None:
+                        from llm.prompts import ANALYST_SYSTEM, get_analyst_user_content
+                        user_content_summary = get_analyst_user_content(structured_data, market_data)
+                        summary = self._llm_client.complete(ANALYST_SYSTEM, user_content_summary)
+                        if isinstance(result, dict):
+                            result = dict(result)
+                            result["summary"] = summary
+                        else:
+                            result = {"analysis": result, "summary": summary}
+                    self._send_inform_analyst(message, result, conversation_id)
+                    return
+        # Fallback: content-based (structured_data, market_data from message)
         structured_data = (
             content.get("structured_data")
             or content.get("documents")
@@ -122,6 +168,43 @@ class AnalystAgent(BaseAgent):
                     "message": f"**Analyst** has returned analysis (confidence={conf}).",
                     "detail": {"confidence": conf},
                 },
+            )
+
+    def _execute_tool_calls_analyst(self, tool_calls: list) -> Optional[list]:
+        """Execute analyst tool calls; return list of result dicts or None if no mcp_client."""
+        if not self.mcp_client or not tool_calls:
+            return None
+        gathered = []
+        for tc in tool_calls:
+            tool = tc.get("tool", "")
+            payload = tc.get("payload") or {}
+            if not isinstance(tool, str) or not tool.strip():
+                continue
+            result = self.mcp_client.call_tool(tool, payload)
+            if isinstance(result, dict):
+                gathered.append(result)
+            else:
+                gathered.append({"content": str(result)})
+        return gathered if gathered else None
+
+    def _send_inform_analyst(self, message: ACLMessage, result: dict, conversation_id: str) -> None:
+        """Send INFORM to reply_to with analysis result and append flow event."""
+        reply_to = getattr(message, "reply_to", None) or message.sender
+        reply = ACLMessage(
+            performative=Performative.INFORM,
+            sender=self.name,
+            receiver=reply_to,
+            content={"analysis": result, "conversation_id": message.conversation_id},
+            conversation_id=message.conversation_id,
+            reply_to=message.sender,
+        )
+        self.bus.send(reply)
+        trace(11, "analyst_inform_sent", in_={"conversation_id": conversation_id}, out="sent", next_="planner receives")
+        if self.conversation_manager and conversation_id:
+            conf = result.get("confidence")
+            self.conversation_manager.append_flow(
+                conversation_id,
+                {"step": "analyst_done", "message": f"**Analyst** has returned analysis (confidence={conf}).", "detail": {"confidence": conf}},
             )
 
     def analyze(self, structured_data: dict, market_data: dict) -> dict:

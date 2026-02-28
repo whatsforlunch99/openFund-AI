@@ -12,6 +12,7 @@ import sys
 import tempfile
 import uuid
 from io import StringIO
+from unittest.mock import patch
 
 import pytest
 
@@ -773,18 +774,19 @@ def test_stage_4_3() -> None:
 
 
 def test_stage_5_1() -> None:
-    """Stage 5.1: market_tool."""
+    """Stage 5.1: market_tool (mocked to avoid network/yfinance)."""
     try:
         from mcp.mcp_client import MCPClient
         from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
-    server = MCPServer()
-    server.register_default_tools()
-    client = MCPClient(server)
-    # market_tool is optional (skipped if yfinance/pandas missing)
-    result = client.call_tool("market_tool.get_fundamentals_yf", {"ticker": "AAPL"})
+    stub = {"content": "mock fundamentals", "timestamp": "2024-01-01T00:00:00Z"}
+    with patch("mcp.tools.market_tool.get_fundamentals_yf", return_value=stub):
+        server = MCPServer()
+        server.register_default_tools()
+        client = MCPClient(server)
+        result = client.call_tool("market_tool.get_fundamentals_yf", {"ticker": "AAPL"})
     assert isinstance(result, dict)
     assert "error" in result or "content" in result
     if "error" not in result:
@@ -792,26 +794,27 @@ def test_stage_5_1() -> None:
 
 
 def test_stage_5_2() -> None:
-    """Stage 5.2: analyst_tool."""
+    """Stage 5.2: analyst_tool (mocked to avoid network/yfinance)."""
     try:
         from mcp.mcp_client import MCPClient
         from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
-    server = MCPServer()
-    server.register_default_tools()
-    client = MCPClient(server)
-    # analyst_tool.get_indicators_yf is optional (skipped if pandas missing)
-    result = client.call_tool(
-        "analyst_tool.get_indicators_yf",
-        {
-            "symbol": "AAPL",
-            "indicator": "sma_50",
-            "as_of_date": "2024-01-15",
-            "look_back_days": 10,
-        },
-    )
+    stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
+    with patch("mcp.tools.analyst_tool.get_indicators_yf", return_value=stub):
+        server = MCPServer()
+        server.register_default_tools()
+        client = MCPClient(server)
+        result = client.call_tool(
+            "analyst_tool.get_indicators_yf",
+            {
+                "symbol": "AAPL",
+                "indicator": "sma_50",
+                "as_of_date": "2024-01-15",
+                "look_back_days": 10,
+            },
+        )
     assert isinstance(result, dict)
     assert "error" in result or "content" in result
     if "error" not in result:
@@ -819,7 +822,7 @@ def test_stage_5_2() -> None:
 
 
 def test_stage_5_3() -> None:
-    """Stage 5.3: WebSearcherAgent."""
+    """Stage 5.3: WebSearcherAgent (market tools mocked to avoid network/yfinance)."""
     try:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
@@ -829,25 +832,29 @@ def test_stage_5_3() -> None:
     except ImportError as e:
         pytest.skip(f"Stage 5.3 deps not available: {e}")
 
-    server = MCPServer()
-    server.register_default_tools()
-    client = MCPClient(server)
-    bus = InMemoryMessageBus()
-    bus.register_agent("websearcher")
-    bus.register_agent("planner")
-    agent = WebSearcherAgent("websearcher", bus, mcp_client=client)
-    cid = str(uuid.uuid4())
-    req = ACLMessage(
-        performative=Performative.REQUEST,
-        sender="planner",
-        receiver="websearcher",
-        content={"query": "AAPL", "fund": "AAPL"},
-        conversation_id=cid,
-        reply_to="planner",
-    )
-    bus.send(req)
-    agent.handle_message(req)
-    reply = bus.receive("planner", timeout=1.0)
+    stub = {"content": "mock", "timestamp": "2024-01-01T00:00:00Z"}
+    with patch("mcp.tools.market_tool.get_fundamentals_yf", return_value=stub), patch(
+        "mcp.tools.market_tool.get_news_yf", return_value=stub
+    ), patch("mcp.tools.market_tool.get_global_news_yf", return_value=stub):
+        server = MCPServer()
+        server.register_default_tools()
+        client = MCPClient(server)
+        bus = InMemoryMessageBus()
+        bus.register_agent("websearcher")
+        bus.register_agent("planner")
+        agent = WebSearcherAgent("websearcher", bus, mcp_client=client)
+        cid = str(uuid.uuid4())
+        req = ACLMessage(
+            performative=Performative.REQUEST,
+            sender="planner",
+            receiver="websearcher",
+            content={"query": "AAPL", "fund": "AAPL"},
+            conversation_id=cid,
+            reply_to="planner",
+        )
+        bus.send(req)
+        agent.handle_message(req)
+        reply = bus.receive("planner", timeout=2.0)
     assert reply is not None
     assert reply.performative == Performative.INFORM
     assert reply.sender == "websearcher"
@@ -856,7 +863,7 @@ def test_stage_5_3() -> None:
 
 
 def test_stage_5_4() -> None:
-    """Stage 5.4: AnalystAgent."""
+    """Stage 5.4: AnalystAgent (analyst_tool mocked to avoid network/yfinance)."""
     try:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
@@ -866,25 +873,27 @@ def test_stage_5_4() -> None:
     except ImportError as e:
         pytest.skip(f"Stage 5.4 deps not available: {e}")
 
-    server = MCPServer()
-    server.register_default_tools()
-    client = MCPClient(server)
-    bus = InMemoryMessageBus()
-    bus.register_agent("analyst")
-    bus.register_agent("planner")
-    agent = AnalystAgent("analyst", bus, mcp_client=client)
-    cid = str(uuid.uuid4())
-    req = ACLMessage(
-        performative=Performative.REQUEST,
-        sender="planner",
-        receiver="analyst",
-        content={"query": "analyze", "structured_data": {}, "market_data": {}},
-        conversation_id=cid,
-        reply_to="planner",
-    )
-    bus.send(req)
-    agent.handle_message(req)
-    reply = bus.receive("planner", timeout=1.0)
+    stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
+    with patch("mcp.tools.analyst_tool.get_indicators_yf", return_value=stub):
+        server = MCPServer()
+        server.register_default_tools()
+        client = MCPClient(server)
+        bus = InMemoryMessageBus()
+        bus.register_agent("analyst")
+        bus.register_agent("planner")
+        agent = AnalystAgent("analyst", bus, mcp_client=client)
+        cid = str(uuid.uuid4())
+        req = ACLMessage(
+            performative=Performative.REQUEST,
+            sender="planner",
+            receiver="analyst",
+            content={"query": "analyze", "structured_data": {}, "market_data": {}},
+            conversation_id=cid,
+            reply_to="planner",
+        )
+        bus.send(req)
+        agent.handle_message(req)
+        reply = bus.receive("planner", timeout=2.0)
     assert reply is not None
     assert reply.performative == Performative.INFORM
     assert reply.sender == "analyst"
@@ -943,9 +952,10 @@ def test_stage_7_1() -> None:
     from fastapi.testclient import TestClient
 
     from api.rest import create_app
+    from llm.static_client import StaticLLMClient
 
-    # Short timeout so test does not hang; real flow with temp file for librarian
-    app = create_app(timeout_seconds=5)
+    # Use static LLM so test does not require LLM_API_KEY
+    app = create_app(timeout_seconds=5, llm_client=StaticLLMClient())
     client = TestClient(app)
 
     # Invalid user_profile is rejected (PRD: invalid profile rejected)
@@ -1018,8 +1028,9 @@ def test_stage_9_1() -> None:
     from fastapi.testclient import TestClient
 
     from api.rest import create_app
+    from llm.static_client import StaticLLMClient
 
-    app = create_app(timeout_seconds=5)
+    app = create_app(timeout_seconds=5, llm_client=StaticLLMClient())
     client = TestClient(app)
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
@@ -1070,15 +1081,18 @@ def test_stage_10_1() -> None:
 
 
 def test_stage_10_2_llm_static_mock() -> None:
-    """Stage 10.2: LLM integration uses static mock when no API key; decompose_to_steps returns runnable steps."""
-    from config.config import load_config
+    """Stage 10.2: get_llm_client requires LLM_API_KEY; Planner with StaticLLMClient returns runnable steps."""
+    from config.config import Config, load_config
     from llm.factory import get_llm_client
     from llm.static_client import StaticLLMClient
 
     cfg = load_config()
-    client = get_llm_client(cfg)
-    assert isinstance(client, StaticLLMClient)
+    cfg_no_key = Config(**{**vars(cfg), "llm_api_key": None})
+    with pytest.raises((ValueError, ImportError)):
+        get_llm_client(cfg_no_key)
 
+    # Planner with StaticLLMClient (e.g. for tests/E2E) still produces runnable steps
+    client = StaticLLMClient()
     steps = client.decompose_to_steps("What is fund X?")
     assert isinstance(steps, list)
     assert len(steps) == 3
@@ -1184,12 +1198,13 @@ def test_stage_10_2_responder_llm_prompt() -> None:
 
 
 def test_stage_10_2_librarian_llm_prompt() -> None:
-    """Stage 10.2: LibrarianAgent with llm_client calls complete with LIBRARIAN_SYSTEM."""
+    """Stage 10.2: LibrarianAgent with llm_client calls complete with LIBRARIAN_SYSTEM (after tool selection or fallback)."""
     from unittest.mock import MagicMock
 
     from llm.prompts import LIBRARIAN_SYSTEM
 
     mock_llm = MagicMock()
+    mock_llm.select_tools = MagicMock(return_value=[])  # fall back to content-key dispatch
     mock_llm.complete = MagicMock(return_value="Brief summary of docs and graph.")
 
     try:
@@ -1229,12 +1244,13 @@ def test_stage_10_2_librarian_llm_prompt() -> None:
 
 
 def test_stage_10_2_websearcher_llm_prompt() -> None:
-    """Stage 10.2: WebSearcherAgent with llm_client calls complete with WEBSEARCHER_SYSTEM."""
+    """Stage 10.2: WebSearcherAgent with llm_client calls complete with WEBSEARCHER_SYSTEM (after tool selection or fallback)."""
     from unittest.mock import MagicMock
 
     from llm.prompts import WEBSEARCHER_SYSTEM
 
     mock_llm = MagicMock()
+    mock_llm.select_tools = MagicMock(return_value=[])  # fall back to content-based dispatch
     mock_llm.complete = MagicMock(return_value="Market and sentiment brief.")
 
     try:
@@ -1246,23 +1262,27 @@ def test_stage_10_2_websearcher_llm_prompt() -> None:
     except ImportError as e:
         pytest.skip(f"Stage 10.2 websearcher deps not available: {e}")
 
-    server = MCPServer()
-    server.register_default_tools()
-    client = MCPClient(server)
-    bus = InMemoryMessageBus()
-    bus.register_agent("websearcher")
-    bus.register_agent("planner")
-    agent = WebSearcherAgent("websearcher", bus, mcp_client=client, llm_client=mock_llm)
-    req = ACLMessage(
-        performative=Performative.REQUEST,
-        sender="planner",
-        receiver="websearcher",
-        content={"query": "AAPL", "fund": "AAPL"},
-        conversation_id="cid-ws",
-        reply_to="planner",
-    )
-    bus.send(req)
-    agent.handle_message(req)
+    stub = {"content": "mock", "timestamp": "2024-01-01T00:00:00Z"}
+    with patch("mcp.tools.market_tool.get_fundamentals_yf", return_value=stub), patch(
+        "mcp.tools.market_tool.get_news_yf", return_value=stub
+    ), patch("mcp.tools.market_tool.get_global_news_yf", return_value=stub):
+        server = MCPServer()
+        server.register_default_tools()
+        client = MCPClient(server)
+        bus = InMemoryMessageBus()
+        bus.register_agent("websearcher")
+        bus.register_agent("planner")
+        agent = WebSearcherAgent("websearcher", bus, mcp_client=client, llm_client=mock_llm)
+        req = ACLMessage(
+            performative=Performative.REQUEST,
+            sender="planner",
+            receiver="websearcher",
+            content={"query": "AAPL", "fund": "AAPL"},
+            conversation_id="cid-ws",
+            reply_to="planner",
+        )
+        bus.send(req)
+        agent.handle_message(req)
     assert mock_llm.complete.called
     call_args = mock_llm.complete.call_args[0]
     assert len(call_args) >= 2
@@ -1271,12 +1291,13 @@ def test_stage_10_2_websearcher_llm_prompt() -> None:
 
 
 def test_stage_10_2_analyst_llm_prompt() -> None:
-    """Stage 10.2: AnalystAgent with llm_client calls complete with ANALYST_SYSTEM."""
+    """Stage 10.2: AnalystAgent with llm_client calls complete with ANALYST_SYSTEM (after tool selection or fallback)."""
     from unittest.mock import MagicMock
 
     from llm.prompts import ANALYST_SYSTEM
 
     mock_llm = MagicMock()
+    mock_llm.select_tools = MagicMock(return_value=[])  # fall back to content-based flow
     mock_llm.complete = MagicMock(return_value="Analysis summary with confidence.")
 
     try:
@@ -1288,32 +1309,250 @@ def test_stage_10_2_analyst_llm_prompt() -> None:
     except ImportError as e:
         pytest.skip(f"Stage 10.2 analyst deps not available: {e}")
 
-    server = MCPServer()
-    server.register_default_tools()
-    client = MCPClient(server)
-    bus = InMemoryMessageBus()
-    bus.register_agent("analyst")
-    bus.register_agent("planner")
-    agent = AnalystAgent("analyst", bus, mcp_client=client, llm_client=mock_llm)
-    req = ACLMessage(
-        performative=Performative.REQUEST,
-        sender="planner",
-        receiver="analyst",
-        content={
-            "query": "analyze",
-            "structured_data": {"documents": []},
-            "market_data": {"price": 100},
-        },
-        conversation_id="cid-an",
-        reply_to="planner",
-    )
-    bus.send(req)
-    agent.handle_message(req)
+    stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
+    with patch("mcp.tools.analyst_tool.get_indicators_yf", return_value=stub):
+        server = MCPServer()
+        server.register_default_tools()
+        client = MCPClient(server)
+        bus = InMemoryMessageBus()
+        bus.register_agent("analyst")
+        bus.register_agent("planner")
+        agent = AnalystAgent("analyst", bus, mcp_client=client, llm_client=mock_llm)
+        req = ACLMessage(
+            performative=Performative.REQUEST,
+            sender="planner",
+            receiver="analyst",
+            content={
+                "query": "analyze",
+                "structured_data": {"documents": []},
+                "market_data": {"price": 100},
+            },
+            conversation_id="cid-an",
+            reply_to="planner",
+        )
+        bus.send(req)
+        agent.handle_message(req)
     assert mock_llm.complete.called
     call_args = mock_llm.complete.call_args[0]
     assert len(call_args) >= 2
     assert call_args[0] == ANALYST_SYSTEM
     assert "structured_data" in call_args[1] or "market_data" in call_args[1]
+
+
+def test_stage_10_2_static_client_select_tools_returns_empty() -> None:
+    """Stage 10.2: StaticLLMClient.select_tools returns [] so specialists fall back to content-key dispatch."""
+    from llm.static_client import StaticLLMClient
+
+    client = StaticLLMClient()
+    tool_calls = client.select_tools("system", "user", "tool list")
+    assert tool_calls == []
+
+
+def test_stage_10_2_planner_sends_only_to_chosen_agents_with_decomposed_query() -> None:
+    """Planner sends REQUEST only to agents in decomposed steps; each REQUEST content includes that step's query."""
+    from a2a.acl_message import ACLMessage, Performative
+    from a2a.message_bus import InMemoryMessageBus
+    from agents.planner_agent import PlannerAgent, TaskStep
+    from llm.static_client import StaticLLMClient
+
+    # Custom steps: only librarian and websearcher (no analyst). StaticLLMClient injects user query into params.
+    custom_steps = [
+        {"agent": "librarian", "action": "read_file", "params": {"query": "Find NVDA fund facts"}},
+        {"agent": "websearcher", "action": "fetch_market", "params": {"query": "NVDA stock price and news"}},
+    ]
+    client = StaticLLMClient(steps=custom_steps)
+    bus = InMemoryMessageBus()
+    for name in ("planner", "librarian", "websearcher", "analyst"):
+        bus.register_agent(name)
+    planner = PlannerAgent("planner", bus, llm_client=client)
+    user_query = "What about NVDA?"
+    steps = planner.decompose_task(user_query)
+    assert len(steps) == 2
+    assert [s.agent for s in steps] == ["librarian", "websearcher"]
+    # StaticLLMClient overwrites params["query"] with user query
+    assert steps[0].params.get("query") == user_query
+    assert steps[1].params.get("query") == user_query
+
+    msg_lib = planner.create_research_request(user_query, steps[0])
+    assert msg_lib.receiver == "librarian"
+    assert msg_lib.content.get("query") == user_query
+    msg_ws = planner.create_research_request(user_query, steps[1])
+    assert msg_ws.receiver == "websearcher"
+    assert msg_ws.content.get("query") == user_query
+
+
+def test_stage_10_2_librarian_tool_selection_when_llm_returns_tool_calls() -> None:
+    """Librarian with llm_client uses tool selection when select_tools returns non-empty list."""
+    from unittest.mock import MagicMock
+
+    mock_llm = MagicMock()
+    mock_llm.select_tools = MagicMock(
+        return_value=[
+            {"tool": "file_tool.read_file", "payload": {"path": "/data/fund.txt"}},
+            {"tool": "vector_tool.search", "payload": {"query": "NVDA", "top_k": 3}},
+        ]
+    )
+    mock_llm.complete = MagicMock(return_value="Summary of file and vector results.")
+
+    try:
+        from a2a.acl_message import ACLMessage, Performative
+        from a2a.message_bus import InMemoryMessageBus
+        from agents.librarian_agent import LibrarianAgent
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"Stage 10.2 librarian deps not available: {e}")
+
+    server = MCPServer()
+    server.register_tool(
+        "file_tool.read_file",
+        lambda p: {"content": "fund content", "path": p.get("path", "")},
+    )
+    server.register_tool(
+        "vector_tool.search",
+        lambda p: {"documents": [{"id": "1", "text": "NVDA doc", "score": 0.9}]},
+    )
+    client = MCPClient(server)
+    bus = InMemoryMessageBus()
+    bus.register_agent("librarian")
+    bus.register_agent("planner")
+    librarian = LibrarianAgent("librarian", bus, mcp_client=client, llm_client=mock_llm)
+
+    req = ACLMessage(
+        performative=Performative.REQUEST,
+        sender="planner",
+        receiver="librarian",
+        content={"query": "Get NVDA fund facts and docs"},
+        conversation_id="cid-tool",
+        reply_to="planner",
+    )
+    librarian.handle_message(req)
+
+    assert mock_llm.select_tools.called
+    reply = bus.receive("planner", timeout=0.5)
+    assert reply is not None
+    assert reply.performative == Performative.INFORM
+    assert reply.sender == "librarian"
+    assert isinstance(reply.content, dict)
+    assert "file" in reply.content or "documents" in reply.content or "content" in reply.content
+    assert mock_llm.complete.called
+
+
+def test_stage_10_2_websearcher_tool_selection_when_llm_returns_tool_calls() -> None:
+    """WebSearcher with llm_client uses tool selection when select_tools returns non-empty list."""
+    from unittest.mock import MagicMock
+
+    mock_llm = MagicMock()
+    mock_llm.select_tools = MagicMock(
+        return_value=[
+            {"tool": "market_tool.get_fundamentals_yf", "payload": {"ticker": "AAPL"}},
+            {"tool": "market_tool.get_news_yf", "payload": {"symbol": "AAPL", "limit": 3}},
+        ]
+    )
+    mock_llm.complete = MagicMock(return_value="Market and news brief.")
+
+    try:
+        from a2a.acl_message import ACLMessage, Performative
+        from a2a.message_bus import InMemoryMessageBus
+        from agents.websearch_agent import WebSearcherAgent
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"Stage 10.2 websearcher deps not available: {e}")
+
+    server = MCPServer()
+    server.register_tool(
+        "market_tool.get_fundamentals_yf",
+        lambda p: {"content": "P/E 25", "timestamp": "2024-01-01T00:00:00"},
+    )
+    server.register_tool(
+        "market_tool.get_news_yf",
+        lambda p: {"content": "AAPL news", "timestamp": "2024-01-01T00:00:00"},
+    )
+    client = MCPClient(server)
+    bus = InMemoryMessageBus()
+    bus.register_agent("websearcher")
+    bus.register_agent("planner")
+    agent = WebSearcherAgent("websearcher", bus, mcp_client=client, llm_client=mock_llm)
+
+    req = ACLMessage(
+        performative=Performative.REQUEST,
+        sender="planner",
+        receiver="websearcher",
+        content={"query": "AAPL stock and news"},
+        conversation_id="cid-ws-tool",
+        reply_to="planner",
+    )
+    agent.handle_message(req)
+
+    assert mock_llm.select_tools.called
+    reply = bus.receive("planner", timeout=0.5)
+    assert reply is not None
+    assert reply.performative == Performative.INFORM
+    assert reply.sender == "websearcher"
+    assert isinstance(reply.content, dict)
+    assert "market_data" in reply.content or "sentiment" in reply.content
+    assert mock_llm.complete.called
+
+
+def test_stage_10_2_analyst_tool_selection_when_llm_returns_tool_calls() -> None:
+    """Analyst with llm_client uses tool selection when select_tools returns non-empty list."""
+    from unittest.mock import MagicMock
+
+    mock_llm = MagicMock()
+    mock_llm.select_tools = MagicMock(
+        return_value=[
+            {
+                "tool": "analyst_tool.get_indicators_yf",
+                "payload": {
+                    "symbol": "NVDA",
+                    "indicator": "rsi",
+                    "as_of_date": "2024-12-31",
+                    "look_back_days": 30,
+                },
+            },
+        ]
+    )
+    mock_llm.complete = MagicMock(return_value="RSI analysis summary.")
+
+    try:
+        from a2a.acl_message import ACLMessage, Performative
+        from a2a.message_bus import InMemoryMessageBus
+        from agents.analyst_agent import AnalystAgent
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"Stage 10.2 analyst deps not available: {e}")
+
+    server = MCPServer()
+    server.register_tool(
+        "analyst_tool.get_indicators_yf",
+        lambda p: {"content": "RSI 55", "timestamp": "2024-12-31T00:00:00"},
+    )
+    client = MCPClient(server)
+    bus = InMemoryMessageBus()
+    bus.register_agent("analyst")
+    bus.register_agent("planner")
+    agent = AnalystAgent("analyst", bus, mcp_client=client, llm_client=mock_llm)
+
+    req = ACLMessage(
+        performative=Performative.REQUEST,
+        sender="planner",
+        receiver="analyst",
+        content={"query": "NVDA RSI analysis"},
+        conversation_id="cid-an-tool",
+        reply_to="planner",
+    )
+    agent.handle_message(req)
+
+    assert mock_llm.select_tools.called
+    reply = bus.receive("planner", timeout=0.5)
+    assert reply is not None
+    assert reply.performative == Performative.INFORM
+    assert reply.sender == "analyst"
+    assert isinstance(reply.content, dict)
+    assert "analysis" in reply.content
+    assert mock_llm.complete.called
 
 
 # --- Data populate (demo seed): no backends configured ---
@@ -1347,3 +1586,115 @@ def test_data_populate_skips_when_no_backends() -> None:
     assert "skipping PostgreSQL" in out or "DATABASE_URL" in out
     assert "skipping Neo4j" in out or "NEO4J_URI" in out
     assert "skipping Milvus" in out or "MILVUS_URI" in out
+
+
+# --- Stage 10.3: tool call filtering ---
+
+def test_stage_10_3_filter_drops_disallowed_tools():
+    """filter_tool_calls_to_allowed removes tool names not in the allowed set."""
+    from llm.tool_descriptions import (
+        ANALYST_ALLOWED_TOOL_NAMES,
+        LIBRARIAN_ALLOWED_TOOL_NAMES,
+        WEBSEARCHER_ALLOWED_TOOL_NAMES,
+        filter_tool_calls_to_allowed,
+    )
+
+    # All three allowed sets are non-empty and disjoint in the right ways
+    assert "vector_tool.search" in LIBRARIAN_ALLOWED_TOOL_NAMES
+    assert "market_tool.get_fundamentals_yf" in WEBSEARCHER_ALLOWED_TOOL_NAMES
+    assert "analyst_tool.get_indicators_yf" in ANALYST_ALLOWED_TOOL_NAMES
+
+    # Cross-agent hallucination is rejected
+    assert "market_tool.get_fundamentals_yf" not in LIBRARIAN_ALLOWED_TOOL_NAMES
+    assert "vector_tool.search" not in WEBSEARCHER_ALLOWED_TOOL_NAMES
+    assert "vector_tool.search" not in ANALYST_ALLOWED_TOOL_NAMES
+
+    tool_calls = [
+        {"tool": "vector_tool.search", "payload": {"query": "Q"}},
+        {"tool": "market_tool.get_fundamentals_yf", "payload": {"ticker": "AAPL"}},  # not librarian
+        {"tool_name": "sql_tool.run_query", "payload": {"query": "SELECT 1"}},
+    ]
+    filtered = filter_tool_calls_to_allowed(tool_calls, LIBRARIAN_ALLOWED_TOOL_NAMES)
+    names = [tc.get("tool") or tc.get("tool_name") for tc in filtered]
+    assert "vector_tool.search" in names
+    assert "sql_tool.run_query" in names
+    assert "market_tool.get_fundamentals_yf" not in names
+
+
+def test_stage_10_3_filter_allows_all_when_all_valid():
+    """filter_tool_calls_to_allowed passes through every call when all are in allowed set."""
+    from llm.tool_descriptions import WEBSEARCHER_ALLOWED_TOOL_NAMES, filter_tool_calls_to_allowed
+
+    tool_calls = [
+        {"tool": "market_tool.get_fundamentals_yf", "payload": {"ticker": "TSLA"}},
+        {"tool": "market_tool.get_news_yf", "payload": {"symbol": "TSLA", "limit": 3}},
+    ]
+    filtered = filter_tool_calls_to_allowed(tool_calls, WEBSEARCHER_ALLOWED_TOOL_NAMES)
+    assert len(filtered) == 2
+
+
+def test_stage_10_3_filter_empty_list():
+    """filter_tool_calls_to_allowed returns [] when no tool calls are provided."""
+    from llm.tool_descriptions import ANALYST_ALLOWED_TOOL_NAMES, filter_tool_calls_to_allowed
+
+    assert filter_tool_calls_to_allowed([], ANALYST_ALLOWED_TOOL_NAMES) == []
+
+
+# --- Stage 10.4: tool call normalization ---
+
+def test_stage_10_4_normalize_mixed_tool_and_tool_name():
+    """normalize_tool_calls outputs only 'tool' key; accepts both 'tool' and 'tool_name'."""
+    from llm.tool_descriptions import normalize_tool_calls
+
+    raw = [
+        {"tool": "vector_tool.search", "payload": {"query": "Q"}},
+        {"tool_name": "sql_tool.run_query", "payload": {"query": "SELECT 1"}},
+    ]
+    out = normalize_tool_calls(raw)
+    assert len(out) == 2
+    assert all("tool" in tc and "payload" in tc and "tool_name" not in tc for tc in out)
+    assert out[0]["tool"] == "vector_tool.search"
+    assert out[0]["payload"] == {"query": "Q"}
+    assert out[1]["tool"] == "sql_tool.run_query"
+    assert out[1]["payload"] == {"query": "SELECT 1"}
+
+
+def test_stage_10_4_normalize_skips_non_dict_and_invalid_tool():
+    """normalize_tool_calls skips non-dict items, non-string tool, empty tool."""
+    from llm.tool_descriptions import normalize_tool_calls
+
+    raw = [
+        {"tool": "a_tool.foo", "payload": {}},
+        "not a dict",
+        {"tool": "", "payload": {}},
+        {"tool": "  ", "payload": {}},
+        {"tool": 123, "payload": {}},
+        {"tool_name": None, "payload": {}},
+    ]
+    out = normalize_tool_calls(raw)
+    assert len(out) == 1
+    assert out[0]["tool"] == "a_tool.foo"
+
+
+def test_stage_10_4_normalize_payload_default_and_copy():
+    """normalize_tool_calls uses {} for missing/non-dict payload; payload is shallow copy."""
+    from llm.tool_descriptions import normalize_tool_calls
+
+    raw = [
+        {"tool": "x.y", "payload": {"a": 1}},
+        {"tool": "z.w"},  # no payload
+        {"tool": "p.q", "payload": "not a dict"},
+    ]
+    out = normalize_tool_calls(raw)
+    assert len(out) == 3
+    assert out[0]["payload"] == {"a": 1}
+    assert out[0]["payload"] is not raw[0]["payload"]  # shallow copy
+    assert out[1]["payload"] == {}
+    assert out[2]["payload"] == {}
+
+
+def test_stage_10_4_normalize_empty_list():
+    """normalize_tool_calls returns [] for empty input."""
+    from llm.tool_descriptions import normalize_tool_calls
+
+    assert normalize_tool_calls([]) == []

@@ -51,6 +51,7 @@ class ACLMessage:
 
     def __post_init__(self) -> None:
         """Normalize performative to enum; set conversation_id and timestamp if missing."""
+        # Normalize string performative to enum (e.g. from JSON)
         if isinstance(self.performative, str):
             self.performative = Performative(self.performative.upper())
         # One conversation_id per thread so agents can route replies; timestamp for ordering
@@ -68,6 +69,7 @@ class ACLMessage:
         Returns:
             Dict suitable for json.dumps (e.g. in state.messages).
         """
+        # Serialize performative as string for JSON (enum has .value)
         return {
             "performative": (
                 self.performative.value

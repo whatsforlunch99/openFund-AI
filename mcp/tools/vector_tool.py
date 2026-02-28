@@ -52,6 +52,7 @@ def _ensure_milvus_connection() -> tuple[bool, str | None]:
         except Exception as e:
             last_error = e
             logger.debug("Milvus connection attempt %s failed: %s", attempt + 1, e)
+            # Retry after short delay for slow container startup
             if attempt < 4:
                 import time
 

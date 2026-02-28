@@ -1,10 +1,10 @@
-"""Single-command demo: start API in demo mode and run the chat client.
+"""Single-command demo: start API and run the chat client.
 
 Usage:
   python -m demo
 
 Starts the API server in the background, waits for it to be ready, then runs
-the interactive chat. When you type quit/exit, the server is stopped.
+the interactive chat. Ensure LLM_API_KEY is set in .env. Type quit/exit to stop.
 """
 
 from __future__ import annotations
@@ -46,14 +46,11 @@ def main() -> int:
         if i + 1 < len(sys.argv):
             base_url = sys.argv[i + 1].rstrip("/")
 
-    env = os.environ.copy()
-    env["OPENFUND_DEMO"] = "1"
-
-    print("Starting API in demo mode...")
+    print("Starting API...")
     proc = subprocess.Popen(
-        [sys.executable, "main.py", "--demo"],
+        [sys.executable, "main.py"],
         cwd=_PROJECT_ROOT,
-        env=env,
+        env=os.environ.copy(),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
     )

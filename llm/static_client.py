@@ -45,3 +45,12 @@ class StaticLLMClient:
     def complete(self, system_prompt: str, user_content: str) -> str:
         """Return user_content unchanged (no LLM call)."""
         return user_content
+
+    def select_tools(
+        self,
+        system_prompt: str,
+        user_content: str,
+        tool_descriptions: str,
+    ) -> list[dict[str, Any]]:
+        """Return empty list so specialists fall back to content-key dispatch."""
+        return []

@@ -83,6 +83,7 @@ def query_graph(cypher: str, params: Optional[dict] = None) -> dict:
         }
     params = params or {}
     try:
+        # Execute Cypher with params; convert Node/Relationship in each record to plain dicts
         records, summary, keys = driver.execute_query(
             cypher,
             parameters_=params,

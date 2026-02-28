@@ -106,6 +106,7 @@ class InMemoryMessageBus(MessageBus):
         try:
             return q.get(timeout=timeout)
         except queue.Empty:
+            # Timeout elapsed with no message
             return None
 
     def broadcast(self, message: ACLMessage) -> None:

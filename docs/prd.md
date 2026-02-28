@@ -46,7 +46,7 @@ Users need investment-research answers tailored to their expertise (beginner, lo
 1. **Input:** System accepts a query string, optional user ID, optional conversation ID, and user profile (beginner | long_term | analyst). Invalid or unsupported profile is rejected.
 2. **Safety:** All user input passes through validation, guardrails, and PII masking before any processing. Rejected input returns a clear error.
 3. **Conversation:** System creates a new conversation when no conversation ID is supplied; otherwise retrieves existing conversation or returns not-found.
-4. **Orchestration:** An orchestrator decides which internal specialists to call and in how many rounds. When information is sufficient, it requests a final response.
+4. **Orchestration:** The orchestrator decides which internal specialists to call (one or more) and decomposes the user query into agent-specific sub-queries. Specialists determine which tools to use and with what parameters (e.g. via LLM using prompts and tool descriptions). When information is sufficient, the orchestrator requests a final response.
 5. **Response:** Only one component may produce the final user-facing answer. Response is formatted for the user’s profile and must pass compliance checks before delivery.
 6. **Termination:** Conversation is marked complete when the final response is delivered. No further processing for that conversation.
 7. **Timeout:** If processing exceeds the configured limit, the user receives a timeout status and no response body.

@@ -464,7 +464,7 @@ mgr.broadcast_stop(cid)
 
 # agents/planner_agent.py
 
-**Purpose:** Orchestrate research: decompose the user query into steps, decide which agents to call (Librarian, WebSearcher, Analyst or combination), and when information is sufficient send to Responder; otherwise request more from agents with refined queries.
+**Purpose:** Orchestrate research: decide which agents to call (one or more of Librarian, WebSearcher, Analyst), decompose the user query into agent-specific sub-queries for each chosen agent, and when information is sufficient send consolidated data to Responder; otherwise request more from agents with refined queries.
 
 ---
 
@@ -490,9 +490,9 @@ step = TaskStep(agent="librarian", action="retrieve_fund_facts", params={"fund":
 
 ## Class: `PlannerAgent(BaseAgent)`
 
-**Purpose:** Decompose queries, create research requests, and route to Librarian/WebSearcher/Analyst; aggregate their INFORMs and send to Responder (Slice 5 one round). Uses optional llm_client for decompose_to_steps (Stage 10.2).
+**Purpose:** Decompose queries into agent-specific sub-queries, create research requests, and route to one or more of Librarian/WebSearcher/Analyst; aggregate their INFORMs and send to Responder when sufficient. Uses optional llm_client for decompose_to_steps (Stage 10.2).
 
-**Docstring:** `Decomposes user queries into structured tasks and initiates conversations. Creates research requests for Librarian, WebSearcher, and Analyst. Slice 5: sends to all three in one round; aggregates INFORMs then forwards to Responder.`
+**Docstring:** `Decides which agents to call (one or more of librarian, websearcher, analyst) and decomposes the user query into agent-specific sub-queries. Creates research requests whose content includes the decomposed query per agent; aggregates INFORMs then forwards to Responder when information is sufficient.`
 
 ---
 
@@ -514,15 +514,16 @@ step = TaskStep(agent="librarian", action="retrieve_fund_facts", params={"fund":
 
 ## Method: `PlannerAgent.decompose_task(self, query: str) -> List[TaskStep]`
 
-**Purpose:** Produce a ReAct-style task chain from the user query. Uses llm_client.decompose_to_steps when available (Stage 10.2); otherwise returns a fixed one-round chain (librarian, websearcher, analyst). Returns ordered list of TaskSteps.
+**Purpose:** Produce a task chain from the user query. Returns an ordered list of TaskSteps; each step targets one agent and includes a **decomposed query** (and optional params) for that agent. May call one, two, or three agents depending on the query. Uses llm_client.decompose_to_steps when available (Stage 10.2); otherwise returns a fixed one-round chain (librarian, websearcher, analyst).
 
 **Docstring:**
 ```text
-Produce a ReAct-style task chain from the user query. Uses llm_client.decompose_to_steps when available; otherwise returns fixed three steps (librarian, websearcher, analyst).
+Produce a task chain from the user query. Each step includes the decomposed query for that agent.
+Uses llm_client.decompose_to_steps when available; otherwise returns fixed steps.
 Args:
     query: Raw user investment query.
 Returns:
-    Ordered list of task steps (e.g. three steps: librarian, websearcher, analyst).
+    Ordered list of task steps (one or more of librarian, websearcher, analyst), each with decomposed query in params.
 ```
 
 **Example usage:**
@@ -534,17 +535,17 @@ steps = planner.decompose_task("Should I buy fund X?")
 
 ## Method: `PlannerAgent.create_research_request(self, query: str, step: TaskStep, context: Optional[Dict[str, Any]] = None) -> ACLMessage`
 
-**Purpose:** Build an ACL request message for Librarian, WebSearcher, or Analyst.
+**Purpose:** Build an ACL REQUEST for Librarian, WebSearcher, or Analyst. Content includes the **decomposed query for that agent** (e.g. from step.params["query"] or equivalent), plus action and any other params, so the specialist can fulfill the sub-task.
 
 **Docstring:**
 ```text
 Build a request ACL message for Librarian, WebSearcher, or Analyst.
 Args:
-    query: User query.
-    step: Current task step.
+    query: User query (fallback if step has no query).
+    step: Current task step (params include decomposed query for this agent).
     context: Optional prior context.
 Returns:
-    ACL message addressed to the appropriate agent.
+    ACL message addressed to the appropriate agent; content includes that agent's decomposed query.
 ```
 
 **Example usage:**
@@ -570,15 +571,15 @@ result = planner.resolve_conflicts({"librarian": d1, "analyst": d2})
 
 # agents/librarian_agent.py
 
-**Purpose:** Retrieve structured data from knowledge graph, vector DB, SQL, and files via MCP. Dispatches to file_tool (path), vector_tool (vector_query), kg_tool (fund/entity), sql_tool (sql_query) per content; combines results and sends INFORM to reply_to.
+**Purpose:** Retrieve structured data from knowledge graph, vector DB, SQL, and files via MCP. When receiving a REQUEST from the Planner, uses an LLM (when available) with a system prompt and tool descriptions (see [agent-tools-reference.md](agent-tools-reference.md)) to decide which tools to call and with what parameters; executes those tool calls via mcp_client.call_tool, then combines results and sends INFORM (and optionally an LLM-generated summary). If no LLM is available, falls back to content-key-based dispatch (path, vector_query, fund, sql_query).
 
 ---
 
 ## Class: `LibrarianAgent(BaseAgent)`
 
-**Purpose:** Retrieve documents and knowledge-graph data via MCP only; no direct DB access. Content may include path, vector_query, fund/entity, sql_query; combine_results merges documents and graph for downstream.
+**Purpose:** Retrieve documents and knowledge-graph data via MCP only; no direct DB access. When handling a REQUEST from the Planner, uses an LLM (prompt + tool descriptions) to choose which tools to call and with what parameters, then executes those calls and combines results. Tool descriptions come from [agent-tools-reference.md](agent-tools-reference.md) or an equivalent programmatic list.
 
-**Constructor:** Accepts optional `llm_client` (LLMClient). When set, after building combined result, calls complete(LIBRARIAN_SYSTEM, get_librarian_user_content(query, combined_data)) and adds `summary` to INFORM content; when not set, behavior unchanged.
+**Constructor:** Accepts optional `llm_client` (LLMClient). When set, the agent may use it for tool selection (prompt + tool descriptions → tool calls) and/or for summarizing combined result (complete(LIBRARIAN_SYSTEM, get_librarian_user_content(query, combined_data))) adding `summary` to INFORM content; when not set, behavior uses content-key dispatch.
 
 **Docstring:** `Retrieves structured data from knowledge graph and vector database. Uses MCP vector_tool (Milvus) and kg_tool (Neo4j); does not access databases directly.`
 
@@ -586,7 +587,9 @@ result = planner.resolve_conflicts({"librarian": d1, "analyst": d2})
 
 ## Method: `LibrarianAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Process data retrieval requests. Dispatch to file_tool (path), vector_tool (vector_query), kg_tool (fund/entity), sql_tool (sql_query) per content; combine results; when llm_client is set, call LLM to produce a summary and add it to reply content; send INFORM to reply_to. When only path is provided, reply is file result only (backward compat).
+**Purpose:** Process data retrieval requests. When llm_client is available: use LLM with prompt and tool descriptions to decide which tools to call and with what parameters; execute those tool calls via mcp_client.call_tool(tool_name, payload); combine results; optionally add LLM summary to reply; send INFORM to reply_to. When only path is provided or no LLM, reply uses content-key dispatch (file_tool path, vector_tool vector_query, kg_tool fund/entity, sql_tool sql_query) and sends INFORM to reply_to (backward compat).
+
+**Docstring:** `Process data retrieval requests. When LLM is available: uses prompt and tool descriptions to select tools and parameters, executes via call_tool, combines results, sends INFORM. Otherwise dispatches per content keys (path, vector_query, fund, entity, sql_query); combines results and sends INFORM to reply_to.`
 
 **Docstring:** `Process data retrieval requests. Dispatches to file_tool (path), vector_tool (vector_query), kg_tool (fund/entity), sql_tool (sql_query) per content; combines results and sends INFORM to reply_to. Content may include path, vector_query, fund, entity, sql_query, top_k, sql_params.`
 
@@ -633,13 +636,15 @@ combined = agent.combine_results(docs, graph_data)
 
 # agents/websearch_agent.py
 
-**Purpose:** Fetch real-time market, sentiment, and regulatory data via MCP market_tool (Tavily + Yahoo). All returned data must include a timestamp.
+**Purpose:** Fetch real-time market, sentiment, and regulatory data via MCP market_tool (Tavily + Yahoo). When receiving a REQUEST from the Planner, uses an LLM (when available) with a system prompt and tool descriptions (see [agent-tools-reference.md](agent-tools-reference.md)) to decide which tools to call and with what parameters; executes those tool calls via mcp_client.call_tool, then sends INFORM with timestamp (and optionally an LLM-generated summary). If no LLM is available, falls back to content-based dispatch (fetch_market_data, fetch_sentiment, fetch_regulatory). All returned data must include a timestamp.
 
 ---
 
 ## Class: `WebSearcherAgent(BaseAgent)`
 
-**Constructor:** Accepts optional `llm_client` (LLMClient). When set, after fetching market/sentiment/regulatory, calls complete(WEBSEARCHER_SYSTEM, get_websearcher_user_content(query, fetched_data)) and adds `summary` to INFORM content; when not set, behavior unchanged.
+**Purpose:** Fetches real-time market and regulatory information via MCP. When handling a REQUEST from the Planner, uses an LLM (prompt + tool descriptions) to choose which tools to call and with what parameters, then executes those calls. Tool descriptions come from [agent-tools-reference.md](agent-tools-reference.md) or an equivalent programmatic list.
+
+**Constructor:** Accepts optional `llm_client` (LLMClient). When set, the agent may use it for tool selection (prompt + tool descriptions → tool calls) and/or for summarizing fetched data (complete(WEBSEARCHER_SYSTEM, get_websearcher_user_content(query, fetched_data))) adding `summary` to INFORM content; when not set, behavior uses content-based dispatch.
 
 **Docstring:** `Fetches real-time market and regulatory information. Uses MCP market_tool (Tavily + Yahoo APIs). All returned data must include a timestamp.`
 
@@ -647,9 +652,9 @@ combined = agent.combine_results(docs, graph_data)
 
 ## Method: `WebSearcherAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Process requests, call fetch_market_data / fetch_sentiment / fetch_regulatory via MCP; when llm_client is set, call LLM to summarize and add `summary` to reply content; send INFORM with timestamp in content.
+**Purpose:** Process requests. When llm_client is available: use LLM with prompt and tool descriptions to decide which tools to call and with what parameters; execute those tool calls via mcp_client.call_tool(tool_name, payload); optionally add LLM summary to reply; send INFORM with timestamp in content. Otherwise: call fetch_market_data / fetch_sentiment / fetch_regulatory via MCP and send INFORM with timestamp in content.
 
-**Docstring:** `Process market/sentiment/regulatory requests. Args: message: The received ACL message.`
+**Docstring:** `Process market/sentiment/regulatory requests. When LLM is available: uses prompt and tool descriptions to select tools and parameters, executes via call_tool, sends INFORM. Otherwise fetches via MCP and sends INFORM with timestamp. Args: message: The received ACL message.`
 
 ---
 
@@ -685,13 +690,15 @@ assert "timestamp" in data
 
 # agents/analyst_agent.py
 
-**Purpose:** Run quantitative analysis (e.g. Sharpe, max drawdown, Monte Carlo) using MCP analyst_tool (custom API) or local helpers; decide if more data is needed and send either refinement request to Planner or result to Planner (Planner then sends consolidated data to Responder when sufficient).
+**Purpose:** Run quantitative analysis (e.g. Sharpe, max drawdown, Monte Carlo) using MCP analyst_tool (custom API) or local helpers. When receiving a REQUEST from the Planner, uses an LLM (when available) with a system prompt and tool descriptions (see [agent-tools-reference.md](agent-tools-reference.md)) to decide which tools to call and with what parameters; executes those tool calls, then runs analyze() on gathered data and sends INFORM to Planner (or refinement request if needs_more_data). If no LLM is available, receives structured_data and market_data from content and calls analyze. Planner sends consolidated data to Responder when sufficient.
 
 ---
 
 ## Class: `AnalystAgent(BaseAgent)`
 
-**Constructor:** Accepts optional `llm_client` (LLMClient). When set, after analyze(), calls complete(ANALYST_SYSTEM, get_analyst_user_content(structured_data, market_data)) and adds `summary` to the analysis result in INFORM content; when not set, behavior unchanged.
+**Purpose:** Performs quantitative reasoning and uncertainty estimation via MCP and local helpers. When handling a REQUEST from the Planner, uses an LLM (prompt + tool descriptions) to choose which tools to call and with what parameters, then executes those calls. Tool descriptions come from [agent-tools-reference.md](agent-tools-reference.md) or an equivalent programmatic list.
+
+**Constructor:** Accepts optional `llm_client` (LLMClient). When set, the agent may use it for tool selection (prompt + tool descriptions → tool calls) and/or for summarizing analysis (complete(ANALYST_SYSTEM, get_analyst_user_content(structured_data, market_data))) adding `summary` to INFORM content; when not set, behavior uses content-based data (structured_data, market_data from message).
 
 **Docstring:** `Performs quantitative reasoning and uncertainty estimation. Uses MCP analyst_tool (custom API) for heavy quant; may use local helpers for sharpe_ratio, max_drawdown, monte_carlo_simulation.`
 
@@ -699,9 +706,11 @@ assert "timestamp" in data
 
 ## Method: `AnalystAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Receive structured_data and market_data from content; call analyze; when llm_client is set, call LLM to produce analysis summary and add it to result; send INFORM to Planner (or refinement request if needs_more_data).
+**Purpose:** Process analysis requests. When llm_client is available: use LLM with prompt and tool descriptions to decide which tools to call and with what parameters; execute those tool calls via mcp_client.call_tool(tool_name, payload); combine results and call analyze(); optionally add LLM summary to result; send INFORM to Planner (or refinement request if needs_more_data). Otherwise: receive structured_data and market_data from content; call analyze; when llm_client is set, call LLM to produce analysis summary and add it to result; send INFORM to Planner (or refinement request if needs_more_data).
 
-**Docstring:** `Process analysis requests: receive structured_data and market_data, call analyze; if needs_more_data send refinement request else send result to Planner (INFORM). Args: message: The received ACL message.`
+**Purpose:** Process analysis requests. When llm_client is available: use LLM with prompt and tool descriptions to decide which tools to call and with what parameters; execute those tool calls via mcp_client.call_tool(tool_name, payload); combine results and call analyze(); optionally add LLM summary to result; send INFORM to Planner (or refinement request if needs_more_data). Otherwise: receive structured_data and market_data from content; call analyze; when llm_client is set, call LLM to produce analysis summary and add it to result; send INFORM to Planner (or refinement request if needs_more_data).
+
+**Docstring:** `Process analysis requests. When LLM is available: uses prompt and tool descriptions to select tools and parameters, executes via call_tool, then analyze(); sends INFORM or refinement request. Otherwise receives structured_data and market_data, calls analyze; if needs_more_data sends refinement request else sends result to Planner (INFORM). Args: message: The received ACL message.`
 
 ---
 

@@ -26,7 +26,6 @@ class Config:
         llm_base_url: Optional base URL for LLM API (e.g. https://api.deepseek.com for DeepSeek).
         memory_store_path: Root dir for conversation persistence (default memory/).
         e2e_timeout_seconds: E2E timeout in seconds (default 30).
-        demo: If True, use static demo tool responses (no external APIs/DBs).
         database_url: PostgreSQL connection URL for sql_tool.
         embedding_model: Model name for embeddings.
         embedding_dim: Embedding dimension.
@@ -51,7 +50,6 @@ class Config:
     llm_base_url: Optional[str] = None
     memory_store_path: str = "memory"
     e2e_timeout_seconds: int = 30
-    demo: bool = False
     database_url: str = ""
     embedding_model: str = ""
     embedding_dim: int = 0
@@ -67,7 +65,6 @@ def load_config() -> Config:
     Then reads MILVUS_*, NEO4J_*, TAVILY_API_KEY, YAHOO_*, ANALYST_API_*,
     MCP server endpoint, MEMORY_STORE_PATH, E2E_TIMEOUT_SECONDS,
     DATABASE_URL, EMBEDDING_*, thresholds, and optional LLM/feature flags.
-    Demo is True when OPENFUND_DEMO or DEMO is set (e.g. 1, true, yes).
 
     Returns:
         Config instance populated from env.
@@ -101,6 +98,7 @@ def load_config() -> Config:
             return default
         return v in ("1", "true", "yes", "on")
 
+    # Read all env vars and build Config (thresholds use _int/_float for safe parsing)
     return Config(
         milvus_uri=os.getenv("MILVUS_URI", ""),
         milvus_collection=os.getenv("MILVUS_COLLECTION", ""),
@@ -118,7 +116,6 @@ def load_config() -> Config:
         llm_base_url=os.getenv("LLM_BASE_URL") or None,
         memory_store_path=os.getenv("MEMORY_STORE_PATH", "memory"),
         e2e_timeout_seconds=_int("E2E_TIMEOUT_SECONDS", 30),
-        demo=_bool("OPENFUND_DEMO", False) or _bool("DEMO", False),
         database_url=os.getenv("DATABASE_URL", ""),
         embedding_model=os.getenv("EMBEDDING_MODEL", ""),
         embedding_dim=_int("EMBEDDING_DIM", 0),

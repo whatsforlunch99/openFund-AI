@@ -131,7 +131,7 @@ Allowed tools (call via mcp_client.call_tool(tool_name, payload)):
 {tool_descriptions}
 
 Output a JSON array of tool calls. Each element: "tool" or "tool_name" (exact name from list above), "payload" (object with required params).
-Example: [{{"tool": "market_tool.get_fundamentals_yf", "payload": {{"ticker": "AAPL"}}}}, {{"tool": "market_tool.get_news_yf", "payload": {{"symbol": "AAPL", "limit": 5}}}}]
+Example: [{{"tool": "market_tool.get_fundamentals", "payload": {{"ticker": "AAPL"}}}}, {{"tool": "market_tool.get_news", "payload": {{"symbol": "AAPL", "limit": 5}}}}]
 Output only the JSON array, no markdown. If no tools needed, output []."""
 
 
@@ -152,7 +152,7 @@ Allowed tools (call via mcp_client.call_tool(tool_name, payload)):
 {tool_descriptions}
 
 Output a JSON array of tool calls. Each element: "tool" or "tool_name" (exact name from list above), "payload" (object with required params).
-Example: [{{"tool": "analyst_tool.get_indicators_yf", "payload": {{"symbol": "NVDA", "indicator": "rsi", "as_of_date": "2024-12-31", "look_back_days": 30}}}}]
+Example: [{{"tool": "analyst_tool.get_indicators", "payload": {{"symbol": "NVDA", "indicator": "rsi", "as_of_date": "2024-12-31", "look_back_days": 30}}}}]
 Output only the JSON array, no markdown. If no tools needed, output []."""
 
 

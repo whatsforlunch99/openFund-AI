@@ -1413,7 +1413,7 @@ result = server.dispatch("read_file", {"path": "CHANGELOG.md"})
 
 ## Method: `MCPServer.register_default_tools(self) -> None`
 
-**Purpose:** Register file_tool first (read_file); then vector_tool.search, kg_tool.query_graph, kg_tool.get_relations, sql_tool.run_query; then community-common tools (kg_tool.get_node_by_id, get_neighbors, get_graph_schema; sql_tool.explain_query, export_results, connection_health_check; vector_tool.get_by_ids, upsert_documents, health_check); get_capabilities last. Then market_tool and analyst_tool only if imports succeed (optional deps e.g. pandas, yfinance). Each handler receives the MCP payload dict and passes required params to the underlying function. Vendor-agnostic tools (market_tool.get_stock_data, get_fundamentals, …, analyst_tool.get_indicators) route via MCP_MARKET_VENDOR and MCP_INDICATOR_VENDOR. Call after creating the server.
+**Purpose:** Register file_tool first (read_file); then vector_tool.search, kg_tool.query_graph, kg_tool.get_relations, sql_tool.run_query; then community-common tools (kg_tool.get_node_by_id, get_neighbors, get_graph_schema; sql_tool.explain_query, export_results, connection_health_check; vector_tool.get_by_ids, upsert_documents, health_check); get_capabilities last. Then market_tool and analyst_tool only if imports succeed (optional deps e.g. pandas). Each handler receives the MCP payload dict and passes required params to the underlying function. Vendor-agnostic tools (market_tool.get_stock_data, get_fundamentals, …, analyst_tool.get_indicators) route via MCP_MARKET_VENDOR and MCP_INDICATOR_VENDOR. Call after creating the server.
 
 ---
 
@@ -1565,7 +1565,7 @@ rels = get_relations("FUND_X")
 
 # mcp/tools/market_tool.py
 
-**Purpose:** MCP tool for market data, web search, company fundamentals, financials, and news. **Vendor config:** get_market_vendor(), get_indicator_vendor(), get_data_cache_dir() (env: MCP_MARKET_VENDOR, MCP_INDICATOR_VENDOR, MCP_DATA_CACHE_DIR). **Alpha Vantage common** (in this file): get_api_key(), format_datetime_for_api(), AlphaVantageRateLimitError, _make_api_request(), _filter_csv_by_date_range(), _now_iso(). analyst_tool imports get_indicator_vendor, get_data_cache_dir, AlphaVantageRateLimitError, _make_api_request, _now_iso from this module. Stubs: fetch, fetch_bulk, search_web (Tavily/Yahoo). Implemented (yfinance): get_stock_data_yf, get_fundamentals_yf, get_balance_sheet_yf, get_cashflow_yf, get_income_statement_yf, get_insider_transactions_yf, get_news_yf, get_global_news_yf. Alpha Vantage implementations (same file, _av suffix): get_stock_data_av, get_fundamentals_av, get_balance_sheet_av, get_cashflow_av, get_income_statement_av, get_news_av, get_global_news_av, get_insider_transactions_av. **Vendor routing:** _route_* helpers select yfinance or Alpha Vantage via MCP_MARKET_VENDOR; on Alpha Vantage rate limit, fall back to yfinance. **Dify Yahoo–compatible:** get_ticker_info (raw info JSON), get_news_dify (STORY-only news list), get_stock_analytics (segmented OHLCV stats); _parse_stock_data_content_to_df, _route_ticker_info. All returns include `timestamp`. Config: TAVILY_API_KEY, YAHOO_BASE_URL; optional ALPHA_VANTAGE_API_KEY.
+**Purpose:** MCP tool for market data, web search, company fundamentals, financials, and news. **Vendor config:** get_market_vendor(), get_indicator_vendor(), get_data_cache_dir() (env: MCP_MARKET_VENDOR, MCP_INDICATOR_VENDOR, MCP_DATA_CACHE_DIR). **Alpha Vantage common** (in this file): get_api_key(), format_datetime_for_api(), AlphaVantageRateLimitError, _make_api_request(), _filter_csv_by_date_range(), _now_iso(). analyst_tool imports AlphaVantageRateLimitError, _make_api_request, _now_iso from this module. Stubs: fetch, fetch_bulk, search_web (Tavily). Implemented: Alpha Vantage implementations (_av suffix): get_stock_data_av, get_fundamentals_av, get_balance_sheet_av, get_cashflow_av, get_income_statement_av, get_news_av, get_global_news_av, get_insider_transactions_av; Finnhub (_finnhub suffix) where applicable. **Vendor routing:** _route_* helpers select alpha_vantage or finnhub via MCP_MARKET_VENDOR; no yfinance. **Dify-compatible:** get_ticker_info (raw info JSON), get_stock_analytics (segmented OHLCV stats); _parse_stock_data_content_to_df, _route_ticker_info. All returns include `timestamp`. Config: TAVILY_API_KEY, YAHOO_BASE_URL; optional ALPHA_VANTAGE_API_KEY, FINNHUB_API_KEY.
 
 ---
 
@@ -1601,7 +1601,7 @@ assert "timestamp" in data
 
 # mcp/tools/analyst_tool.py
 
-**Purpose:** MCP tool for quantitative/statistical analysis. run_analysis(payload): POST to custom Analyst API (payload dict). get_indicators_yf(symbol, indicator, as_of_date, look_back_days): technical indicators from OHLCV via yfinance; when indicator is in STOCKSTATS_INDICATORS (in this file) and stockstats is installed, delegates to get_indicators_stockstats_window(). get_indicators_av(...): Alpha Vantage technical indicators (same file, _av suffix). Stockstats extended indicators: STOCKSTATS_INDICATORS, INDICATOR_DESCRIPTIONS, get_indicators_stockstats_window() live in this file. **_route_indicators** selects yfinance/stockstats or Alpha Vantage via get_indicator_vendor() (imported from market_tool). Timestamps use _now_iso() imported from market_tool. MCP handler decomposes payload into these args. Returns include `timestamp`. Config: ANALYST_API_URL, optional ANALYST_API_KEY; MCP_INDICATOR_VENDOR and MCP_DATA_CACHE_DIR via market_tool.
+**Purpose:** MCP tool for quantitative/statistical analysis. run_analysis(payload): POST to custom Analyst API (payload dict). get_indicators_av(...): Alpha Vantage technical indicators (same file). **_route_indicators** calls get_indicators_av; on failure returns error (no yfinance). Timestamps use _now_iso() imported from market_tool. MCP handler decomposes payload into symbol, indicator, as_of_date, look_back_days. Returns include `timestamp`. Config: ANALYST_API_URL, optional ANALYST_API_KEY; MCP_INDICATOR_VENDOR via market_tool.
 
 ---
 
@@ -1619,15 +1619,15 @@ result = run_analysis({"returns": [0.01, -0.02], "horizon": 12, "n_sims": 1000})
 
 ---
 
-## Function: `get_indicators_yf(symbol: str, indicator: str, as_of_date: str, look_back_days: int) -> dict`
+## Function: `get_indicators(symbol: str, indicator: str, as_of_date: str, look_back_days: int) -> dict` _(via _route_indicators)_
 
-**Purpose:** Compute technical indicators (e.g. SMA) from OHLCV via yfinance; return content and timestamp.
+**Purpose:** Compute technical indicators (e.g. SMA, RSI, MACD) from OHLCV via Alpha Vantage; return content and timestamp.
 
-**Docstring:** Payload is decomposed into symbol, indicator (sma_50, sma_200, close_50_sma, close_200_sma), **as_of_date** (yyyy-mm-dd), look_back_days (int). Returns `{"content": str, "timestamp": str}` or `{"error": str}`.
+**Docstring:** Payload is decomposed into symbol, indicator (close_50_sma, close_200_sma, rsi, macd, etc.), **as_of_date** (yyyy-mm-dd), look_back_days (int). _route_indicators calls get_indicators_av. Returns `{"content": str, "timestamp": str}` or `{"error": str}`.
 
 **Example usage:**
 ```python
-result = get_indicators_yf("AAPL", "sma_50", "2024-01-15", 10)
+result = get_indicators("AAPL", "close_50_sma", "2024-01-15", 10)
 ```
 
 ---

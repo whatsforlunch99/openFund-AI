@@ -447,7 +447,9 @@ class PlannerAgent(BaseAgent):
             system = "You decide if the research is sufficient to answer the user. Answer only SUFFICIENT or INSUFFICIENT."
             user_content = get_planner_sufficiency_user_content(user_query, aggregated)
             out = self._llm_client.complete(system, user_content)
-            return "SUFFICIENT" in (out or "").strip().upper()
+            s = (out or "").strip().upper()
+            # Must start with SUFFICIENT but not INSUFFICIENT (substring would match both)
+            return s.startswith("SUFFICIENT") and not s.startswith("INSUFFICIENT")
         except Exception as e:
             logger.debug("Sufficiency check failed, treating as sufficient: %s", e)
             return True

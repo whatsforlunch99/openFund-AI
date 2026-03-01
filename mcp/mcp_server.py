@@ -215,69 +215,9 @@ class MCPServer:
             market_tool = _market_tool
         except ImportError:
             pass
-        # Skip optional tools if deps (e.g. pandas, yfinance) missing so stage 2.1/2.2 tests pass
+        # Skip optional tools if deps (e.g. pandas) missing so stage 2.1/2.2 tests pass
         if market_tool is not None:
-            self.register_tool(
-                "market_tool.get_stock_data_yf",
-                lambda p: market_tool.get_stock_data_yf(
-                    p.get("symbol") or p.get("ticker") or "",
-                    p.get("start_date") or "",
-                    p.get("end_date") or "",
-                ),
-            )
-            self.register_tool(
-                "market_tool.get_fundamentals_yf",
-                lambda p: market_tool.get_fundamentals_yf(
-                    p.get("ticker") or p.get("symbol") or ""
-                ),
-            )
-            self.register_tool(
-                "market_tool.get_balance_sheet_yf",
-                lambda p: market_tool.get_balance_sheet_yf(
-                    p.get("ticker") or p.get("symbol") or "",
-                    p.get("freq") or "quarterly",
-                ),
-            )
-            self.register_tool(
-                "market_tool.get_cashflow_yf",
-                lambda p: market_tool.get_cashflow_yf(
-                    p.get("ticker") or p.get("symbol") or "",
-                    p.get("freq") or "quarterly",
-                ),
-            )
-            self.register_tool(
-                "market_tool.get_income_statement_yf",
-                lambda p: market_tool.get_income_statement_yf(
-                    p.get("ticker") or p.get("symbol") or "",
-                    p.get("freq") or "quarterly",
-                ),
-            )
-            self.register_tool(
-                "market_tool.get_insider_transactions_yf",
-                lambda p: market_tool.get_insider_transactions_yf(
-                    p.get("ticker") or p.get("symbol") or ""
-                ),
-            )
-            self.register_tool(
-                "market_tool.get_news_yf",
-                lambda p: market_tool.get_news_yf(
-                    p.get("symbol") or p.get("ticker") or "",
-                    int(p["limit"]) if "limit" in p and p["limit"] is not None
-                    else int(p["count"]) if "count" in p and p["count"] is not None
-                    else 20,
-                    p.get("start_date"),
-                    p.get("end_date"),
-                ),
-            )
-            self.register_tool(
-                "market_tool.get_global_news_yf",
-                lambda p: market_tool.get_global_news_yf(
-                    p.get("as_of_date") or p.get("curr_date") or "",
-                    int(p["look_back_days"]) if "look_back_days" in p and p["look_back_days"] is not None else 7,
-                    int(p["limit"]) if "limit" in p and p["limit"] is not None else 10,
-                ),
-            )
-            # Vendor-agnostic tools (route to yfinance or alpha_vantage via config)
+            # Vendor-routed tools (alpha_vantage or finnhub via config)
             self.register_tool(
                 "market_tool.get_stock_data",
                 lambda p: market_tool._route_stock_data(
@@ -347,15 +287,6 @@ class MCPServer:
                 ),
             )
             self.register_tool(
-                "market_tool.get_news_dify",
-                lambda p: market_tool.get_news_dify(
-                    p.get("symbol") or p.get("ticker") or "",
-                    p.get("limit") if "limit" in p else 20,
-                    p.get("start_date"),
-                    p.get("end_date"),
-                ),
-            )
-            self.register_tool(
                 "market_tool.get_stock_analytics",
                 lambda p: market_tool.get_stock_analytics(
                     p.get("symbol") or p.get("ticker") or "",
@@ -371,15 +302,6 @@ class MCPServer:
             pass
         # analyst_tool also optional (may pull in pandas etc.)
         if analyst_tool is not None:
-            self.register_tool(
-                "analyst_tool.get_indicators_yf",
-                lambda p: analyst_tool.get_indicators_yf(
-                    p.get("symbol") or p.get("ticker") or "",
-                    p.get("indicator") or "",
-                    p.get("as_of_date") or p.get("curr_date") or "",
-                    int(p["look_back_days"]) if "look_back_days" in p and p["look_back_days"] is not None else 30,
-                ),
-            )
             self.register_tool(
                 "analyst_tool.get_indicators",
                 lambda p: analyst_tool._route_indicators(

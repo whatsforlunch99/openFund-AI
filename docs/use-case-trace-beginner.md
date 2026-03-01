@@ -96,13 +96,13 @@ Each row gives **caller**, **function** (with module path), **arguments** (key o
 | 9a | LibrarianAgent | `mcp_client.call_tool("file_tool.read_file", {"path": path})` | `path` = content.get("path") or content.get("query") (here, the query string) | `dict`: e.g. `{"error": "..."}` when path is not a real file, or `{"content": "...", "path": "..."}` when file exists. MCP dispatch: `MCPServer.dispatch("file_tool.read_file", payload)` → handler return or `{"error": "..."}`. |
 | 9b | LibrarianAgent | Build `reply_content`; `bus.send(ACLMessage(INFORM, sender="librarian", receiver="planner", content=reply_content, ...))` | — | `None`. When only file result: `reply_content` = file dict or error; when multiple tools, `combine_results` + optional file/sql. |
 | 10 | WebSearcherAgent ([agents/websearch_agent.py](agents/websearch_agent.py)) | `bus.receive("websearcher")` → `handle_message(message)` | — | — |
-| 10a | WebSearcherAgent | `fetch_market_data(fund)` → `mcp_client.call_tool("market_tool.get_fundamentals_yf", {"ticker": fund, "symbol": fund})` | `fund` from content (query or "AAPL") | `dict` with market data and `timestamp`, or `{"error": "...", "timestamp": ""}`. |
-| 10b | WebSearcherAgent | `fetch_sentiment(...)` → `call_tool("market_tool.get_news_yf", {"symbol": ..., "limit": 3})` | — | `dict` (with timestamp or error). |
-| 10c | WebSearcherAgent | `fetch_regulatory(...)` → `call_tool("market_tool.get_global_news_yf", {...})` | — | `dict` (with timestamp or error). |
+| 10a | WebSearcherAgent | `fetch_market_data(fund)` → `mcp_client.call_tool("market_tool.get_fundamentals", {"ticker": fund, "symbol": fund})` | `fund` from content (query or "AAPL") | `dict` with market data and `timestamp`, or `{"error": "...", "timestamp": ""}`. |
+| 10b | WebSearcherAgent | `fetch_sentiment(...)` → `call_tool("market_tool.get_news", {"symbol": ..., "limit": 3})` | — | `dict` (with timestamp or error). |
+| 10c | WebSearcherAgent | `fetch_regulatory(...)` → `call_tool("market_tool.get_global_news", {...})` | — | `dict` (with timestamp or error). |
 | 10d | WebSearcherAgent | `bus.send(ACLMessage(INFORM, content={ market_data, sentiment, regulatory }))` | — | `None`. |
 | 11 | AnalystAgent ([agents/analyst_agent.py](agents/analyst_agent.py)) | `bus.receive("analyst")` → `handle_message(message)` | — | — |
-| 11a | AnalystAgent | `analyze(structured_data, market_data)` | from content (here may be empty dicts) | `dict` e.g. `{"confidence": 0.6, "summary": "Stub analysis", "distribution": {}}`. May call `mcp_client.call_tool("analyst_tool.get_indicators_yf", ...)` and merge. |
-| 11b | AnalystAgent | (inside analyze, if mcp_client set) `mcp_client.call_tool("analyst_tool.get_indicators_yf", {...})` | — | `dict` or `{"error": "..."}`. |
+| 11a | AnalystAgent | `analyze(structured_data, market_data)` | from content (here may be empty dicts) | `dict` e.g. `{"confidence": 0.6, "summary": "Stub analysis", "distribution": {}}`. May call `mcp_client.call_tool("analyst_tool.get_indicators", ...)` and merge. |
+| 11b | AnalystAgent | (inside analyze, if mcp_client set) `mcp_client.call_tool("analyst_tool.get_indicators", {...})` | — | `dict` or `{"error": "..."}`. |
 | 11c | AnalystAgent | `bus.send(ACLMessage(INFORM, content={ "analysis": result, "conversation_id" }))` | — | `None`. |
 | 12 | PlannerAgent | `bus.receive("planner")` (three times: INFORM from librarian, websearcher, analyst) | — | Each returns one INFORM message. |
 | 12a | PlannerAgent | `handle_message` for each INFORM: `_collected[cid][sender] = content`, `_round_pending[cid].discard(sender)` | — | — |

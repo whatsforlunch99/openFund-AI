@@ -105,9 +105,9 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend
 ### MCP tool stubs (to complete tool surface)
 
 - **mcp/tools/file_tool.py:** `list_files(prefix)` — list paths under MCP_FILE_BASE_DIR + prefix (e.g. os.listdir/glob); return list of relative paths.
-- **mcp/tools/market_tool.py:** `fetch(fund_or_symbol)` — wrap get_stock_data_yf or get_fundamentals_yf; add timestamp; return dict.
-- **mcp/tools/market_tool.py:** `fetch_bulk(symbols)` — loop symbols, call existing yfinance helpers; return dict keyed by symbol with timestamp.
-- **mcp/tools/market_tool.py:** `search_web(query)` — call Tavily API if TAVILY_API_KEY set; normalize to list of dicts with timestamp; else fallback (e.g. get_news_yf).
+- **mcp/tools/market_tool.py:** `fetch(fund_or_symbol)` — wrap get_stock_data or get_fundamentals; add timestamp; return dict.
+- **mcp/tools/market_tool.py:** `fetch_bulk(symbols)` — loop symbols, call existing vendor-routed helpers; return dict keyed by symbol with timestamp.
+- **mcp/tools/market_tool.py:** `search_web(query)` — call Tavily API if TAVILY_API_KEY set; normalize to list of dicts with timestamp; else fallback (e.g. get_news with date range).
 - **mcp/tools/analyst_tool.py:** `run_analysis(payload)` — if ANALYST_API_URL set: POST payload with optional ANALYST_API_KEY; return response JSON; else return stub dict.
 
 ### Phase 2 (multi-round / confidence-driven flow)
@@ -121,7 +121,7 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](backend
 ### Suggested implementation order
 
 1. **Low effort:** file_tool.list_files (directory listing under base_dir).
-2. **Unify market:** market_tool.fetch, fetch_bulk, search_web (wrap existing yfinance/Tavily).
+2. **Unify market:** market_tool.fetch, fetch_bulk, search_web (wrap existing vendor-routed/Tavily).
 3. **Custom analyst:** analyst_tool.run_analysis (HTTP POST to ANALYST_API_URL).
 4. **Backends:** kg_tool, sql_tool, vector_tool when Neo4j/Postgres/Milvus instances are available.
 5. **Phase 2:** ResponderAgent confidence/termination/format/refinement and PlannerAgent resolve_conflicts when adding multi-round flow.

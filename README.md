@@ -37,7 +37,7 @@ python main.py
 
 In the chat, try: *"Should I invest in Nvidia?"* or *"What do you know about NVDA?"*
 
-Without backends, vector/kg/SQL tools return stub or empty data; market and analyst tools still work (yfinance).
+Without backends, vector/kg/SQL tools return stub or empty data; market and analyst tools work via Alpha Vantage and Finnhub (set `ALPHA_VANTAGE_API_KEY` and/or `FINNHUB_API_KEY` in `.env`).
 
 ---
 
@@ -106,6 +106,8 @@ The API uses a live LLM for task decomposition and agent tool selection.
 | **Run tests** | `pytest tests/test-stages.py -v` |
 | **Run all tests** | `pytest tests/ -v` |
 | **E2E smoke** (one conversation, exit 0) | `PYTHONPATH=. python main.py --e2e-once` |
+| **Test planner** (decompose query → A2A content) | `PYTHONPATH=. python scripts/test_llm_planner.py "should I invest in AAPL?"` |
+| **Test librarian / websearcher / analyst** (one agent, real MCP by default) | `PYTHONPATH=. python scripts/test_websearcher.py "query"` (or `test_librarian.py`, `test_analyst.py`). Add `--mock` for stub data. |
 
 ---
 

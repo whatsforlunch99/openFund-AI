@@ -211,7 +211,7 @@ class WebSearcherAgent(BaseAgent):
         if not self.mcp_client:
             return {"error": "No MCP client", "timestamp": ""}
         result = self.mcp_client.call_tool(
-            "market_tool.get_fundamentals_yf",
+            "market_tool.get_fundamentals",
             {"ticker": fund, "symbol": fund},
         )
         if isinstance(result, dict) and "error" not in result:
@@ -235,7 +235,7 @@ class WebSearcherAgent(BaseAgent):
         if not self.mcp_client:
             return {"error": "No MCP client", "timestamp": ""}
         result = self.mcp_client.call_tool(
-            "market_tool.get_news_yf",
+            "market_tool.get_news",
             {"symbol": symbol_or_fund, "limit": 3},
         )
         if isinstance(result, dict) and "error" not in result:
@@ -260,7 +260,7 @@ class WebSearcherAgent(BaseAgent):
             return {"error": "No MCP client", "timestamp": ""}
         # Stub: use global news as placeholder for regulatory
         result = self.mcp_client.call_tool(
-            "market_tool.get_global_news_yf",
+            "market_tool.get_global_news",
             {"as_of_date": "", "limit": 2},
         )
         if isinstance(result, dict) and "error" not in result:

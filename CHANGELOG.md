@@ -26,6 +26,7 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ### Changed
 
+- **Market tools: Alpha Vantage default with yfinance fallback:** Default vendor is now **Alpha Vantage** (`MCP_MARKET_VENDOR` and `MCP_INDICATOR_VENDOR` default to `alpha_vantage`; unset or invalid falls back to `yfinance`). All `_route_*` functions catch any Alpha Vantage failure (not only rate limit), log at debug, and fall back to yfinance (or Finnhub where applicable). `get_stock_data_yf` and `get_news_yf` are wired through the same routers (`_route_stock_data`, `_route_news`) so both generic and `_yf` tool names try AV first, then yfinance. `.env.example` and docs/agent-tools-reference.md updated.
 - **Code style and API (full pass):** Ruff lint fixes: remove unnecessary `open(..., "r")` mode (data/cli.py), remove unused imports (Any in kg_tool/sql_tool; Collection in vector_tool), fix pymilvus import order in vector_tool. Replaced deprecated FastAPI `on_event("startup")` with lifespan context manager in api/rest.py. Applied `ruff format` project-wide (19 files). Docs: added demo/__main__.py to file-structure tree and a short section describing the single-command `python -m demo` entry point.
 - **Python:** Minimum version relaxed to **3.9** (was 3.11) so `pip install -e ".[dev]"` works on systems with Python 3.9. Type hints use `from __future__ import annotations` and `Optional[str]` where needed for 3.9 compatibility.
 - **MCP tools:** Required params must be passed in payload—no UI or client-side defaults. Parameter names reflect usage: **symbol** (security id), **limit** (max articles/items), **as_of_date** (reference date for lookback). get_indicators in analyst_tool; get_news(symbol, limit); get_global_news(as_of_date, look_back_days, limit). Payload may still accept legacy keys (ticker, count, curr_date) for backward compatibility. Docs and backend aligned with implementation.
@@ -34,6 +35,7 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ### Fixed
 
+- **Config .env loading:** `load_config()` now loads `.env` from the **project root** (directory containing `config/`) instead of the current working directory, so `LLM_API_KEY` and other vars are found when running scripts (e.g. `python scripts/test_llm_planner.py`) or the API from any cwd. Aligns with `data/env_loader.py` and `scripts/start_backends.py`.
 - **PlannerAgent.create_research_request:** Parameter `_context` renamed to `context` so callers can pass `context=None` by keyword (fixes TypeError in tests and agent flow).
 - **MCP server:** `register_default_tools()` now imports `file_tool` first and registers optional tools (`market_tool`, `analyst_tool`) only when their imports succeed, so stage 2.1/2.2 tests pass in environments where pandas (or other optional deps) are not installed.
 

@@ -279,41 +279,43 @@ def test_stage_2_2_trading_tools() -> None:
     server.register_default_tools()
     client = MCPClient(server)
 
-    # market_tool.get_fundamentals_yf
-    r = client.call_tool("market_tool.get_fundamentals_yf", {"ticker": "AAPL"})
+    # market_tool.get_fundamentals (vendor-routed)
+    r = client.call_tool("market_tool.get_fundamentals", {"ticker": "AAPL"})
     assert isinstance(r, dict)
     assert "error" in r or "content" in r
     if "content" in r:
         assert "timestamp" in r
-        if "No data" not in r["content"] and "Failed" not in r["content"]:
+        if "No data" not in r["content"] and "unavailable" not in r["content"].lower():
             assert "AAPL" in r["content"] or "apple" in r["content"].lower()
 
-    # market_tool.get_stock_data_yf (recent range)
+    # market_tool.get_stock_data (recent range)
     r2 = client.call_tool(
-        "market_tool.get_stock_data_yf",
+        "market_tool.get_stock_data",
         {"symbol": "AAPL", "start_date": "2024-01-02", "end_date": "2024-01-10"},
     )
     assert isinstance(r2, dict)
     assert "error" in r2 or "content" in r2
     if "content" in r2:
         assert "timestamp" in r2
-        # When network/data is available we get Open/Close; otherwise "No data found" is acceptable
-        if "No data found" not in r2["content"]:
+        if "No data found" not in r2["content"] and "unavailable" not in r2["content"].lower():
             assert "Open" in r2["content"] or "Close" in r2["content"]
 
-    # market_tool.get_news_yf (symbol and limit required)
-    r3 = client.call_tool("market_tool.get_news_yf", {"symbol": "AAPL", "limit": 3})
+    # market_tool.get_news (vendor-routed; AV needs start_date/end_date)
+    r3 = client.call_tool(
+        "market_tool.get_news",
+        {"symbol": "AAPL", "limit": 3, "start_date": "2024-01-01", "end_date": "2024-01-10"},
+    )
     assert isinstance(r3, dict)
     assert "error" in r3 or "content" in r3
     if "content" in r3:
         assert "timestamp" in r3
 
-    # analyst_tool.get_indicators_yf (symbol, indicator, as_of_date, look_back_days)
+    # analyst_tool.get_indicators (vendor-routed)
     r4 = client.call_tool(
-        "analyst_tool.get_indicators_yf",
+        "analyst_tool.get_indicators",
         {
             "symbol": "AAPL",
-            "indicator": "sma_50",
+            "indicator": "close_50_sma",
             "as_of_date": "2024-01-15",
             "look_back_days": 10,
         },
@@ -324,11 +326,11 @@ def test_stage_2_2_trading_tools() -> None:
         assert "timestamp" in r4
 
     # Missing required param returns error
-    r5 = client.call_tool("market_tool.get_global_news_yf", {})
+    r5 = client.call_tool("market_tool.get_global_news", {})
     assert isinstance(r5, dict)
     assert "error" in r5
 
-    # Vendor-agnostic tools (default yfinance when Alpha Vantage not configured)
+    # Vendor-routed tools (alpha_vantage or finnhub via config)
     r6 = client.call_tool(
         "market_tool.get_stock_data",
         {"symbol": "AAPL", "start_date": "2024-01-02", "end_date": "2024-01-10"},
@@ -342,7 +344,7 @@ def test_stage_2_2_trading_tools() -> None:
         "analyst_tool.get_indicators",
         {
             "symbol": "AAPL",
-            "indicator": "sma_50",
+            "indicator": "close_50_sma",
             "as_of_date": "2024-01-15",
             "look_back_days": 10,
         },
@@ -357,14 +359,14 @@ def test_stage_2_2_trading_tools() -> None:
 
 
 def test_vendor_config_get_market_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_market_vendor() reads MCP_MARKET_VENDOR; default yfinance; only yfinance|alpha_vantage accepted."""
+    """get_market_vendor() reads MCP_MARKET_VENDOR; default alpha_vantage; invalid/unset -> alpha_vantage."""
     try:
         from mcp.tools.market_tool import get_market_vendor
     except ImportError as e:
         pytest.skip(f"MCP market_tool not available: {e}")
 
     monkeypatch.delenv("MCP_MARKET_VENDOR", raising=False)
-    assert get_market_vendor() == "yfinance"
+    assert get_market_vendor() == "alpha_vantage"
 
     monkeypatch.setenv("MCP_MARKET_VENDOR", "alpha_vantage")
     assert get_market_vendor() == "alpha_vantage"
@@ -373,33 +375,36 @@ def test_vendor_config_get_market_vendor(monkeypatch: pytest.MonkeyPatch) -> Non
     assert get_market_vendor() == "alpha_vantage"
 
     monkeypatch.setenv("MCP_MARKET_VENDOR", "other")
-    assert get_market_vendor() == "yfinance"
+    assert get_market_vendor() == "alpha_vantage"
+
+    monkeypatch.setenv("MCP_MARKET_VENDOR", "finnhub")
+    assert get_market_vendor() == "finnhub"
 
     monkeypatch.setenv("MCP_MARKET_VENDOR", "")
-    assert get_market_vendor() == "yfinance"
+    assert get_market_vendor() == "alpha_vantage"
 
 
 def test_vendor_config_get_indicator_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_indicator_vendor() reads MCP_INDICATOR_VENDOR; default yfinance; only yfinance|alpha_vantage accepted."""
+    """get_indicator_vendor() reads MCP_INDICATOR_VENDOR; default alpha_vantage; invalid -> alpha_vantage."""
     try:
         from mcp.tools.market_tool import get_indicator_vendor
     except ImportError as e:
         pytest.skip(f"MCP market_tool not available: {e}")
 
     monkeypatch.delenv("MCP_INDICATOR_VENDOR", raising=False)
-    assert get_indicator_vendor() == "yfinance"
+    assert get_indicator_vendor() == "alpha_vantage"
 
     monkeypatch.setenv("MCP_INDICATOR_VENDOR", "alpha_vantage")
     assert get_indicator_vendor() == "alpha_vantage"
 
     monkeypatch.setenv("MCP_INDICATOR_VENDOR", "invalid")
-    assert get_indicator_vendor() == "yfinance"
+    assert get_indicator_vendor() == "alpha_vantage"
 
 
 def test_vendor_config_route_stock_data_av_and_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When MCP_MARKET_VENDOR=alpha_vantage, _route_stock_data tries AV first; on rate limit uses yf."""
+    """When MCP_MARKET_VENDOR=alpha_vantage, _route_stock_data tries AV; on failure returns error."""
     try:
         from mcp.tools import market_tool
         from mcp.tools.market_tool import AlphaVantageRateLimitError
@@ -408,37 +413,23 @@ def test_vendor_config_route_stock_data_av_and_fallback(
 
     monkeypatch.setenv("MCP_MARKET_VENDOR", "alpha_vantage")
     av_called = []
-    yf_called = []
 
     def fake_av(symbol: str, start_date: str, end_date: str) -> dict:
         av_called.append(1)
         raise AlphaVantageRateLimitError("rate limit")
 
-    def fake_yf(symbol: str, start_date: str, end_date: str) -> dict:
-        yf_called.append(1)
-        return {"content": "ok", "timestamp": "2024-01-01T00:00:00Z"}
-
     monkeypatch.setattr(market_tool, "get_stock_data_av", fake_av)
-    monkeypatch.setattr(market_tool, "get_stock_data_yf", fake_yf)
 
     result = market_tool._route_stock_data("AAPL", "2024-01-01", "2024-01-10")
     assert av_called == [1]
-    assert yf_called == [1]
-    assert result.get("content") == "ok"
-
-    av_called.clear()
-    yf_called.clear()
-    monkeypatch.setenv("MCP_MARKET_VENDOR", "yfinance")
-    result2 = market_tool._route_stock_data("AAPL", "2024-01-01", "2024-01-10")
-    assert av_called == []
-    assert yf_called == [1]
-    assert result2.get("content") == "ok"
+    assert "error" in result
+    assert "unavailable" in result["error"].lower() or "rate limit" in result["error"].lower()
 
 
 def test_vendor_config_route_indicators_av_and_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When MCP_INDICATOR_VENDOR=alpha_vantage, _route_indicators tries AV first; on rate limit uses yf."""
+    """When AV fails, _route_indicators returns error."""
     try:
         from mcp.tools import analyst_tool
         from mcp.tools.market_tool import AlphaVantageRateLimitError
@@ -447,7 +438,6 @@ def test_vendor_config_route_indicators_av_and_fallback(
 
     monkeypatch.setenv("MCP_INDICATOR_VENDOR", "alpha_vantage")
     av_called = []
-    yf_called = []
 
     def fake_av(
         symbol: str, indicator: str, as_of_date: str, look_back_days: int
@@ -455,27 +445,12 @@ def test_vendor_config_route_indicators_av_and_fallback(
         av_called.append(1)
         raise AlphaVantageRateLimitError("rate limit")
 
-    def fake_yf(
-        symbol: str, indicator: str, as_of_date: str, look_back_days: int
-    ) -> dict:
-        yf_called.append(1)
-        return {"content": "ok", "timestamp": "2024-01-01T00:00:00Z"}
-
     monkeypatch.setattr(analyst_tool, "get_indicators_av", fake_av)
-    monkeypatch.setattr(analyst_tool, "get_indicators_yf", fake_yf)
 
-    result = analyst_tool._route_indicators("AAPL", "sma_50", "2024-01-15", 10)
+    result = analyst_tool._route_indicators("AAPL", "close_50_sma", "2024-01-15", 10)
     assert av_called == [1]
-    assert yf_called == [1]
-    assert result.get("content") == "ok"
-
-    av_called.clear()
-    yf_called.clear()
-    monkeypatch.setenv("MCP_INDICATOR_VENDOR", "yfinance")
-    result2 = analyst_tool._route_indicators("AAPL", "sma_50", "2024-01-15", 10)
-    assert av_called == []
-    assert yf_called == [1]
-    assert result2.get("content") == "ok"
+    assert "error" in result
+    assert "unavailable" in result["error"].lower() or "rate limit" in result["error"].lower()
 
 
 # --- Stage 2.3: Situation memory (BM25 + persistence) ---
@@ -782,11 +757,11 @@ def test_stage_5_1() -> None:
         pytest.skip(f"MCP not available: {e}")
 
     stub = {"content": "mock fundamentals", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.market_tool.get_fundamentals_yf", return_value=stub):
+    with patch("mcp.tools.market_tool._route_fundamentals", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
-        result = client.call_tool("market_tool.get_fundamentals_yf", {"ticker": "AAPL"})
+        result = client.call_tool("market_tool.get_fundamentals", {"ticker": "AAPL"})
     assert isinstance(result, dict)
     assert "error" in result or "content" in result
     if "error" not in result:
@@ -802,12 +777,12 @@ def test_stage_5_2() -> None:
         pytest.skip(f"MCP not available: {e}")
 
     stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.analyst_tool.get_indicators_yf", return_value=stub):
+    with patch("mcp.tools.analyst_tool._route_indicators", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
         result = client.call_tool(
-            "analyst_tool.get_indicators_yf",
+            "analyst_tool.get_indicators",
             {
                 "symbol": "AAPL",
                 "indicator": "sma_50",
@@ -833,9 +808,9 @@ def test_stage_5_3() -> None:
         pytest.skip(f"Stage 5.3 deps not available: {e}")
 
     stub = {"content": "mock", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.market_tool.get_fundamentals_yf", return_value=stub), patch(
-        "mcp.tools.market_tool.get_news_yf", return_value=stub
-    ), patch("mcp.tools.market_tool.get_global_news_yf", return_value=stub):
+    with patch("mcp.tools.market_tool._route_fundamentals", return_value=stub), patch(
+        "mcp.tools.market_tool._route_news", return_value=stub
+    ), patch("mcp.tools.market_tool._route_global_news", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -874,7 +849,7 @@ def test_stage_5_4() -> None:
         pytest.skip(f"Stage 5.4 deps not available: {e}")
 
     stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.analyst_tool.get_indicators_yf", return_value=stub):
+    with patch("mcp.tools.analyst_tool._route_indicators", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1263,9 +1238,9 @@ def test_stage_10_2_websearcher_llm_prompt() -> None:
         pytest.skip(f"Stage 10.2 websearcher deps not available: {e}")
 
     stub = {"content": "mock", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.market_tool.get_fundamentals_yf", return_value=stub), patch(
-        "mcp.tools.market_tool.get_news_yf", return_value=stub
-    ), patch("mcp.tools.market_tool.get_global_news_yf", return_value=stub):
+    with patch("mcp.tools.market_tool._route_fundamentals", return_value=stub), patch(
+        "mcp.tools.market_tool._route_news", return_value=stub
+    ), patch("mcp.tools.market_tool._route_global_news", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1310,7 +1285,7 @@ def test_stage_10_2_analyst_llm_prompt() -> None:
         pytest.skip(f"Stage 10.2 analyst deps not available: {e}")
 
     stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.analyst_tool.get_indicators_yf", return_value=stub):
+    with patch("mcp.tools.analyst_tool._route_indicators", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1445,8 +1420,8 @@ def test_stage_10_2_websearcher_tool_selection_when_llm_returns_tool_calls() -> 
     mock_llm = MagicMock()
     mock_llm.select_tools = MagicMock(
         return_value=[
-            {"tool": "market_tool.get_fundamentals_yf", "payload": {"ticker": "AAPL"}},
-            {"tool": "market_tool.get_news_yf", "payload": {"symbol": "AAPL", "limit": 3}},
+            {"tool": "market_tool.get_fundamentals", "payload": {"ticker": "AAPL"}},
+            {"tool": "market_tool.get_news", "payload": {"symbol": "AAPL", "limit": 3}},
         ]
     )
     mock_llm.complete = MagicMock(return_value="Market and news brief.")
@@ -1462,11 +1437,11 @@ def test_stage_10_2_websearcher_tool_selection_when_llm_returns_tool_calls() -> 
 
     server = MCPServer()
     server.register_tool(
-        "market_tool.get_fundamentals_yf",
+        "market_tool.get_fundamentals",
         lambda p: {"content": "P/E 25", "timestamp": "2024-01-01T00:00:00"},
     )
     server.register_tool(
-        "market_tool.get_news_yf",
+        "market_tool.get_news",
         lambda p: {"content": "AAPL news", "timestamp": "2024-01-01T00:00:00"},
     )
     client = MCPClient(server)
@@ -1503,7 +1478,7 @@ def test_stage_10_2_analyst_tool_selection_when_llm_returns_tool_calls() -> None
     mock_llm.select_tools = MagicMock(
         return_value=[
             {
-                "tool": "analyst_tool.get_indicators_yf",
+                "tool": "analyst_tool.get_indicators",
                 "payload": {
                     "symbol": "NVDA",
                     "indicator": "rsi",
@@ -1526,7 +1501,7 @@ def test_stage_10_2_analyst_tool_selection_when_llm_returns_tool_calls() -> None
 
     server = MCPServer()
     server.register_tool(
-        "analyst_tool.get_indicators_yf",
+        "analyst_tool.get_indicators",
         lambda p: {"content": "RSI 55", "timestamp": "2024-12-31T00:00:00"},
     )
     client = MCPClient(server)
@@ -1601,24 +1576,24 @@ def test_stage_10_3_filter_drops_disallowed_tools():
 
     # All three allowed sets are non-empty and disjoint in the right ways
     assert "vector_tool.search" in LIBRARIAN_ALLOWED_TOOL_NAMES
-    assert "market_tool.get_fundamentals_yf" in WEBSEARCHER_ALLOWED_TOOL_NAMES
-    assert "analyst_tool.get_indicators_yf" in ANALYST_ALLOWED_TOOL_NAMES
+    assert "market_tool.get_fundamentals" in WEBSEARCHER_ALLOWED_TOOL_NAMES
+    assert "analyst_tool.get_indicators" in ANALYST_ALLOWED_TOOL_NAMES
 
     # Cross-agent hallucination is rejected
-    assert "market_tool.get_fundamentals_yf" not in LIBRARIAN_ALLOWED_TOOL_NAMES
+    assert "market_tool.get_fundamentals" not in LIBRARIAN_ALLOWED_TOOL_NAMES
     assert "vector_tool.search" not in WEBSEARCHER_ALLOWED_TOOL_NAMES
     assert "vector_tool.search" not in ANALYST_ALLOWED_TOOL_NAMES
 
     tool_calls = [
         {"tool": "vector_tool.search", "payload": {"query": "Q"}},
-        {"tool": "market_tool.get_fundamentals_yf", "payload": {"ticker": "AAPL"}},  # not librarian
+        {"tool": "market_tool.get_fundamentals", "payload": {"ticker": "AAPL"}},  # not librarian
         {"tool_name": "sql_tool.run_query", "payload": {"query": "SELECT 1"}},
     ]
     filtered = filter_tool_calls_to_allowed(tool_calls, LIBRARIAN_ALLOWED_TOOL_NAMES)
     names = [tc.get("tool") or tc.get("tool_name") for tc in filtered]
     assert "vector_tool.search" in names
     assert "sql_tool.run_query" in names
-    assert "market_tool.get_fundamentals_yf" not in names
+    assert "market_tool.get_fundamentals" not in names
 
 
 def test_stage_10_3_filter_allows_all_when_all_valid():
@@ -1626,8 +1601,8 @@ def test_stage_10_3_filter_allows_all_when_all_valid():
     from llm.tool_descriptions import WEBSEARCHER_ALLOWED_TOOL_NAMES, filter_tool_calls_to_allowed
 
     tool_calls = [
-        {"tool": "market_tool.get_fundamentals_yf", "payload": {"ticker": "TSLA"}},
-        {"tool": "market_tool.get_news_yf", "payload": {"symbol": "TSLA", "limit": 3}},
+        {"tool": "market_tool.get_fundamentals", "payload": {"ticker": "TSLA"}},
+        {"tool": "market_tool.get_news", "payload": {"symbol": "TSLA", "limit": 3}},
     ]
     filtered = filter_tool_calls_to_allowed(tool_calls, WEBSEARCHER_ALLOWED_TOOL_NAMES)
     assert len(filtered) == 2

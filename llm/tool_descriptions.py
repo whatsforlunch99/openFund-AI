@@ -39,28 +39,18 @@ TOOL_DESCRIPTIONS_BY_NAME: dict[str, str] = {
     "sql_tool.export_results": "Run SQL and return JSON/CSV. Payload: query (string), params (optional), format ('json'|'csv'), row_limit (optional int).",
     "sql_tool.connection_health_check": "Test PostgreSQL connectivity. Payload: {}.",
     # market_tool
-    "market_tool.get_stock_data_yf": "OHLCV historical data (yfinance). Payload: symbol (string), start_date (yyyy-mm-dd), end_date (yyyy-mm-dd).",
-    "market_tool.get_stock_data": "OHLCV historical data (vendor-routed). Same payload as get_stock_data_yf.",
-    "market_tool.get_fundamentals_yf": "Company fundamentals (P/E, sector, market cap) via yfinance. Payload: ticker or symbol (string).",
-    "market_tool.get_fundamentals": "Company fundamentals (vendor-routed). Same payload as get_fundamentals_yf.",
-    "market_tool.get_balance_sheet_yf": "Balance sheet via yfinance. Payload: ticker (string), freq (optional 'quarterly'|'annual').",
-    "market_tool.get_balance_sheet": "Balance sheet (vendor-routed). Same payload as get_balance_sheet_yf.",
-    "market_tool.get_cashflow_yf": "Cash flow statement via yfinance. Payload: ticker (string), freq (optional).",
-    "market_tool.get_cashflow": "Cash flow statement (vendor-routed). Same payload as get_cashflow_yf.",
-    "market_tool.get_income_statement_yf": "Income statement via yfinance. Payload: ticker (string), freq (optional).",
-    "market_tool.get_income_statement": "Income statement (vendor-routed). Same payload as get_income_statement_yf.",
-    "market_tool.get_insider_transactions_yf": "Insider buy/sell transactions via yfinance. Payload: ticker (string).",
-    "market_tool.get_insider_transactions": "Insider transactions (vendor-routed). Same payload as get_insider_transactions_yf.",
-    "market_tool.get_news_yf": "Recent ticker news via yfinance. Payload: symbol (string), limit (optional int).",
-    "market_tool.get_news": "Recent ticker news (vendor-routed). Same payload as get_news_yf.",
-    "market_tool.get_global_news_yf": "Global/macro financial news via yfinance. Payload: as_of_date (optional yyyy-mm-dd), look_back_days (optional int), limit (optional int).",
-    "market_tool.get_global_news": "Global news (vendor-routed). Same payload as get_global_news_yf.",
+    "market_tool.get_stock_data": "OHLCV historical data (vendor-routed). Payload: symbol (string), start_date (yyyy-mm-dd), end_date (yyyy-mm-dd).",
+    "market_tool.get_fundamentals": "Company fundamentals (P/E, sector, market cap). Payload: ticker or symbol (string).",
+    "market_tool.get_balance_sheet": "Balance sheet (vendor-routed). Payload: ticker (string), freq (optional 'quarterly'|'annual').",
+    "market_tool.get_cashflow": "Cash flow statement (vendor-routed). Payload: ticker (string), freq (optional).",
+    "market_tool.get_income_statement": "Income statement (vendor-routed). Payload: ticker (string), freq (optional).",
+    "market_tool.get_insider_transactions": "Insider transactions (vendor-routed). Payload: ticker (string).",
+    "market_tool.get_news": "Recent ticker news (vendor-routed). Payload: symbol (string), limit (optional int), start_date, end_date.",
+    "market_tool.get_global_news": "Global/macro financial news (vendor-routed). Payload: as_of_date (optional yyyy-mm-dd), look_back_days (optional int), limit (optional int).",
     "market_tool.get_ticker_info": "Concise ticker metadata (name, exchange, sector). Payload: symbol or ticker (string).",
-    "market_tool.get_news_dify": "Ticker news in Dify-compatible format. Payload: symbol (string), limit (optional int), start_date (optional), end_date (optional).",
     "market_tool.get_stock_analytics": "Combined price/volume analytics for a ticker. Payload: symbol (string), start_date (yyyy-mm-dd), end_date (yyyy-mm-dd).",
     # analyst_tool
-    "analyst_tool.get_indicators_yf": "Technical indicators (SMA, RSI, MACD, etc.) via yfinance. Payload: symbol (string), indicator (e.g. sma_50, rsi, macd, boll, atr), as_of_date (yyyy-mm-dd), look_back_days (int).",
-    "analyst_tool.get_indicators": "Technical indicators (vendor-routed). Same payload as get_indicators_yf.",
+    "analyst_tool.get_indicators": "Technical indicators (SMA, RSI, MACD, etc.). Payload: symbol (string), indicator (e.g. close_50_sma, rsi, macd, boll, atr), as_of_date (yyyy-mm-dd), look_back_days (int).",
     # capabilities
     "get_capabilities": "List registered MCP tools and backend status (neo4j, postgres, milvus). Payload: {}.",
 }
@@ -95,30 +85,20 @@ LIBRARIAN_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
 ])
 
 WEBSEARCHER_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
-    "market_tool.get_stock_data_yf",
     "market_tool.get_stock_data",
-    "market_tool.get_fundamentals_yf",
     "market_tool.get_fundamentals",
-    "market_tool.get_balance_sheet_yf",
     "market_tool.get_balance_sheet",
-    "market_tool.get_cashflow_yf",
     "market_tool.get_cashflow",
-    "market_tool.get_income_statement_yf",
     "market_tool.get_income_statement",
-    "market_tool.get_insider_transactions_yf",
     "market_tool.get_insider_transactions",
-    "market_tool.get_news_yf",
     "market_tool.get_news",
-    "market_tool.get_global_news_yf",
     "market_tool.get_global_news",
     "market_tool.get_ticker_info",
-    "market_tool.get_news_dify",
     "market_tool.get_stock_analytics",
     "get_capabilities",
 ])
 
 ANALYST_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
-    "analyst_tool.get_indicators_yf",
     "analyst_tool.get_indicators",
     "get_capabilities",
 ])
@@ -153,30 +133,20 @@ _LIBRARIAN_TOOL_ORDER: list[str] = [
 ]
 
 _WEBSEARCHER_TOOL_ORDER: list[str] = [
-    "market_tool.get_fundamentals_yf",
     "market_tool.get_fundamentals",
-    "market_tool.get_stock_data_yf",
     "market_tool.get_stock_data",
-    "market_tool.get_news_yf",
     "market_tool.get_news",
-    "market_tool.get_global_news_yf",
     "market_tool.get_global_news",
-    "market_tool.get_balance_sheet_yf",
     "market_tool.get_balance_sheet",
-    "market_tool.get_cashflow_yf",
     "market_tool.get_cashflow",
-    "market_tool.get_income_statement_yf",
     "market_tool.get_income_statement",
-    "market_tool.get_insider_transactions_yf",
     "market_tool.get_insider_transactions",
     "market_tool.get_ticker_info",
     "market_tool.get_stock_analytics",
-    "market_tool.get_news_dify",
     "get_capabilities",
 ]
 
 _ANALYST_TOOL_ORDER: list[str] = [
-    "analyst_tool.get_indicators_yf",
     "analyst_tool.get_indicators",
     "get_capabilities",
 ]

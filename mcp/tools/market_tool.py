@@ -1,7 +1,7 @@
-"""Market and web search via Tavily + Yahoo APIs (MCP tool).
+"""Market and web search via Tavily (MCP tool).
 
-Also provides company fundamentals, financials, insider transactions, and news (yfinance and Alpha Vantage).
-Contains vendor config, Alpha Vantage HTTP/rate-limit/CSV helpers, yfinance and _av implementations, and _route_*.
+Also provides company fundamentals, financials, insider transactions, and news (Alpha Vantage, Finnhub).
+Contains vendor config, Alpha Vantage HTTP/rate-limit/CSV helpers, _av/_finnhub implementations, and _route_*.
 """
 
 from __future__ import annotations
@@ -15,30 +15,6 @@ from typing import Optional
 
 import pandas as pd
 import requests
-
-# Optional: use curl_cffi session for yfinance when installed (newer yfinance requires it).
-# With yfinance 0.2.36 and no curl_cffi, yfinance uses requests (avoids OPENSSL_internal:invalid library on some systems).
-# Optionally disable SSL verification for corporate proxies: https://stackoverflow.com/questions/79189727/...
-try:
-    from curl_cffi import requests as _curl_requests
-    from yfinance.data import YfData
-
-    _yf_session = _curl_requests.Session(impersonate="firefox")
-    _yf_session.verify = False
-    YfData(session=_yf_session)
-except Exception as e:
-    import warnings
-
-    warnings.warn(
-        f"yfinance session override failed: {e}; using default.", stacklevel=0
-    )
-try:
-    from curl_cffi.requests.exceptions import SSLError as _CurlCffiSSLError
-except ImportError:
-    _CurlCffiSSLError = type(
-        "SSLError", (Exception,), {}
-    )  # no-op if curl_cffi not installed
-import yfinance as yf
 from dateutil.relativedelta import relativedelta
 
 logger = logging.getLogger(__name__)
@@ -48,15 +24,15 @@ logger = logging.getLogger(__name__)
 
 
 def get_market_vendor() -> str:
-    """Return 'yfinance', 'alpha_vantage', or 'finnhub'. Default yfinance."""
-    v = (os.getenv("MCP_MARKET_VENDOR") or "yfinance").strip().lower()
-    return v if v in ("yfinance", "alpha_vantage", "finnhub") else "yfinance"
+    """Return 'alpha_vantage' or 'finnhub'. Default alpha_vantage; invalid/unset -> alpha_vantage."""
+    v = (os.getenv("MCP_MARKET_VENDOR") or "alpha_vantage").strip().lower()
+    return v if v in ("alpha_vantage", "finnhub") else "alpha_vantage"
 
 
 def get_indicator_vendor() -> str:
-    """Return 'yfinance' or 'alpha_vantage'. Default yfinance."""
-    v = (os.getenv("MCP_INDICATOR_VENDOR") or "yfinance").strip().lower()
-    return v if v in ("yfinance", "alpha_vantage") else "yfinance"
+    """Return 'alpha_vantage'. Default alpha_vantage; invalid/unset -> alpha_vantage."""
+    v = (os.getenv("MCP_INDICATOR_VENDOR") or "alpha_vantage").strip().lower()
+    return v if v == "alpha_vantage" else "alpha_vantage"
 
 
 def get_data_cache_dir() -> str | None:
@@ -78,7 +54,7 @@ def get_api_key() -> str:
 
 
 def _has_alpha_vantage_key() -> bool:
-    """Return True if ALPHA_VANTAGE_API_KEY is set (for TLS fallback)."""
+    """Return True if ALPHA_VANTAGE_API_KEY is set."""
     return bool((os.getenv("ALPHA_VANTAGE_API_KEY") or "").strip())
 
 
@@ -173,52 +149,6 @@ def _now_iso() -> str:
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _symbol_info(symbol: str) -> dict:
-    """Return yfinance info dict for the given stock/fund symbol; empty if missing."""
-    try:
-        obj = yf.Ticker(symbol.upper())
-        info = obj.info
-        return info if info else {}
-    except Exception as e:
-        logger.debug("yfinance info unavailable for %s: %s", symbol, e)
-        return {}
-
-
-def _extract_article(article: dict) -> dict:
-    """Extract title, summary, publisher, link, pub_date from yfinance article (nested or flat)."""
-    if "content" in article:
-        c = article["content"]
-        title = c.get("title", "No title")
-        summary = c.get("summary", "")
-        provider = c.get("provider", {})
-        publisher = provider.get("displayName", "Unknown")
-        url_obj = c.get("canonicalUrl") or c.get("clickThroughUrl") or {}
-        link = (
-            url_obj.get("url", "") if isinstance(url_obj, dict) else str(url_obj or "")
-        )
-        pub_date_str = c.get("pubDate", "")
-        pub_date = None
-        if pub_date_str:
-            try:
-                pub_date = datetime.fromisoformat(pub_date_str.replace("Z", "+00:00"))
-            except (ValueError, AttributeError):
-                pass
-        return {
-            "title": title,
-            "summary": summary,
-            "publisher": publisher,
-            "link": link,
-            "pub_date": pub_date,
-        }
-    return {
-        "title": article.get("title", "No title"),
-        "summary": article.get("summary", ""),
-        "publisher": article.get("publisher", "Unknown"),
-        "link": article.get("link", ""),
-        "pub_date": None,
-    }
-
-
 # --- Stubs (Tavily / Yahoo) ---
 
 
@@ -259,520 +189,6 @@ def search_web(query: str) -> list[dict]:
         List of results; each must include 'timestamp'.
     """
     raise NotImplementedError
-
-
-# --- yfinance implementations ---
-
-
-def get_stock_data_yf(symbol: str, start_date: str, end_date: str) -> dict:
-    """
-    Historical OHLCV for a symbol (yfinance).
-
-    Args:
-        symbol: Stock or fund symbol (e.g. AAPL).
-        start_date: Start date yyyy-mm-dd (inclusive).
-        end_date: End date yyyy-mm-dd (exclusive; last trading day is day before).
-
-    Returns:
-        {"content": str, "timestamp": str} or {"error": str}.
-    """
-    try:
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return {"error": "Missing required 'symbol'"}
-        if not start_date:
-            return {"error": "Missing required 'start_date'"}
-        if not end_date:
-            return {"error": "Missing required 'end_date'"}
-
-        ticker_obj = yf.Ticker(symbol)
-        data = None
-        try:
-            data = ticker_obj.history(start=start_date, end=end_date)
-        except Exception:
-            # yfinance 0.1.x can raise UnknownTimeZoneError when using start/end; use period then filter
-            start_dt = datetime.strptime(start_date.strip()[:10], "%Y-%m-%d")
-            end_dt = datetime.strptime(end_date.strip()[:10], "%Y-%m-%d")
-            days = (end_dt - start_dt).days
-            period = (
-                "5d"
-                if days <= 7
-                else (
-                    "1mo"
-                    if days <= 31
-                    else (
-                        "3mo"
-                        if days <= 95
-                        else (
-                            "6mo"
-                            if days <= 185
-                            else "1y" if days <= 365 else "2y" if days <= 730 else "5y"
-                        )
-                    )
-                )
-            )
-            data = ticker_obj.history(period=period)
-            if not data.empty:
-                if data.index.tz is not None:
-                    data = data.tz_localize(None)
-                start_ts = pd.Timestamp(start_date)
-                end_ts = pd.Timestamp(end_date)
-                data = data[(data.index >= start_ts) & (data.index < end_ts)]
-
-        if data is None or data.empty:
-            return {
-                "content": f"No data found for {symbol} between {start_date} and {end_date}",
-                "timestamp": _now_iso(),
-            }
-
-        if data.index.tz is not None:
-            data = data.tz_localize(None)
-        for col in ["Open", "High", "Low", "Close", "Adj Close"]:
-            if col in data.columns:
-                data[col] = data[col].round(2)
-
-        csv_string = data.to_csv()
-        header = f"# Stock data for {symbol} from {start_date} to {end_date}\n"
-        header += f"# Total records: {len(data)}\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        return {"content": header + csv_string, "timestamp": _now_iso()}
-    except _CurlCffiSSLError:
-        raise
-    except Exception as e:
-        logger.exception("get_stock_data_yf failed")
-        return {"error": str(e)}
-
-
-# --- Fundamentals (yfinance) ---
-
-
-def get_fundamentals_yf(symbol: str) -> dict:
-    """
-    Company fundamentals overview (sector, PE, margins, etc.).
-
-    Args:
-        symbol: Stock or fund symbol (e.g. AAPL).
-
-    Returns:
-        {"content": str, "timestamp": str} or {"error": str}.
-    """
-    try:
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return {"error": "Missing required 'symbol'"}
-        info = _symbol_info(symbol)
-        if not info:
-            return {
-                "content": f"No fundamentals data found for symbol '{symbol}'",
-                "timestamp": _now_iso(),
-            }
-
-        fields = [
-            ("Name", info.get("longName")),
-            ("Sector", info.get("sector")),
-            ("Industry", info.get("industry")),
-            ("Market Cap", info.get("marketCap")),
-            ("PE Ratio (TTM)", info.get("trailingPE")),
-            ("Forward PE", info.get("forwardPE")),
-            ("PEG Ratio", info.get("pegRatio")),
-            ("Price to Book", info.get("priceToBook")),
-            ("EPS (TTM)", info.get("trailingEps")),
-            ("Forward EPS", info.get("forwardEps")),
-            ("Dividend Yield", info.get("dividendYield")),
-            ("Beta", info.get("beta")),
-            ("52 Week High", info.get("fiftyTwoWeekHigh")),
-            ("52 Week Low", info.get("fiftyTwoWeekLow")),
-            ("50 Day Average", info.get("fiftyDayAverage")),
-            ("200 Day Average", info.get("twoHundredDayAverage")),
-            ("Revenue (TTM)", info.get("totalRevenue")),
-            ("Gross Profit", info.get("grossProfits")),
-            ("EBITDA", info.get("ebitda")),
-            ("Net Income", info.get("netIncomeToCommon")),
-            ("Profit Margin", info.get("profitMargins")),
-            ("Operating Margin", info.get("operatingMargins")),
-            ("Return on Equity", info.get("returnOnEquity")),
-            ("Return on Assets", info.get("returnOnAssets")),
-            ("Debt to Equity", info.get("debtToEquity")),
-            ("Current Ratio", info.get("currentRatio")),
-            ("Book Value", info.get("bookValue")),
-            ("Free Cash Flow", info.get("freeCashflow")),
-        ]
-        lines = [f"{label}: {value}" for label, value in fields if value is not None]
-        header = f"# Company Fundamentals for {symbol}\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        content = (
-            header + "\n".join(lines) if lines else header + "No fields available."
-        )
-        return {"content": content, "timestamp": _now_iso()}
-    except _CurlCffiSSLError:
-        raise
-    except Exception as e:
-        logger.exception("get_fundamentals_yf failed")
-        return {"error": str(e)}
-
-
-def get_balance_sheet_yf(symbol: str, freq: str = "quarterly") -> dict:
-    """
-    Balance sheet (annual or quarterly).
-
-    Args:
-        symbol: Stock or fund symbol.
-        freq: "annual" or "quarterly".
-
-    Returns:
-        {"content": str, "timestamp": str} or {"error": str}.
-    """
-    try:
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return {"error": "Missing required 'symbol'"}
-        freq = (freq or "quarterly").lower()
-        obj = yf.Ticker(symbol)
-        data = obj.quarterly_balance_sheet if freq == "quarterly" else obj.balance_sheet
-        if data is None or data.empty:
-            return {
-                "content": f"No balance sheet data found for symbol '{symbol}'",
-                "timestamp": _now_iso(),
-            }
-        csv_string = data.to_csv()
-        header = f"# Balance Sheet data for {symbol} ({freq})\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        return {"content": header + csv_string, "timestamp": _now_iso()}
-    except _CurlCffiSSLError:
-        raise
-    except Exception as e:
-        logger.exception("get_balance_sheet_yf failed")
-        return {"error": str(e)}
-
-
-def get_cashflow_yf(symbol: str, freq: str = "quarterly") -> dict:
-    """
-    Cash flow statement (annual or quarterly).
-
-    Args:
-        symbol: Stock or fund symbol.
-        freq: "annual" or "quarterly".
-
-    Returns:
-        {"content": str, "timestamp": str} or {"error": str}.
-    """
-    try:
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return {"error": "Missing required 'symbol'"}
-        freq = (freq or "quarterly").lower()
-        obj = yf.Ticker(symbol)
-        data = obj.quarterly_cashflow if freq == "quarterly" else obj.cashflow
-        if data is None or data.empty:
-            return {
-                "content": f"No cash flow data found for symbol '{symbol}'",
-                "timestamp": _now_iso(),
-            }
-        csv_string = data.to_csv()
-        header = f"# Cash Flow data for {symbol} ({freq})\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        return {"content": header + csv_string, "timestamp": _now_iso()}
-    except _CurlCffiSSLError:
-        raise
-    except Exception as e:
-        logger.exception("get_cashflow_yf failed")
-        return {"error": str(e)}
-
-
-def get_income_statement_yf(symbol: str, freq: str = "quarterly") -> dict:
-    """
-    Income statement (annual or quarterly).
-
-    Args:
-        symbol: Stock or fund symbol.
-        freq: "annual" or "quarterly".
-
-    Returns:
-        {"content": str, "timestamp": str} or {"error": str}.
-    """
-    try:
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return {"error": "Missing required 'symbol'"}
-        freq = (freq or "quarterly").lower()
-        obj = yf.Ticker(symbol)
-        data = obj.quarterly_income_stmt if freq == "quarterly" else obj.income_stmt
-        if data is None or data.empty:
-            return {
-                "content": f"No income statement data found for symbol '{symbol}'",
-                "timestamp": _now_iso(),
-            }
-        csv_string = data.to_csv()
-        header = f"# Income Statement data for {symbol} ({freq})\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        return {"content": header + csv_string, "timestamp": _now_iso()}
-    except _CurlCffiSSLError:
-        raise
-    except Exception as e:
-        logger.exception("get_income_statement_yf failed")
-        return {"error": str(e)}
-
-
-def get_insider_transactions_yf(symbol: str) -> dict:
-    """
-    Insider transactions for a stock or fund.
-
-    Args:
-        symbol: Stock or fund symbol.
-
-    Returns:
-        {"content": str, "timestamp": str} or {"error": str}.
-    """
-    try:
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return {"error": "Missing required 'symbol'"}
-        obj = yf.Ticker(symbol)
-        data = getattr(obj, "insider_transactions", None)
-        if data is None or (hasattr(data, "empty") and data.empty):
-            return {
-                "content": f"No insider transactions data found for symbol '{symbol}'",
-                "timestamp": _now_iso(),
-            }
-        csv_string = data.to_csv()
-        header = f"# Insider Transactions data for {symbol}\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        return {"content": header + csv_string, "timestamp": _now_iso()}
-    except Exception as e:
-        logger.exception("get_insider_transactions_yf failed")
-        return {"error": str(e)}
-
-
-# --- News (yfinance) ---
-
-
-def get_news_yf(
-    symbol: str,
-    limit: int,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-) -> dict:
-    """
-    News for a stock or fund, optionally filtered by date range.
-
-    Args:
-        symbol: Stock or fund symbol.
-        limit: Maximum number of articles to return.
-        start_date: Optional filter start (yyyy-mm-dd).
-        end_date: Optional filter end (yyyy-mm-dd).
-
-    Returns:
-        {"content": str, "timestamp": str} or {"error": str}.
-    """
-    try:
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return {"error": "Missing required 'symbol'"}
-        if limit is None:
-            return {"error": "Missing required 'limit'"}
-        limit = int(limit)
-
-        stock = yf.Ticker(symbol)
-        news = stock.get_news(count=limit)
-
-        if not news:
-            return {"content": f"No news found for {symbol}", "timestamp": _now_iso()}
-
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d") if start_date else None
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d") if end_date else None
-
-        lines = []
-        for art in news:
-            data = _extract_article(art)
-            if start_dt and end_dt and data["pub_date"]:
-                pub = data["pub_date"]
-                try:
-                    pub_date_only = pub.date()
-                except AttributeError:
-                    continue
-                if not (start_dt.date() <= pub_date_only <= end_dt.date()):
-                    continue
-            lines.append(f"### {data['title']} (source: {data['publisher']})")
-            if data["summary"]:
-                lines.append(data["summary"])
-            if data["link"]:
-                lines.append(f"Link: {data['link']}")
-            lines.append("")
-
-        if not lines:
-            range_str = (
-                f" between {start_date} and {end_date}"
-                if start_date and end_date
-                else ""
-            )
-            return {
-                "content": f"No news found for {symbol}{range_str}",
-                "timestamp": _now_iso(),
-            }
-
-        range_str = (
-            f", from {start_date} to {end_date}" if start_date and end_date else ""
-        )
-        content = f"## {symbol} News{range_str}:\n\n" + "\n".join(lines)
-        return {"content": content.strip(), "timestamp": _now_iso()}
-    except Exception as e:
-        logger.exception("get_news_yf failed")
-        return {"error": str(e)}
-
-
-def get_global_news_yf(as_of_date: str, look_back_days: int, limit: int) -> dict:
-    """
-    Global/macro market news (yfinance Search).
-
-    Args:
-        as_of_date: Reference date for the range, yyyy-mm-dd.
-        look_back_days: Number of days to look back from as_of_date.
-        limit: Maximum number of articles to return.
-
-    Returns:
-        {"content": str, "timestamp": str} or {"error": str}.
-    """
-    try:
-        as_of_date = (as_of_date or "").strip()
-        if not as_of_date:
-            return {"error": "Missing required 'as_of_date'"}
-        if look_back_days is None:
-            return {"error": "Missing required 'look_back_days'"}
-        look_back_days = int(look_back_days)
-        if limit is None:
-            return {"error": "Missing required 'limit'"}
-        limit = int(limit)
-
-        queries = [
-            "stock market economy",
-            "Federal Reserve interest rates",
-            "inflation economic outlook",
-            "global markets trading",
-        ]
-        all_news = []
-        seen = set()
-
-        for query in queries:
-            try:
-                search = yf.Search(
-                    query=query, news_count=limit, enable_fuzzy_query=True
-                )
-                if not getattr(search, "news", None):
-                    continue
-                for article in search.news:
-                    if "content" in article:
-                        title = article["content"].get("title", "")
-                    else:
-                        title = article.get("title", "")
-                    if title and title not in seen:
-                        seen.add(title)
-                        all_news.append(article)
-            except Exception as e:
-                logger.debug("get_global_news_yf query %r failed: %s", query, e)
-                continue
-            if len(all_news) >= limit:
-                break
-
-        if not all_news:
-            return {
-                "content": f"No global news found for {as_of_date}",
-                "timestamp": _now_iso(),
-            }
-
-        as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
-        start_dt = as_of_dt - relativedelta(days=look_back_days)
-        start_str = start_dt.strftime("%Y-%m-%d")
-
-        lines = []
-        for article in all_news[:limit]:
-            data = _extract_article(article)
-            lines.append(f"### {data['title']} (source: {data['publisher']})")
-            if data["summary"]:
-                lines.append(data["summary"])
-            if data["link"]:
-                lines.append(f"Link: {data['link']}")
-            lines.append("")
-
-        content = (
-            f"## Global Market News, from {start_str} to {as_of_date}:\n\n"
-            + "\n".join(lines)
-        )
-        return {"content": content.strip(), "timestamp": _now_iso()}
-    except Exception as e:
-        logger.exception("get_global_news_yf failed")
-        return {"error": str(e)}
-
-
-# --- Dify Yahoo–compatible: News (STORY only, same field names) ---
-
-
-def get_news_dify(
-    symbol: str,
-    limit: int = 20,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-) -> dict:
-    """
-    News for a symbol in Dify Yahoo format: list of {title, content, url, provider, publishDate}.
-    Filters to contentType == 'STORY' (yfinance). Returns {"content": str (JSON), "timestamp": str} or {"error": str}.
-    """
-    try:
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return {"error": "Missing required 'symbol'"}
-        limit = int(limit) if limit is not None else 20
-        stock = yf.Ticker(symbol)
-        raw_news = stock.get_news(count=limit)
-        news_items: list[dict] = []
-        for item in raw_news or []:
-            content = item.get("content", {}) if isinstance(item, dict) else {}
-            if content.get("contentType") != "STORY":
-                continue
-            article_content = content.get("description", "") or content.get(
-                "summary", ""
-            )
-            url_obj = (
-                content.get("canonicalUrl") or content.get("clickThroughUrl") or {}
-            )
-            url = (
-                url_obj.get("url", "")
-                if isinstance(url_obj, dict)
-                else str(url_obj or "")
-            )
-            provider_obj = content.get("provider") or {}
-            provider = (
-                provider_obj.get("displayName", "")
-                if isinstance(provider_obj, dict)
-                else str(provider_obj or "")
-            )
-            news_items.append(
-                {
-                    "title": content.get("title", ""),
-                    "content": article_content,
-                    "url": url,
-                    "provider": provider,
-                    "publishDate": content.get("pubDate", ""),
-                }
-            )
-        if not news_items:
-            return {
-                "content": json.dumps({"news": []}, default=str),
-                "timestamp": _now_iso(),
-            }
-        if start_date and end_date:
-            start_dt = datetime.strptime(start_date.strip()[:10], "%Y-%m-%d")
-            end_dt = datetime.strptime(end_date.strip()[:10], "%Y-%m-%d")
-            filtered = []
-            for n in news_items:
-                pd_str = n.get("publishDate", "")
-                if not pd_str:
-                    filtered.append(n)
-                    continue
-                try:
-                    pub = datetime.fromisoformat(pd_str.replace("Z", "+00:00"))
-                    if start_dt.date() <= pub.date() <= end_dt.date():
-                        filtered.append(n)
-                except (ValueError, AttributeError):
-                    filtered.append(n)
-            news_items = filtered
-        return _wrap_content(json.dumps({"news": news_items}, default=str))
-    except Exception as e:
-        logger.exception("get_news_dify failed")
-        return {"error": str(e)}
 
 
 # --- Alpha Vantage implementations ---
@@ -842,7 +258,7 @@ def get_stock_data_finnhub(symbol: str, start_date: str, end_date: str) -> dict:
             return {
                 "content": "Finnhub historical candles returned 403 (forbidden). "
                 "Stock candles may require a paid plan on Finnhub. "
-                "Use MCP_MARKET_VENDOR=alpha_vantage or yfinance for historical data.",
+                "Use MCP_MARKET_VENDOR=alpha_vantage for historical data.",
                 "timestamp": _now_iso(),
             }
         r.raise_for_status()
@@ -1033,7 +449,7 @@ def get_insider_transactions_av(symbol: str) -> dict:
         return {"error": str(e)}
 
 
-# --- Vendor routing (yfinance | alpha_vantage) ---
+# --- Vendor routing (alpha_vantage | finnhub) ---
 
 
 def _wrap_content(s: str) -> dict:
@@ -1042,23 +458,14 @@ def _wrap_content(s: str) -> dict:
 
 
 def _route_stock_data(symbol: str, start_date: str, end_date: str) -> dict:
-    """Route get_stock_data to configured vendor; fallback to yfinance on AV rate limit, or to AV on yfinance TLS error."""
-    if get_market_vendor() == "alpha_vantage":
-        try:
-            return get_stock_data_av(symbol, start_date, end_date)
-        except AlphaVantageRateLimitError:
-            pass
+    """Route get_stock_data to configured vendor (alpha_vantage or finnhub)."""
     if get_market_vendor() == "finnhub" and _has_finnhub_key():
         return get_stock_data_finnhub(symbol, start_date, end_date)
     try:
-        return get_stock_data_yf(symbol, start_date, end_date)
-    except _CurlCffiSSLError:
-        if _has_alpha_vantage_key():
-            logger.info(
-                "yfinance TLS error (curl_cffi); falling back to Alpha Vantage for stock data."
-            )
-            return get_stock_data_av(symbol, start_date, end_date)
-        raise
+        return get_stock_data_av(symbol, start_date, end_date)
+    except Exception as e:
+        logger.debug("Alpha Vantage stock data failed: %s", e)
+        return {"error": f"Market data unavailable: {e}"}
 
 
 def _parse_stock_data_content_to_df(content: str) -> pd.DataFrame:
@@ -1169,76 +576,40 @@ def get_stock_analytics(symbol: str, start_date: str, end_date: str) -> dict:
 
 def _route_fundamentals(symbol: str) -> dict:
     """Route get_fundamentals to configured vendor."""
-    if get_market_vendor() == "alpha_vantage":
-        try:
-            return get_fundamentals_av(symbol)
-        except AlphaVantageRateLimitError:
-            pass
     if get_market_vendor() == "finnhub" and _has_finnhub_key():
         return get_fundamentals_finnhub(symbol)
     try:
-        return get_fundamentals_yf(symbol)
-    except _CurlCffiSSLError:
-        if _has_alpha_vantage_key():
-            logger.info(
-                "yfinance TLS error; falling back to Alpha Vantage for fundamentals."
-            )
-            return get_fundamentals_av(symbol)
-        raise
+        return get_fundamentals_av(symbol)
+    except Exception as e:
+        logger.debug("Alpha Vantage fundamentals failed: %s", e)
+        return {"error": f"Fundamentals unavailable: {e}"}
 
 
 def _route_balance_sheet(symbol: str, freq: str) -> dict:
     """Route get_balance_sheet to configured vendor."""
-    if get_market_vendor() == "alpha_vantage":
-        try:
-            return get_balance_sheet_av(symbol, freq)
-        except AlphaVantageRateLimitError:
-            pass
     try:
-        return get_balance_sheet_yf(symbol, freq)
-    except _CurlCffiSSLError:
-        if _has_alpha_vantage_key():
-            logger.info(
-                "yfinance TLS error; falling back to Alpha Vantage for balance sheet."
-            )
-            return get_balance_sheet_av(symbol, freq)
-        raise
+        return get_balance_sheet_av(symbol, freq)
+    except Exception as e:
+        logger.debug("Alpha Vantage balance sheet failed: %s", e)
+        return {"error": f"Balance sheet unavailable: {e}"}
 
 
 def _route_cashflow(symbol: str, freq: str) -> dict:
     """Route get_cashflow to configured vendor."""
-    if get_market_vendor() == "alpha_vantage":
-        try:
-            return get_cashflow_av(symbol, freq)
-        except AlphaVantageRateLimitError:
-            pass
     try:
-        return get_cashflow_yf(symbol, freq)
-    except _CurlCffiSSLError:
-        if _has_alpha_vantage_key():
-            logger.info(
-                "yfinance TLS error; falling back to Alpha Vantage for cashflow."
-            )
-            return get_cashflow_av(symbol, freq)
-        raise
+        return get_cashflow_av(symbol, freq)
+    except Exception as e:
+        logger.debug("Alpha Vantage cashflow failed: %s", e)
+        return {"error": f"Cash flow unavailable: {e}"}
 
 
 def _route_income_statement(symbol: str, freq: str) -> dict:
     """Route get_income_statement to configured vendor."""
-    if get_market_vendor() == "alpha_vantage":
-        try:
-            return get_income_statement_av(symbol, freq)
-        except AlphaVantageRateLimitError:
-            pass
     try:
-        return get_income_statement_yf(symbol, freq)
-    except _CurlCffiSSLError:
-        if _has_alpha_vantage_key():
-            logger.info(
-                "yfinance TLS error; falling back to Alpha Vantage for income statement."
-            )
-            return get_income_statement_av(symbol, freq)
-        raise
+        return get_income_statement_av(symbol, freq)
+    except Exception as e:
+        logger.debug("Alpha Vantage income statement failed: %s", e)
+        return {"error": f"Income statement unavailable: {e}"}
 
 
 def _route_news(
@@ -1247,59 +618,35 @@ def _route_news(
     start_date: Optional[str],
     end_date: Optional[str],
 ) -> dict:
-    """Route get_news to configured vendor. AV uses start/end; yf uses limit."""
-    if get_market_vendor() == "alpha_vantage" and start_date and end_date:
-        try:
-            return get_news_av(symbol, start_date, end_date)
-        except AlphaVantageRateLimitError:
-            pass
-    return get_news_yf(symbol, limit or 20, start_date, end_date)
+    """Route get_news to configured vendor. AV uses start/end."""
+    if get_market_vendor() != "alpha_vantage" or not start_date or not end_date:
+        return {"error": "News requires MCP_MARKET_VENDOR=alpha_vantage and start_date/end_date."}
+    try:
+        return get_news_av(symbol, start_date, end_date)
+    except Exception as e:
+        logger.debug("Alpha Vantage news failed: %s", e)
+        return {"error": f"News unavailable: {e}"}
 
 
 def _route_global_news(as_of_date: str, look_back_days: int, limit: int) -> dict:
     """Route get_global_news to configured vendor."""
-    if get_market_vendor() == "alpha_vantage":
-        try:
-            return get_global_news_av(as_of_date, look_back_days, limit or 50)
-        except AlphaVantageRateLimitError:
-            pass
-    return get_global_news_yf(as_of_date, look_back_days, limit or 10)
+    try:
+        return get_global_news_av(as_of_date, look_back_days, limit or 50)
+    except Exception as e:
+        logger.debug("Alpha Vantage global news failed: %s", e)
+        return {"error": f"Global news unavailable: {e}"}
 
 
 def _route_insider_transactions(symbol: str) -> dict:
     """Route get_insider_transactions to configured vendor."""
-    if get_market_vendor() == "alpha_vantage":
-        try:
-            return get_insider_transactions_av(symbol)
-        except AlphaVantageRateLimitError:
-            pass
-    return get_insider_transactions_yf(symbol)
+    try:
+        return get_insider_transactions_av(symbol)
+    except Exception as e:
+        logger.debug("Alpha Vantage insider transactions failed: %s", e)
+        return {"error": f"Insider transactions unavailable: {e}"}
 
 
 # --- Dify Yahoo–compatible: Ticker info (raw JSON) ---
-
-
-def get_ticker_info_yf(symbol: str) -> dict:
-    """
-    Raw ticker/company info dict (yfinance .info). Dify Yahoo Ticker equivalent.
-    Returns {"content": str (JSON), "timestamp": str} or {"error": str}.
-    """
-    try:
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return {"error": "Missing required 'symbol'"}
-        info = _symbol_info(symbol)
-        if not info:
-            return {
-                "content": json.dumps({}, default=str),
-                "timestamp": _now_iso(),
-            }
-        return _wrap_content(json.dumps(info, default=str))
-    except _CurlCffiSSLError:
-        raise
-    except Exception as e:
-        logger.exception("get_ticker_info_yf failed")
-        return {"error": str(e)}
 
 
 def get_ticker_info_av(symbol: str) -> dict:
@@ -1343,29 +690,20 @@ def get_ticker_info_finnhub(symbol: str) -> dict:
 
 
 def _route_ticker_info(symbol: str) -> dict:
-    """Route get_ticker_info to configured vendor (same as fundamentals)."""
-    if get_market_vendor() == "alpha_vantage":
-        try:
-            return get_ticker_info_av(symbol)
-        except AlphaVantageRateLimitError:
-            pass
+    """Route get_ticker_info to configured vendor (alpha_vantage or finnhub)."""
     if get_market_vendor() == "finnhub" and _has_finnhub_key():
         return get_ticker_info_finnhub(symbol)
     try:
-        return get_ticker_info_yf(symbol)
-    except _CurlCffiSSLError:
-        if _has_alpha_vantage_key():
-            logger.info(
-                "yfinance TLS error; falling back to Alpha Vantage for ticker info."
-            )
-            return get_ticker_info_av(symbol)
-        raise
+        return get_ticker_info_av(symbol)
+    except Exception as e:
+        logger.debug("Alpha Vantage ticker info failed: %s", e)
+        return {"error": f"Ticker info unavailable: {e}"}
 
 
 def get_ticker_info(symbol: str) -> dict:
     """
     Ticker/company info as JSON (Dify Yahoo Ticker equivalent).
-    Uses MCP_MARKET_VENDOR (yfinance, alpha_vantage, finnhub). get_fundamentals
+    Uses MCP_MARKET_VENDOR (alpha_vantage, finnhub). get_fundamentals
     returns human-readable text; this returns raw info dict as JSON string in content.
     """
     return _route_ticker_info(symbol)

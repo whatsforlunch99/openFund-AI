@@ -223,7 +223,7 @@ class AnalystAgent(BaseAgent):
         """
         if self.mcp_client:
             api_result = self.mcp_client.call_tool(
-                "analyst_tool.get_indicators_yf",
+                "analyst_tool.get_indicators",
                 {
                     "symbol": "AAPL",
                     "indicator": "sma_50",
@@ -233,7 +233,7 @@ class AnalystAgent(BaseAgent):
             )
             if isinstance(api_result, dict) and "error" not in api_result:
                 return {"confidence": 0.7, "indicators": api_result, "distribution": {}}
-        # Stub when MCP unavailable or get_indicators_yf not used
+        # Stub when MCP unavailable or get_indicators not used
         return {"confidence": 0.6, "summary": "Stub analysis", "distribution": {}}
 
     def needs_more_data(self, analysis_result: dict) -> bool:

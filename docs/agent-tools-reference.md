@@ -14,7 +14,7 @@ When **Librarian**, **WebSearcher**, or **Analyst** receive a request from the P
 
 **Code sync:** The allowed tool sets for each agent are maintained in `llm/tool_descriptions.py` (`LIBRARIAN_ALLOWED_TOOL_NAMES`, `WEBSEARCHER_ALLOWED_TOOL_NAMES`, `ANALYST_ALLOWED_TOOL_NAMES`). The LLM prompt for each agent is injected with only that agent's tool descriptions, and any tool name the LLM returns outside the allowed set is discarded at runtime by `filter_tool_calls_to_allowed()` before execution. Keep this document and `llm/tool_descriptions.py` in sync when adding or removing tools.
 
-All tools are registered in `MCPServer.register_default_tools()` (see `mcp/mcp_server.py`). `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`, `yfinance`) are not installed.
+All tools are registered in `MCPServer.register_default_tools()` (see `mcp/mcp_server.py`). `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed.
 
 ---
 
@@ -240,15 +240,13 @@ Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls retur
 
 ---
 
-## market_tool _(optional — requires `pandas`, `yfinance`)_
+## market_tool _(optional — requires `pandas`)_
 
-All market_tool endpoints are available in two forms:
-- **`*_yf`** — explicitly use yfinance.
-- **Vendor-agnostic** (e.g. `market_tool.get_fundamentals`) — route to the configured vendor (`MCP_MARKET_VENDOR`: `yfinance`, `alpha_vantage`, or `finnhub`; default `yfinance`).
+**Vendor routing:** Vendor-agnostic tools (e.g. `market_tool.get_fundamentals`) route to the configured vendor (`MCP_MARKET_VENDOR`: `alpha_vantage` (default) or `finnhub`; unset or invalid → `alpha_vantage`). No yfinance; Alpha Vantage or Finnhub only.
 
 When the backend is unavailable or the dependency is missing, calls return `{"error": str}`.
 
-#### market_tool.get_stock_data_yf / market_tool.get_stock_data
+#### market_tool.get_stock_data
 
 - **Description:** Fetch OHLCV historical price data for a ticker over a date range.
 - **Payload:** `symbol` or `ticker` (required, string), `start_date` (required, string `yyyy-mm-dd`), `end_date` (required, string `yyyy-mm-dd`).
@@ -258,7 +256,7 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
   { "symbol": "NVDA", "start_date": "2024-01-01", "end_date": "2024-12-31" }
   ```
 
-#### market_tool.get_fundamentals_yf / market_tool.get_fundamentals
+#### market_tool.get_fundamentals
 
 - **Description:** Fetch fundamental company data (P/E, market cap, sector, description, etc.) for a ticker.
 - **Payload:** `ticker` or `symbol` (required, string).
@@ -268,7 +266,7 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
   { "ticker": "AAPL" }
   ```
 
-#### market_tool.get_balance_sheet_yf / market_tool.get_balance_sheet
+#### market_tool.get_balance_sheet
 
 - **Description:** Fetch the balance sheet (assets, liabilities, equity) for a ticker.
 - **Payload:** `ticker` or `symbol` (required, string), `freq` (optional: `"quarterly"` | `"annual"`, default `"quarterly"`).
@@ -278,7 +276,7 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
   { "ticker": "MSFT", "freq": "annual" }
   ```
 
-#### market_tool.get_cashflow_yf / market_tool.get_cashflow
+#### market_tool.get_cashflow
 
 - **Description:** Fetch the cash flow statement for a ticker.
 - **Payload:** `ticker` or `symbol` (required, string), `freq` (optional: `"quarterly"` | `"annual"`, default `"quarterly"`).
@@ -288,7 +286,7 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
   { "ticker": "TSLA", "freq": "quarterly" }
   ```
 
-#### market_tool.get_income_statement_yf / market_tool.get_income_statement
+#### market_tool.get_income_statement
 
 - **Description:** Fetch the income statement (revenue, net income, EBITDA, etc.) for a ticker.
 - **Payload:** `ticker` or `symbol` (required, string), `freq` (optional: `"quarterly"` | `"annual"`, default `"quarterly"`).
@@ -298,7 +296,7 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
   { "ticker": "NVDA", "freq": "quarterly" }
   ```
 
-#### market_tool.get_insider_transactions_yf / market_tool.get_insider_transactions
+#### market_tool.get_insider_transactions
 
 - **Description:** Fetch recent insider buy/sell transactions for a ticker.
 - **Payload:** `ticker` or `symbol` (required, string).
@@ -308,7 +306,7 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
   { "ticker": "AAPL" }
   ```
 
-#### market_tool.get_news_yf / market_tool.get_news
+#### market_tool.get_news
 
 - **Description:** Fetch recent news headlines for a ticker.
 - **Payload:** `symbol` or `ticker` (required, string), `limit` or `count` (optional, int, default 20), `start_date` (optional, string), `end_date` (optional, string).
@@ -318,7 +316,7 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
   { "symbol": "NVDA", "limit": 5 }
   ```
 
-#### market_tool.get_global_news_yf / market_tool.get_global_news
+#### market_tool.get_global_news
 
 - **Description:** Fetch recent global financial/market news (not ticker-specific).
 - **Payload:** `as_of_date` or `curr_date` (optional, string `yyyy-mm-dd`), `look_back_days` (optional, int, default 7), `limit` (optional, int, default 10).
@@ -338,16 +336,6 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
   { "symbol": "NVDA" }
   ```
 
-#### market_tool.get_news_dify
-
-- **Description:** Fetch news in a format compatible with the Dify plugin interface.
-- **Payload:** `symbol` or `ticker` (required, string), `limit` (optional, int, default 20), `start_date` (optional, string), `end_date` (optional, string).
-- **Returns:** `{"content": str, "timestamp": str}` or `{"error": str}`.
-- **Sample call:**
-  ```json
-  { "symbol": "AAPL", "limit": 10 }
-  ```
-
 #### market_tool.get_stock_analytics
 
 - **Description:** Fetch a combined analytics report (price history, volume, moving averages) for a ticker over a date range.
@@ -360,14 +348,14 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
 
 ---
 
-## analyst_tool _(optional — requires `pandas`, `yfinance`)_
+## analyst_tool _(optional — requires `pandas`)_
 
-#### analyst_tool.get_indicators_yf / analyst_tool.get_indicators
+#### analyst_tool.get_indicators
 
-- **Description:** Compute technical indicators (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, etc.) from OHLCV data over a lookback window. The vendor-agnostic form (`get_indicators`) routes to the configured `MCP_INDICATOR_VENDOR` (`yfinance` or `alpha_vantage`).
-- **Payload:** `symbol` or `ticker` (required, string), `indicator` (required, string — e.g. `sma_50`, `close_200_sma`, `rsi`, `macd`, `boll`, `atr`), `as_of_date` or `curr_date` (required, string `yyyy-mm-dd`), `look_back_days` (required, int).
+- **Description:** Compute technical indicators (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, etc.) from OHLCV data over a lookback window. Routes to Alpha Vantage (`MCP_INDICATOR_VENDOR`: `alpha_vantage` only).
+- **Payload:** `symbol` or `ticker` (required, string), `indicator` (required, string — e.g. `close_50_sma`, `close_200_sma`, `rsi`, `macd`, `boll`, `atr`), `as_of_date` or `curr_date` (required, string `yyyy-mm-dd`), `look_back_days` (required, int).
 - **Returns:** `{"content": str, "timestamp": str}` or `{"error": str}`.
-- **Supported indicators (yfinance/stockstats):** `sma_50`, `sma_200`, `close_50_sma`, `close_200_sma`, `close_10_ema`, `macd`, `macds`, `macdh`, `rsi`, `boll`, `boll_ub`, `boll_lb`, `atr`, `vwma`, `mfi`.
+- **Supported indicators (Alpha Vantage):** `close_50_sma`, `close_200_sma`, `close_10_ema`, `macd`, `macds`, `macdh`, `rsi`, `boll`, `boll_ub`, `boll_lb`, `atr`, `vwma`.
 - **Sample call:**
   ```json
   { "symbol": "NVDA", "indicator": "rsi", "as_of_date": "2024-12-31", "look_back_days": 30 }
@@ -396,8 +384,8 @@ Each agent uses `mcp_client.call_tool(...)` to access MCP tools. **Planner** and
 | Agent | Tools available |
 |---|---|
 | **Librarian** | `file_tool.read_file` · `vector_tool.search` · `vector_tool.get_by_ids` · `vector_tool.upsert_documents` · `vector_tool.health_check` · `vector_tool.create_collection_from_config` · `kg_tool.query_graph` · `kg_tool.get_relations` · `kg_tool.get_node_by_id` · `kg_tool.get_neighbors` · `kg_tool.get_graph_schema` · `kg_tool.shortest_path` · `kg_tool.get_similar_nodes` · `kg_tool.fulltext_search` · `kg_tool.bulk_export` · `kg_tool.bulk_create_nodes` · `sql_tool.run_query` · `sql_tool.explain_query` · `sql_tool.export_results` · `sql_tool.connection_health_check` · `get_capabilities` |
-| **WebSearcher** | `market_tool.get_stock_data_yf` · `market_tool.get_stock_data` · `market_tool.get_fundamentals_yf` · `market_tool.get_fundamentals` · `market_tool.get_balance_sheet_yf` · `market_tool.get_balance_sheet` · `market_tool.get_cashflow_yf` · `market_tool.get_cashflow` · `market_tool.get_income_statement_yf` · `market_tool.get_income_statement` · `market_tool.get_insider_transactions_yf` · `market_tool.get_insider_transactions` · `market_tool.get_news_yf` · `market_tool.get_news` · `market_tool.get_global_news_yf` · `market_tool.get_global_news` · `market_tool.get_ticker_info` · `market_tool.get_news_dify` · `market_tool.get_stock_analytics` · `get_capabilities` |
-| **Analyst** | `analyst_tool.get_indicators_yf` · `analyst_tool.get_indicators` · `get_capabilities` |
+| **WebSearcher** | `market_tool.get_stock_data` · `market_tool.get_fundamentals` · `market_tool.get_balance_sheet` · `market_tool.get_cashflow` · `market_tool.get_income_statement` · `market_tool.get_insider_transactions` · `market_tool.get_news` · `market_tool.get_global_news` · `market_tool.get_ticker_info` · `market_tool.get_stock_analytics` · `get_capabilities` |
+| **Analyst** | `analyst_tool.get_indicators` · `get_capabilities` |
 | **Planner** | _(none — orchestrates specialists and sends decomposed queries via ACL)_ |
 | **Responder** | _(none — formats the final answer)_ |
 
@@ -418,16 +406,16 @@ Each agent uses `mcp_client.call_tool(...)` to access MCP tools. **Planner** and
 
 | Content need | Tool to call |
 |---|---|
-| Market data / fundamentals (live) | `market_tool.get_fundamentals_yf` |
-| Recent news / sentiment | `market_tool.get_news_yf` |
-| Global macro / regulatory news | `market_tool.get_global_news_yf` |
-| Historical price data | `market_tool.get_stock_data_yf` |
-| Financials (balance sheet, income) | `market_tool.get_balance_sheet_yf`, `market_tool.get_income_statement_yf` |
-| Insider activity | `market_tool.get_insider_transactions_yf` |
+| Market data / fundamentals (live) | `market_tool.get_fundamentals` |
+| Recent news / sentiment | `market_tool.get_news` |
+| Global macro / regulatory news | `market_tool.get_global_news` |
+| Historical price data | `market_tool.get_stock_data` |
+| Financials (balance sheet, income) | `market_tool.get_balance_sheet`, `market_tool.get_income_statement` |
+| Insider activity | `market_tool.get_insider_transactions` |
 
 ### Analyst: tool selection guide
 
 | Content need | Tool to call |
 |---|---|
-| Technical indicator (SMA, RSI, MACD, etc.) | `analyst_tool.get_indicators_yf` |
+| Technical indicator (SMA, RSI, MACD, etc.) | `analyst_tool.get_indicators` |
 | Vendor-routed indicator | `analyst_tool.get_indicators` |

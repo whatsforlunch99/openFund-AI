@@ -61,19 +61,19 @@ class Config:
 def load_config() -> Config:
     """Load configuration from environment variables.
 
-    Loads .env from the current directory if python-dotenv is installed and .env exists.
-    Then reads MILVUS_*, NEO4J_*, TAVILY_API_KEY, YAHOO_*, ANALYST_API_*,
-    MCP server endpoint, MEMORY_STORE_PATH, E2E_TIMEOUT_SECONDS,
+    Loads .env from the project root (directory containing config/) so scripts and
+    the API find it regardless of cwd. Then reads MILVUS_*, NEO4J_*, TAVILY_*,
+    YAHOO_*, ANALYST_API_*, MCP endpoint, MEMORY_STORE_PATH, E2E_TIMEOUT_SECONDS,
     DATABASE_URL, EMBEDDING_*, thresholds, and optional LLM/feature flags.
 
     Returns:
         Config instance populated from env.
     """
-    # Load .env so env vars are set before reading (optional if python-dotenv not installed).
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
         from dotenv import load_dotenv
 
-        load_dotenv()
+        load_dotenv(os.path.join(project_root, ".env"))
     except ImportError:
         pass
 

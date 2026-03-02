@@ -1,7 +1,8 @@
 """Demo: run the full stack with real data, real MCP calls, and real LLM from .env.
 
 Default entry: python -m demo (starts API, then interactive chat). Optionally use
---ensure-data to load datasets/funds into PostgreSQL/Neo4j before starting.
+--ensure-data to load datasets/combined_funds.json (or datasets/*.json) into
+PostgreSQL/Neo4j before starting.
 
 Package contents:
 - __main__: Single-command entry (python -m demo); loads .env, optionally ensures fund data, starts API and chat.

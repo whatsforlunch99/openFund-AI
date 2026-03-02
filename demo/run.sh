@@ -62,9 +62,17 @@ fi
 
 # --- Seed demo data ---
 echo "==> Seeding demo data..."
-python -m data populate 2>/dev/null || {
+python -m data_manager populate 2>/dev/null || {
   echo "    populate had errors (some backends may be optional). Continuing."
 }
+
+# --- Load fund data if available ---
+if [[ -f "$ROOT/datasets/combined_funds.json" ]]; then
+  echo "==> Loading combined fund data..."
+  python -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" 2>/dev/null || {
+    echo "    fund distribution had errors. Continuing."
+  }
+fi
 
 # --- Run demo ---
 echo "==> Starting demo (API + chat)..."

@@ -6,7 +6,8 @@ Usage:
 
 Starts the API server in the background, waits for it to be ready, then runs
 the interactive chat. Uses real data, real API calls, and real LLM from .env.
-Use --ensure-data to load datasets/funds into PostgreSQL/Neo4j before starting.
+Use --ensure-data to load datasets/combined_funds.json (or JSON files in datasets/)
+into PostgreSQL/Neo4j before starting.
 Type quit/exit to stop.
 """
 
@@ -59,21 +60,28 @@ def main() -> int:
             base_url = sys.argv[i + 1].rstrip("/")
 
     if ensure_data:
-        funds_dir = os.path.join(_PROJECT_ROOT, "datasets", "funds")
-        if os.path.isdir(funds_dir):
-            print("Loading fund data into backends...")
-            try:
-                from data_manager.distributor import DataDistributor
+        combined_file = os.path.join(_PROJECT_ROOT, "datasets", "combined_funds.json")
+        datasets_dir = os.path.join(_PROJECT_ROOT, "datasets")
+        print("Loading fund data into backends...")
+        try:
+            from data_manager.distributor import DataDistributor
 
-                dist = DataDistributor()
-                batch = dist.distribute_funds_dir(funds_dir)
+            dist = DataDistributor()
+            if os.path.isfile(combined_file):
+                batch = dist.distribute_fund_file(combined_file)
+            elif os.path.isdir(datasets_dir):
+                batch = dist.distribute_funds_dir(datasets_dir)
+            else:
+                batch = None
+
+            if batch is None:
+                print("  datasets not found; skipping.", file=sys.stderr)
+            else:
                 print(
                     f"  PostgreSQL: {batch.postgres_rows} rows, Neo4j: {batch.neo4j_nodes} nodes, {batch.neo4j_edges} edges."
                 )
-            except Exception as e:
-                print(f"  Warning: could not load fund data: {e}", file=sys.stderr)
-        else:
-            print("  datasets/funds not found; skipping.", file=sys.stderr)
+        except Exception as e:
+            print(f"  Warning: could not load fund data: {e}", file=sys.stderr)
 
     print("Starting API...")
     proc = subprocess.Popen(

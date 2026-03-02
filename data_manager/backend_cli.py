@@ -1,4 +1,4 @@
-"""Backend data CLI helpers shared by data_manager and legacy data package wrappers."""
+"""Backend data CLI helpers for data_manager."""
 
 from __future__ import annotations
 
@@ -172,4 +172,3 @@ def add_backend_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "expr", help='Milvus expr (e.g. id in ["id1","id2"] or fund_id == "X")'
     )
     p_del.set_defaults(func=cmd_milvus_delete)
-

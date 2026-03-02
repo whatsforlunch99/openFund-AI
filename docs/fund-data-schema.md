@@ -1,22 +1,16 @@
 # Fund Data Schema Reference
 
-This document describes the data categories, formats, and types stored in the three databases after importing fund data from `datasets/funds/`.
+This document describes the data categories, formats, and types stored in the three databases after importing fund data from `datasets/combined_funds.json`.
 
 > **Relationship to other docs:** This is a companion reference to [data-manager-agent.md](data-manager-agent.md). While data-manager-agent.md covers the agent design, CLI commands, and stock data schema, this document provides detailed schema for **fund-specific** data (ETFs, mutual funds).
 
 ---
 
-## Source Data Files
+## Source Data File
 
 | File | Description | Data Categories |
 |------|-------------|-----------------|
-| `top_etfs_2025.json` | Top performing S&P 500, Nasdaq, Total Market ETFs | Info, Performance, Risk, Holdings, Sectors, Flows |
-| `sector_etfs_2025.json` | Sector-specific ETFs (Technology, Healthcare, Financials) | Info, Performance, Risk, Holdings, Sub-sectors |
-| `style_etfs_2025.json` | Investment style ETFs (Growth, Value, Dividend Income) | Info, Performance, Risk, Holdings, Sector Focus |
-| `mutual_funds_2025.json` | Top performing mutual funds | Info, Performance, Risk, Holdings |
-| `international_etfs_2025.json` | International and emerging market ETFs | Info, Performance, Risk, Holdings, Geographic Allocation |
-| `top_50_equity_funds_2025.json` | Top 50 equity funds by assets | Info, Performance, Risk, Holdings, Sectors |
-| `fund_flows_2025.json` | Fund inflow/outflow data | Flow Summary, Monthly Flows, Sector Flows |
+| `combined_funds.json` | Canonical merged fund dataset used for backend distribution | Info, Performance, Risk, Holdings, Sectors, Flows, Company Fundamentals |
 
 ---
 

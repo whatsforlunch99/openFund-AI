@@ -321,8 +321,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     dist_funds_parser.add_argument(
         "--funds-dir",
-        default="datasets/funds",
-        help="Directory containing fund data files (default: datasets/funds)",
+        default="datasets",
+        help="Directory containing fund data files (default: datasets)",
     )
     dist_funds_parser.add_argument(
         "--file", "-f", help="Distribute a specific fund file"

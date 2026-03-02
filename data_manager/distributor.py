@@ -517,8 +517,12 @@ class DataDistributor:
             return batch
 
         metadata = data.get("metadata", {})
-        as_of_date = metadata.get("as_of_date", "")
-        collected_at = metadata.get("last_updated", self.classifier.__class__.__name__)
+        metadata_as_of_date = str(metadata.get("as_of_date") or "").strip()
+        collected_at = (
+            str(metadata.get("last_updated") or "").strip()
+            or str(metadata.get("generated_at") or "").strip()
+            or datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        )
 
         transformer = DataTransformer(collected_at=collected_at)
 
@@ -538,7 +542,12 @@ class DataDistributor:
                     continue
 
                 funds_processed.append(symbol)
-                fund["as_of_date"] = as_of_date
+                effective_as_of_date = (
+                    str(fund.get("as_of_date") or "").strip()
+                    or metadata_as_of_date
+                    or datetime.utcnow().strftime("%Y-%m-%d")
+                )
+                fund["as_of_date"] = effective_as_of_date
 
                 table, rows = transformer._transform_fund_info(symbol, fund)
                 if rows:
@@ -552,21 +561,21 @@ class DataDistributor:
                     batch.neo4j_edges += edges_created
 
                 if fund.get("performance"):
-                    fund_perf = {"performance": fund["performance"], "as_of_date": as_of_date}
+                    fund_perf = {"performance": fund["performance"], "as_of_date": effective_as_of_date}
                     table, rows = transformer._transform_fund_performance(symbol, fund_perf)
                     if rows:
                         written, _ = self._write_to_postgres(table, rows)
                         batch.postgres_rows += written
 
                 if fund.get("risk_metrics"):
-                    fund_risk = {"risk_metrics": fund["risk_metrics"], "as_of_date": as_of_date}
+                    fund_risk = {"risk_metrics": fund["risk_metrics"], "as_of_date": effective_as_of_date}
                     table, rows = transformer._transform_fund_risk(symbol, fund_risk)
                     if rows:
                         written, _ = self._write_to_postgres(table, rows)
                         batch.postgres_rows += written
 
                 if fund.get("top_10_holdings"):
-                    holdings_data = {"top_10_holdings": fund["top_10_holdings"], "as_of_date": as_of_date}
+                    holdings_data = {"top_10_holdings": fund["top_10_holdings"], "as_of_date": effective_as_of_date}
                     table, rows = transformer._transform_fund_holdings(symbol, holdings_data)
                     if rows:
                         written, _ = self._write_to_postgres(table, rows)
@@ -580,7 +589,7 @@ class DataDistributor:
 
                 if fund.get("sector_allocation") or fund.get("sector_distribution"):
                     sectors = fund.get("sector_allocation") or fund.get("sector_distribution")
-                    sectors_data = {"sector_allocation": sectors, "as_of_date": as_of_date}
+                    sectors_data = {"sector_allocation": sectors, "as_of_date": effective_as_of_date}
                     table, rows = transformer._transform_fund_sectors(symbol, sectors_data)
                     if rows:
                         written, _ = self._write_to_postgres(table, rows)
@@ -592,11 +601,36 @@ class DataDistributor:
                         batch.neo4j_nodes += nodes_created
                         batch.neo4j_edges += edges_created
 
-                if fund.get("fund_flows_2025"):
-                    flows_data = {"fund_flows_2025": fund["fund_flows_2025"], "as_of_date": as_of_date}
+                if fund.get("fund_flows_2025") or fund.get("fund_flows"):
+                    flows_payload = fund.get("fund_flows_2025") or fund.get("fund_flows")
+                    flows_data = {"fund_flows_2025": flows_payload, "as_of_date": effective_as_of_date}
                     table, rows = transformer._transform_fund_flows(symbol, flows_data)
                     if rows:
                         written, _ = self._write_to_postgres(table, rows)
+                        batch.postgres_rows += written
+
+                if fund.get("company_fundamentals"):
+                    cf = fund["company_fundamentals"]
+                    if isinstance(cf, dict):
+                        cf_row = {
+                            "symbol": symbol,
+                            "as_of_date": str(cf.get("as_of_date") or "").strip() or effective_as_of_date,
+                            "name": fund.get("name") or cf.get("name"),
+                            "sector": cf.get("sector"),
+                            "industry": cf.get("industry"),
+                            "market_cap": cf.get("market_cap"),
+                            "pe_ratio": cf.get("pe_ratio"),
+                            "forward_pe": cf.get("forward_pe"),
+                            "peg_ratio": cf.get("peg_ratio"),
+                            "price_to_book": cf.get("price_to_book"),
+                            "eps_ttm": cf.get("eps_ttm"),
+                            "dividend_yield": cf.get("dividend_yield"),
+                            "beta": cf.get("beta"),
+                            "fifty_two_week_high": cf.get("fifty_two_week_high"),
+                            "fifty_two_week_low": cf.get("fifty_two_week_low"),
+                            "collected_at": str(cf.get("collected_at") or "").strip() or transformer.collected_at,
+                        }
+                        written, _ = self._write_to_postgres("company_fundamentals", [cf_row])
                         batch.postgres_rows += written
 
         batch.total_files = 1
@@ -614,7 +648,7 @@ class DataDistributor:
         return batch
 
     def distribute_funds_dir(
-        self, funds_dir: str = "datasets/funds"
+        self, funds_dir: str = "datasets"
     ) -> BatchDistributionResult:
         """
         Distribute all fund data files in a directory.

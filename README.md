@@ -71,7 +71,7 @@ See [docs/demo.md](docs/demo.md) for backend troubleshooting (Postgres role, Neo
 | 2 | Copy env: `cp .env.example .env`. |
 | 3 | Set `LLM_API_KEY` in `.env` (required for live task decomposition and tool selection). |
 | 4 | (Optional) Set `LLM_BASE_URL` and `LLM_MODEL` for DeepSeek or another OpenAI-compatible provider. |
-| 5 | (Optional) Set `DATABASE_URL`, `NEO4J_URI`/`NEO4J_PASSWORD`, `MILVUS_URI` for full backends; run `./scripts/start_services.sh` then `python -m data populate`. |
+| 5 | (Optional) Set `DATABASE_URL`, `NEO4J_URI`/`NEO4J_PASSWORD`, `MILVUS_URI` for full backends; run `./scripts/start_services.sh` then `python -m data_manager populate`. |
 
 Do not commit `.env`; it is in `.gitignore`.
 
@@ -102,7 +102,7 @@ The API uses a live LLM for task decomposition and agent tool selection.
 | **Run full setup** (backends + seed + chat) | `./demo/run.sh` |
 | **Chat only** (API already running) | `python -m demo` |
 | **Start API only** | `python main.py` |
-| **Seed data** (Postgres, Neo4j, Milvus) | `python -m data populate` |
+| **Seed data** (Postgres, Neo4j, Milvus) | `python -m data_manager populate` |
 | **Run tests** | `pytest tests/test-stages.py -v` |
 | **Run all tests** | `pytest tests/ -v` |
 | **E2E smoke** (one conversation, exit 0) | `PYTHONPATH=. python main.py --e2e-once` |
@@ -118,7 +118,7 @@ The API uses a live LLM for task decomposition and agent tool selection.
 ./scripts/start_services.sh
 
 # Seed data (optional; skip if already done)
-python -m data populate
+python -m data_manager populate
 
 # Start API + chat
 python -m demo
@@ -142,12 +142,12 @@ Configuration via `.env` (copy from `.env.example`). See [docs/backend.md](docs/
 ## Data CLI
 
 ```bash
-python -m data --help
-python -m data populate
-python -m data sql "SELECT * FROM funds LIMIT 5"
-python -m data neo4j "MATCH (n) RETURN count(n)"
-python -m data milvus index docs.json
-python -m data milvus delete 'source == "demo"'
+python -m data_manager --help
+python -m data_manager populate
+python -m data_manager sql "SELECT * FROM funds LIMIT 5"
+python -m data_manager neo4j "MATCH (n) RETURN count(n)"
+python -m data_manager milvus index docs.json
+python -m data_manager milvus delete 'source == "demo"'
 ```
 
 Requires `DATABASE_URL`, `NEO4J_URI`, or `MILVUS_URI` in `.env` and `pip install -e ".[backends]"`.
@@ -156,10 +156,10 @@ Requires `DATABASE_URL`, `NEO4J_URI`, or `MILVUS_URI` in `.env` and `pip install
 
 ## Troubleshooting
 
-- **No .env:** Copy from `.env.example`: `cp .env.example .env`. Run commands from the **project root** (directory containing `data/` and `demo/`).
+- **No .env:** Copy from `.env.example`: `cp .env.example .env`. Run commands from the **project root** (directory containing `data_manager/` and `demo/`).
 - **Postgres "role does not exist":** Use your OS username in `DATABASE_URL`, e.g. `postgresql://YOUR_MAC_USERNAME@localhost:5432/openfund`. Create DB: `createdb openfund` or `./scripts/create_db.sh`.
 - **Neo4j auth:** Set `NEO4J_USER=neo4j` and `NEO4J_PASSWORD` to the password you set in Neo4j.
-- **Milvus connection:** Use `./scripts/start_milvus.sh` (plain `docker run` does not start the server). Wait ~30s then `python -m data populate`.
+- **Milvus connection:** Use `./scripts/start_milvus.sh` (plain `docker run` does not start the server). Wait ~30s then `python -m data_manager populate`.
 
 More: [docs/demo.md](docs/demo.md).
 

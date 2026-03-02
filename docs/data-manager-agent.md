@@ -838,7 +838,7 @@ message_bus.send(msg)
 
 ## Fund Data Distribution Guide
 
-This section describes how to import fund data from `datasets/funds/` into the three databases (PostgreSQL, Neo4j, Milvus).
+This section describes how to import fund data from `datasets/` into the three databases (PostgreSQL, Neo4j, Milvus).
 
 ### Prerequisites
 
@@ -914,32 +914,32 @@ $env:MILVUS_URI="http://localhost:19530"  # Optional
 #### Distribute All Fund Files
 
 ```bash
-python -m data_manager distribute-funds --funds-dir datasets/funds
+python -m data_manager distribute-funds --funds-dir datasets
 ```
 
-This command processes all JSON files in `datasets/funds/` and distributes data to:
+This command processes fund JSON files in `datasets/` (typically `datasets/combined_funds.json`) and distributes data to:
 - **PostgreSQL**: Fund info, performance, risk metrics, holdings, sector allocation, fund flows
 - **Neo4j**: Fund nodes, Company nodes, Sector nodes, HOLDS and INVESTS_IN_SECTOR relationships
 
 #### Distribute a Single Fund File
 
 ```bash
-python -m data_manager distribute-funds --file datasets/funds/top_etfs_2025.json
+python -m data_manager distribute-funds --file datasets/combined_funds.json
 ```
 
 ### Expected Output
 
 ```
-Distributing all fund files from datasets/funds...
+Distributing fund file: datasets/combined_funds.json
 
 Results:
-  Total files: 7
-  Success: 7
+  Total files: 1
+  Success: 1
 
 Database writes:
-  PostgreSQL rows: 463
-  Neo4j nodes: 375
-  Neo4j edges: 283
+  PostgreSQL rows: 750
+  Neo4j nodes: 1100
+  Neo4j edges: 1050
   Milvus docs: 0
 ```
 
@@ -1031,7 +1031,7 @@ print(kg_tool.get_graph_schema())
 
 ### Fund Data File Structure
 
-Fund files in `datasets/funds/` have this structure:
+Fund files in `datasets/` have this structure:
 
 ```json
 {

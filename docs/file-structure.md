@@ -33,12 +33,6 @@ OpenFund-AI/
 │   ├── demo_data.py      # Static MCP responses (NVDA/Nvidia)
 │   ├── demo_client.py    # DemoMCPClient: real sql/kg/vector when env set; file/market/analyst static
 │   └── demo_chat.py      # Interactive CLI chat (python -m demo.demo_chat)
-├── data/
-│   ├── __init__.py
-│   ├── __main__.py       # Entry point for python -m data
-│   ├── cli.py            # CLI: populate, sql, neo4j, milvus index/delete
-│   ├── env_loader.py      # load_dotenv from project root
-│   └── populate.py       # Orchestrator: load .env, call sql/kg/vector_tool.populate_demo()
 ├── data_manager/              # Agent-based data collection/distribution (see data-manager-agent.md)
 │   ├── __init__.py
 │   ├── __main__.py            # Entry point for python -m data_manager
@@ -48,11 +42,8 @@ OpenFund-AI/
 │   ├── transformer.py         # DataTransformer: convert to PG rows / Neo4j nodes / Milvus docs
 │   ├── tasks.py               # CollectionTask definitions and COLLECTION_TASKS registry
 │   └── schemas.py             # Database schema definitions (SQL DDL, Cypher patterns)
-├── datasets/                     # Data files collected by DataManagerAgent
-│   ├── funds/                    # Static fund data files (JSON)
-│   ├── raw/                      # Raw collected JSON files (per symbol, gitignored)
-│   ├── processed/                # Successfully distributed files (gitignored)
-│   └── failed/                   # Failed collection/distribution records (gitignored)
+├── datasets/                     # Fund dataset files
+│   └── combined_funds.json       # Canonical combined fund dataset used by distribute-funds
 ├── scripts/
 │   ├── install_backends.sh   # Install Homebrew, Postgres, Neo4j, .env, pip [backends]
 │   ├── start_services.sh     # Start Postgres, Neo4j, Milvus (loads .env)
@@ -911,13 +902,13 @@ state = get_conversation("uuid-here")
 
 # demo/
 
-**Purpose:** Demo package: recommended entry `./demo/run.sh` (from project root) for first-time setup and run; or `python -m demo` for chat when backends are already running. Backends (PostgreSQL, Neo4j, Milvus) and static LLM (no API key). When backends are configured and seeded with `python -m data populate`, SQL/KG/vector tools use real backends; file, market, and analyst tools use static data.
+**Purpose:** Demo package: recommended entry `./demo/run.sh` (from project root) for first-time setup and run; or `python -m demo` for chat when backends are already running. Backends (PostgreSQL, Neo4j, Milvus) and static LLM (no API key). When backends are configured and seeded with `python -m data_manager populate`, SQL/KG/vector tools use real backends; file, market, and analyst tools use static data.
 
 ---
 
 ## demo/run.sh
 
-**Purpose:** Single script to run the demo from project root. If `.env` is missing, creates it from `.env.example` and runs `./scripts/install_backends.sh`, then prompts to edit `.env` and re-run. Otherwise starts services (`./scripts/start_services.sh`), creates DB (`./scripts/create_db.sh`), seeds data (`python -m data populate`), then runs `python -m demo`. Use project venv if present.
+**Purpose:** Single script to run the demo from project root. If `.env` is missing, creates it from `.env.example` and runs `./scripts/install_backends.sh`, then prompts to edit `.env` and re-run. Otherwise starts services (`./scripts/start_services.sh`), creates DB (`./scripts/create_db.sh`), seeds data (`python -m data_manager populate`), then runs `python -m demo`. Use project venv if present.
 
 ---
 
@@ -937,7 +928,7 @@ state = get_conversation("uuid-here")
 
 ## demo/demo_client.py
 
-**Purpose:** Demo MCP client: hybrid backends + static external APIs. When demo mode is on, SQL/KG/vector tools call real PostgreSQL, Neo4j, and Milvus when the corresponding env vars are set (e.g. after `python -m data populate`); file_tool, market_tool, and analyst_tool always return static data from DEMO_RESPONSES. No live LLM or external API calls.
+**Purpose:** Demo MCP client: hybrid backends + static external APIs. When demo mode is on, SQL/KG/vector tools call real PostgreSQL, Neo4j, and Milvus when the corresponding env vars are set (e.g. after `python -m data_manager populate`); file_tool, market_tool, and analyst_tool always return static data from DEMO_RESPONSES. No live LLM or external API calls.
 
 **Class:** `DemoMCPClient` — `call_tool(self, tool_name, payload)` delegates to real mcp.tools when env is set for sql_tool.run_query, kg_tool.get_relations, kg_tool.query_graph, vector_tool.search; otherwise returns DEMO_RESPONSES[tool_name] or a safe stub with timestamp.
 
@@ -951,50 +942,9 @@ state = get_conversation("uuid-here")
 
 ---
 
-# data/
-
-**Purpose:** CLI entry point for backend data services. Create, update, and delete data in PostgreSQL, Neo4j, and Milvus. Run with `python -m data` (requires `pip install -e ".[backends]"` and corresponding env vars in `.env`). **Populate:** `python -m data populate` seeds all configured backends with demo data (NVDA/NVIDIA) matching `demo.demo_data`; the orchestrator is [data/populate.py](data/populate.py); backend logic lives in [mcp/tools/sql_tool.py](mcp/tools/sql_tool.py), [mcp/tools/kg_tool.py](mcp/tools/kg_tool.py), and [mcp/tools/vector_tool.py](mcp/tools/vector_tool.py) (`populate_demo`).
-
----
-
-## data/cli.py
-
-**Purpose:** Argument parser and command handlers. Subcommands: `populate` (seed demo data into Postgres/Neo4j/Milvus via data.populate), `sql` (run SQL via mcp.tools.sql_tool), `neo4j` (run Cypher via mcp.tools.kg_tool), `milvus index` (index documents from JSON file via vector_tool.index_documents), `milvus delete` (delete by expr via vector_tool.delete_by_expr).
-
-**Usage:** `python -m data populate`, `python -m data sql "SELECT 1"`, `python -m data neo4j "MATCH (n) RETURN count(n)"`, `python -m data milvus index docs.json`, `python -m data milvus delete 'id in ["id1"]'`.
-
----
-
-## data/env_loader.py
-
-**Purpose:** Load .env from project root so data CLI and populate work from any cwd.
-
-**Functions:** `load_dotenv() -> None` — load .env from project root (uses python-dotenv if available).
-
----
-
-## data/populate.py
-
-**Purpose:** Thin orchestrator only. Load .env, call mcp.tools.sql_tool.populate_demo(), mcp.tools.kg_tool.populate_demo(), mcp.tools.vector_tool.populate_demo(), print results, return 0. No backend logic here; see mcp/tools/sql_tool.py, kg_tool.py, vector_tool.py.
-
-**Functions:** `run_populate() -> int`.
-
----
-
-## data/__main__.py
-
-**Purpose:** Entry point for `python -m data`; calls `data.cli.main()`.
-
----
-
 # data_manager/
 
-**Purpose:** Agent-based data collection and distribution. Background infrastructure for fetching market data via MCP tools and distributing to PostgreSQL, Neo4j, and Milvus. Extends `data/` module with A2A integration and configurable collection tasks. See [data-manager-agent.md](data-manager-agent.md) for full design.
-
-**Relationship with `data/` module:**
-- `data/` provides direct CLI access (`python -m data sql`, `python -m data populate`)
-- `data_manager/` provides agent-based orchestration (scheduled, on-demand via Planner REQUEST)
-- Both use the same underlying `mcp/tools/*_tool.py` for database operations
+**Purpose:** Data collection, distribution, and backend CLI entrypoint. Includes both direct backend commands (`populate`, `sql`, `neo4j`, `milvus`) and agent-based collection/distribution commands (`collect`, `distribute`, `distribute-funds`, `status`, `list`, `global-news`). See [data-manager-agent.md](data-manager-agent.md) for full design.
 
 ---
 

@@ -20,12 +20,12 @@ The demo runs the **full stack** with **real data**, **real API calls**, and **r
 Load data into the backends once before or when running the demo:
 
 1. **NVDA-style seed (optional):**  
-   `python -m data populate`  
+   `python -m data_manager populate`  
    Seeds demo-style data for SQL, KG, and vector tools.
 
 2. **Fund data (optional):**  
-   `PYTHONPATH=. python -m data_manager distribute-funds --funds-dir datasets/funds`  
-   Loads fund JSON files from `datasets/funds` into PostgreSQL and Neo4j.
+   `PYTHONPATH=. python -m data_manager distribute-funds --funds-dir datasets`  
+   Loads fund JSON files from `datasets` into PostgreSQL and Neo4j.
 
 3. **Or use --ensure-data:**  
    `python -m demo --ensure-data`  
@@ -57,10 +57,10 @@ Package layout and module contracts: see [file-structure.md](file-structure.md#d
 
 ## Troubleshooting
 
-- **`.env` location:** The API and `python -m data populate` / `python -m data_manager` load `.env` from the **project root** (the folder that contains `config/`, `data/`, and `demo/`). Run commands from the project root or ensure `.env` is there.
+- **`.env` location:** The API and `python -m data_manager populate` / `python -m data_manager` load `.env` from the **project root** (the folder that contains `config/`, `data_manager/`, and `demo/`). Run commands from the project root or ensure `.env` is there.
 - **Variable names:** In `.env` use `DATABASE_URL`, `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `MILVUS_URI`, `LLM_API_KEY`. No spaces around `=`.
 - **LLM required:** If the API fails to start with "LLM is required", set `LLM_API_KEY` in `.env` and install `pip install -e ".[llm]"`.
-- **Populate / distribute:** Run `python -m data populate` and/or `python -m data_manager distribute-funds --funds-dir datasets/funds` once so backends have data; or use `python -m demo --ensure-data`.
+- **Populate / distribute:** Run `python -m data_manager populate` and/or `python -m data_manager distribute-funds --funds-dir datasets` once so backends have data; or use `python -m demo --ensure-data`.
 - **Driver not installed:** Install backend drivers: `pip install -e ".[backends]"`.
 - **Connection failed:** PostgreSQL, Neo4j, and Milvus must be **running** on the host/port in `.env`. Start them (e.g. `./scripts/start_services.sh` or Docker), then run populate/distribute again.
 - **Start backends:** Run `python scripts/start_backends.py` or `./scripts/start_services.sh` to check or start services.
@@ -83,4 +83,4 @@ Package layout and module contracts: see [file-structure.md](file-structure.md#d
   Set `NEO4J_USER=neo4j` and `NEO4J_PASSWORD` to the password you configured in Neo4j (e.g. in Neo4j Browser at http://localhost:7474).
 
 - **Milvus: "Fail connecting to server on localhost:19530"**  
-  Use the project script: `./scripts/start_milvus.sh`. Wait ~30–60 seconds, then run `python -m data populate` or `python -m demo --ensure-data`. To reuse a container: `docker start milvus-standalone`.
+  Use the project script: `./scripts/start_milvus.sh`. Wait ~30–60 seconds, then run `python -m data_manager populate` or `python -m demo --ensure-data`. To reuse a container: `docker start milvus-standalone`.

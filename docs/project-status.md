@@ -25,3 +25,4 @@ Tracks **major capability readiness**. Update when a capability becomes operatio
 | WebSocket /ws | — | Live | Slice 9: /ws same flow as POST /chat; events response/timeout/error; test_stage_9_1 |
 | Multi-round Planner | FR4 (optional) | Not Started | Optional |
 | LLM (decompose_task, sufficiency) | — | In Progress | Stage 10.2: static mock live; set LLM_API_KEY + pip install [llm] for live OpenAI |
+| Permission Management Module | — | Live | Phase 1 (Core) complete: `permission/` module with AccessControl, UserContext, PermissionEngine (evaluate, sql_filter, neo4j_filter, milvus_filter, tag_data), PolicyStore, AuditLogger, data masking; 46 tests passing. Config: PERMISSION_ENABLED, PERMISSION_POLICY_FILE, etc. Next: Phase 2-5 (DB integration, data tagging, audit, production auth) |

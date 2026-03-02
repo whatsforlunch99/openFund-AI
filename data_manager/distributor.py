@@ -2,6 +2,8 @@
 
 Uses MCP tools (sql_tool, kg_tool, vector_tool) to distribute collected data
 to the appropriate databases based on classification rules.
+
+Supports optional permission tagging via PermissionEngine for access control.
 """
 
 from __future__ import annotations
@@ -20,6 +22,15 @@ from data_manager.transformer import DataTransformer
 from data_manager.schemas import POSTGRES_DDL, POSTGRES_UPSERT_TEMPLATES, NEO4J_CYPHER_TEMPLATES
 
 logger = logging.getLogger(__name__)
+
+
+def _get_permission_engine():
+    """Lazy-load permission engine to avoid circular imports."""
+    try:
+        from permission.engine import get_permission_engine
+        return get_permission_engine()
+    except ImportError:
+        return None
 
 
 @dataclass
@@ -58,6 +69,7 @@ class DataDistributor:
         data_dir: str = "datasets/raw",
         processed_dir: str = "datasets/processed",
         failed_dir: str = "datasets/failed",
+        enable_permissions: bool = True,
     ):
         """
         Initialize DataDistributor.
@@ -66,15 +78,35 @@ class DataDistributor:
             data_dir: Directory containing raw data files.
             processed_dir: Directory to move successfully processed files.
             failed_dir: Directory to move failed files.
+            enable_permissions: Whether to apply permission tagging (default True).
         """
         self.data_dir = data_dir
         self.processed_dir = processed_dir
         self.failed_dir = failed_dir
         self.classifier = DataClassifier()
         self._schema_initialized = False
+        self._milvus_checked = False
+        self._milvus_available = False
+        self.enable_permissions = enable_permissions
+        self._permission_engine = None
+        if enable_permissions:
+            self._permission_engine = _get_permission_engine()
 
         for d in [processed_dir, failed_dir]:
             os.makedirs(d, exist_ok=True)
+
+    def _tag_data_with_permissions(
+        self, data: dict, source: str, owner: str = "data_manager"
+    ) -> dict | None:
+        """Apply permission tags to data if engine is available.
+
+        Returns:
+            access_control dict if permissions enabled, else None.
+        """
+        if not self._permission_engine:
+            return None
+        tagged = self._permission_engine.tag_data(data, source=source, owner=owner)
+        return tagged.get("access_control")
 
     def _ensure_postgres_schema(self) -> bool:
         """Create PostgreSQL tables if they don't exist."""
@@ -266,6 +298,19 @@ class DataDistributor:
         if not os.environ.get("MILVUS_URI"):
             logger.debug("MILVUS_URI not set, skipping Milvus write")
             return 0, "MILVUS_URI not set"
+
+        if self._milvus_checked and not self._milvus_available:
+            return 0, "Milvus not available (cached)"
+
+        if not self._milvus_checked:
+            self._milvus_checked = True
+            health = vector_tool.health_check()
+            if not health.get("ok"):
+                error_msg = health.get("error", "Milvus not available")
+                logger.info("Milvus not available: %s, skipping Milvus writes", error_msg)
+                self._milvus_available = False
+                return 0, error_msg
+            self._milvus_available = True
 
         milvus_docs = []
         for doc in docs:
@@ -519,8 +564,19 @@ class DataDistributor:
         metadata = data.get("metadata", {})
         as_of_date = metadata.get("as_of_date", "")
         collected_at = metadata.get("last_updated", self.classifier.__class__.__name__)
+        data_sources = metadata.get("data_sources", [])
 
-        transformer = DataTransformer(collected_at=collected_at)
+        source_name = "fund_data"
+        if data_sources:
+            source_name = "_".join(s.lower().replace(".", "_").replace(" ", "_") for s in data_sources[:2])
+
+        access_control = self._tag_data_with_permissions(
+            data=metadata,
+            source=source_name,
+            owner="data_manager",
+        )
+
+        transformer = DataTransformer(collected_at=collected_at, access_control=access_control)
 
         funds_processed = []
         for key, value in data.items():
@@ -599,16 +655,22 @@ class DataDistributor:
                         written, _ = self._write_to_postgres(table, rows)
                         batch.postgres_rows += written
 
+                milvus_docs = transformer.fund_to_milvus_doc(symbol, fund)
+                if milvus_docs:
+                    indexed, _ = self._write_to_milvus(milvus_docs)
+                    batch.milvus_docs += indexed
+
         batch.total_files = 1
         batch.success_count = 1 if funds_processed else 0
 
         logger.info(
-            "Distributed fund file %s: %d funds processed, %d PostgreSQL rows, %d Neo4j nodes/%d edges",
+            "Distributed fund file %s: %d funds processed, %d PostgreSQL rows, %d Neo4j nodes/%d edges, %d Milvus docs",
             filepath,
             len(funds_processed),
             batch.postgres_rows,
             batch.neo4j_nodes,
             batch.neo4j_edges,
+            batch.milvus_docs,
         )
 
         return batch
@@ -648,11 +710,12 @@ class DataDistributor:
             batch.milvus_docs += result.milvus_docs
 
         logger.info(
-            "Funds distribution complete: %d files, %d PostgreSQL rows, %d Neo4j nodes/%d edges",
+            "Funds distribution complete: %d files, %d PostgreSQL rows, %d Neo4j nodes/%d edges, %d Milvus docs",
             batch.total_files,
             batch.postgres_rows,
             batch.neo4j_nodes,
             batch.neo4j_edges,
+            batch.milvus_docs,
         )
 
         return batch

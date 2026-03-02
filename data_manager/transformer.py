@@ -4,6 +4,8 @@ Transforms collected JSON data into:
 - PostgreSQL rows (list of dicts)
 - Neo4j nodes and edges
 - Milvus documents (with content field for embedding)
+
+Supports optional access_control metadata for permission management.
 """
 
 from __future__ import annotations
@@ -18,6 +20,49 @@ from io import StringIO
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _add_access_control_to_row(row: dict, access_control: dict | None) -> dict:
+    """Add access_control columns to a PostgreSQL row."""
+    if not access_control:
+        return row
+    row["classification"] = access_control.get("classification", "PUBLIC")
+    row["classification_level"] = access_control.get("classification_level", 0)
+    row["tenant_id"] = access_control.get("tenant_id", "")
+    row["roles_allowed"] = json.dumps(access_control.get("roles_allowed", []))
+    row["users_allowed"] = json.dumps(access_control.get("users_allowed", []))
+    row["ac_source"] = access_control.get("source", "")
+    row["region"] = access_control.get("region", "")
+    row["expiry_date"] = access_control.get("expiry_date")
+    row["owner"] = access_control.get("owner", "")
+    row["ac_created_at"] = access_control.get("created_at", "")
+    return row
+
+
+def _add_access_control_to_node(node: dict, access_control: dict | None) -> dict:
+    """Add access_control properties to a Neo4j node."""
+    if not access_control:
+        return node
+    node["classification"] = access_control.get("classification", "PUBLIC")
+    node["classification_level"] = access_control.get("classification_level", 0)
+    node["tenant_id"] = access_control.get("tenant_id", "")
+    node["roles_allowed"] = access_control.get("roles_allowed", [])
+    node["users_allowed"] = access_control.get("users_allowed", [])
+    node["ac_source"] = access_control.get("source", "")
+    return node
+
+
+def _add_access_control_to_milvus_doc(doc: dict, access_control: dict | None) -> dict:
+    """Add access_control metadata to a Milvus document."""
+    if not access_control:
+        return doc
+    doc["classification"] = access_control.get("classification", "PUBLIC")
+    doc["classification_level"] = access_control.get("classification_level", 0)
+    doc["tenant_id"] = access_control.get("tenant_id", "")
+    doc["roles_allowed"] = json.dumps(access_control.get("roles_allowed", []))
+    doc["users_allowed"] = json.dumps(access_control.get("users_allowed", []))
+    doc["ac_source"] = access_control.get("source", "")
+    return doc
 
 
 def _parse_csv_content(content: str) -> list[dict]:
@@ -77,16 +122,22 @@ def _parse_date(date_str: str) -> str | None:
 class DataTransformer:
     """Transform raw data to formats required by each database."""
 
-    def __init__(self, collected_at: str | None = None):
+    def __init__(
+        self,
+        collected_at: str | None = None,
+        access_control: dict | None = None,
+    ):
         """
         Initialize transformer.
 
         Args:
             collected_at: Default timestamp for collected_at fields.
+            access_control: Optional access_control dict to embed in all outputs.
         """
         self.collected_at = collected_at or datetime.now(timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
+        self.access_control = access_control
 
     def to_postgres_rows(
         self, task_type: str, symbol: str, content: Any, as_of_date: str
@@ -895,3 +946,107 @@ class DataTransformer:
                 "collected_at": self.collected_at,
             }
         ]
+
+    def fund_to_milvus_doc(self, symbol: str, fund_data: dict) -> list[dict]:
+        """
+        Generate Milvus documents from fund data for semantic search.
+
+        Creates a searchable document combining fund name, category, holdings,
+        sector allocation, and other key information.
+
+        Args:
+            symbol: Fund symbol.
+            fund_data: Fund data dictionary.
+
+        Returns:
+            List of document dicts for Milvus indexing.
+        """
+        if not fund_data or not isinstance(fund_data, dict):
+            return []
+
+        docs = []
+
+        name = fund_data.get("name", "")
+        category = fund_data.get("category", "")
+        index_tracked = fund_data.get("index") or fund_data.get("index_tracked", "")
+        fund_type = fund_data.get("fund_type", "")
+        investment_style = fund_data.get("investment_style", "")
+        total_assets = fund_data.get("total_assets_billion")
+        expense_ratio = fund_data.get("expense_ratio")
+        manager = fund_data.get("manager", "")
+
+        parts = [f"{name} ({symbol})"]
+        if category:
+            parts.append(f"Category: {category}")
+        if index_tracked:
+            parts.append(f"Tracks: {index_tracked}")
+        if fund_type:
+            parts.append(f"Type: {fund_type}")
+        if investment_style:
+            parts.append(f"Style: {investment_style}")
+        if manager:
+            parts.append(f"Manager: {manager}")
+        if total_assets:
+            parts.append(f"Assets: ${total_assets}B")
+        if expense_ratio is not None:
+            parts.append(f"Expense Ratio: {expense_ratio*100:.2f}%")
+
+        perf = fund_data.get("performance", {})
+        if perf:
+            perf_parts = []
+            if perf.get("return_1yr"):
+                perf_parts.append(f"1Y: {perf['return_1yr']*100:.1f}%")
+            if perf.get("return_3yr"):
+                perf_parts.append(f"3Y: {perf['return_3yr']*100:.1f}%")
+            if perf.get("return_5yr"):
+                perf_parts.append(f"5Y: {perf['return_5yr']*100:.1f}%")
+            if perf_parts:
+                parts.append(f"Returns: {', '.join(perf_parts)}")
+
+        risk = fund_data.get("risk_metrics", {})
+        if risk:
+            risk_parts = []
+            if risk.get("beta"):
+                risk_parts.append(f"Beta: {risk['beta']}")
+            if risk.get("sharpe_ratio"):
+                risk_parts.append(f"Sharpe: {risk['sharpe_ratio']}")
+            if risk_parts:
+                parts.append(f"Risk: {', '.join(risk_parts)}")
+
+        holdings = fund_data.get("top_10_holdings", [])
+        if holdings:
+            holding_names = [h.get("name", h.get("symbol", "")) for h in holdings[:5]]
+            holding_names = [h for h in holding_names if h]
+            if holding_names:
+                parts.append(f"Top holdings: {', '.join(holding_names)}")
+
+        sectors = fund_data.get("sector_allocation") or fund_data.get("sector_distribution", {})
+        if sectors and isinstance(sectors, dict):
+            top_sectors = sorted(sectors.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0, reverse=True)[:3]
+            sector_names = [s[0] for s in top_sectors]
+            if sector_names:
+                parts.append(f"Top sectors: {', '.join(sector_names)}")
+
+        flows = fund_data.get("fund_flows_2025", {})
+        if flows:
+            note = flows.get("note", "")
+            if note:
+                parts.append(f"Note: {note}")
+
+        content = ". ".join(parts)
+        if len(content) < 30:
+            return []
+
+        doc = {
+            "id": f"{symbol}-fund-profile-{uuid.uuid4().hex[:8]}",
+            "content": content[:65000],
+            "symbol": symbol,
+            "doc_type": "fund_profile",
+            "source": "fund_data",
+            "published_at": "",
+            "collected_at": self.collected_at,
+        }
+        doc = _add_access_control_to_milvus_doc(doc, self.access_control)
+        docs.append(doc)
+
+        return docs

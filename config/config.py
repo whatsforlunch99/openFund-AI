@@ -32,6 +32,15 @@ class Config:
         planner_sufficiency_threshold: Planner sufficiency threshold (default 0.6).
         analyst_confidence_threshold: Analyst confidence threshold (default 0.6).
         responder_confidence_threshold: Responder confidence threshold (default 0.75).
+        permission_enabled: Enable/disable permission checks (default False).
+        permission_default_classification: Default classification for untagged data.
+        permission_policy_file: Path to custom policy JSON file.
+        permission_audit_enabled: Enable access audit logging.
+        permission_audit_file: Path to audit log file.
+        permission_cache_ttl: Policy cache TTL in seconds.
+        jwt_secret_key: Secret for JWT validation (production auth).
+        jwt_algorithm: JWT algorithm (default HS256).
+        jwt_audience: Expected JWT audience claim.
     """
 
     milvus_uri: str = ""
@@ -56,6 +65,15 @@ class Config:
     planner_sufficiency_threshold: float = 0.6
     analyst_confidence_threshold: float = 0.6
     responder_confidence_threshold: float = 0.75
+    permission_enabled: bool = False
+    permission_default_classification: str = "PUBLIC"
+    permission_policy_file: str = ""
+    permission_audit_enabled: bool = False
+    permission_audit_file: str = "logs/access.log"
+    permission_cache_ttl: int = 300
+    jwt_secret_key: str = ""
+    jwt_algorithm: str = "HS256"
+    jwt_audience: str = "openfund-ai"
 
 
 def load_config() -> Config:
@@ -122,4 +140,13 @@ def load_config() -> Config:
         planner_sufficiency_threshold=_float("PLANNER_SUFFICIENCY_THRESHOLD", 0.6),
         analyst_confidence_threshold=_float("ANALYST_CONFIDENCE_THRESHOLD", 0.6),
         responder_confidence_threshold=_float("RESPONDER_CONFIDENCE_THRESHOLD", 0.75),
+        permission_enabled=_bool("PERMISSION_ENABLED", False),
+        permission_default_classification=os.getenv("PERMISSION_DEFAULT_CLASSIFICATION", "PUBLIC"),
+        permission_policy_file=os.getenv("PERMISSION_POLICY_FILE", ""),
+        permission_audit_enabled=_bool("PERMISSION_AUDIT_ENABLED", False),
+        permission_audit_file=os.getenv("PERMISSION_AUDIT_FILE", "logs/access.log"),
+        permission_cache_ttl=_int("PERMISSION_CACHE_TTL", 300),
+        jwt_secret_key=os.getenv("JWT_SECRET_KEY", ""),
+        jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
+        jwt_audience=os.getenv("JWT_AUDIENCE", "openfund-ai"),
     )

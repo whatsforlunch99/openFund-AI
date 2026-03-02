@@ -81,12 +81,6 @@ COLLECTION_TASKS: list[CollectionTask] = [
         output_filename=lambda s, d: f"{s}_news_{d}.json",
     ),
     CollectionTask(
-        task_type="info",
-        tool_name="market_tool.get_ticker_info",
-        payload_builder=lambda s, d: {"symbol": s},
-        output_filename=lambda s, d: f"{s}_info_{d}.json",
-    ),
-    CollectionTask(
         task_type="indicators",
         tool_name="analyst_tool.get_indicators",
         payload_builder=lambda s, d: {
@@ -124,3 +118,10 @@ def get_task_by_type(task_type: str) -> CollectionTask | None:
 def get_enabled_tasks() -> list[CollectionTask]:
     """Return all enabled collection tasks."""
     return [t for t in COLLECTION_TASKS if t.enabled]
+
+
+def get_active_tool_names() -> set[str]:
+    """Return MCP tool names currently allowed for DataCollector task execution."""
+    names = {task.tool_name for task in COLLECTION_TASKS}
+    names.add(GLOBAL_NEWS_TASK.tool_name)
+    return names

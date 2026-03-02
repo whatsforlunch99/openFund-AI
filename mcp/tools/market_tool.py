@@ -145,6 +145,18 @@ def _filter_csv_by_date_range(csv_data: str, start_date: str, end_date: str) -> 
         return csv_data
 
 
+def _alpha_vantage_information_message(raw: str) -> str | None:
+    """Return Alpha Vantage 'Information' message when present in a JSON response body."""
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    info = parsed.get("Information")
+    return info if isinstance(info, str) and info.strip() else None
+
+
 def _now_iso() -> str:
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -219,11 +231,61 @@ def get_stock_data_av(symbol: str, start_date: str, end_date: str) -> dict:
     """
     try:
         out = _av_stock_csv(symbol, start_date, end_date)
+        info = _alpha_vantage_information_message(out)
+        if info:
+            return _wrap_content(f"Market data unavailable for {symbol}: {info}")
         return _wrap_content(out)
     except AlphaVantageRateLimitError:
         raise
     except Exception as e:
         logger.exception("get_stock_data_av failed")
+        return {"error": str(e)}
+
+
+def get_fundamentals_av(symbol: str) -> dict:
+    """Company overview/fundamentals (Alpha Vantage)."""
+    try:
+        out = _make_api_request("OVERVIEW", {"symbol": symbol})
+        info = _alpha_vantage_information_message(out)
+        if info:
+            return _wrap_content(f"Fundamentals unavailable for {symbol}: {info}")
+        return _wrap_content(out)
+    except AlphaVantageRateLimitError:
+        raise
+    except Exception as e:
+        logger.exception("get_fundamentals_av failed")
+        return {"error": str(e)}
+
+
+def get_fundamentals_finnhub(symbol: str) -> dict:
+    """Company profile + basic metrics (Finnhub)."""
+    try:
+        symbol = (symbol or "").strip().upper()
+        if not symbol:
+            return {"error": "Missing required 'symbol'"}
+        key = get_finnhub_api_key()
+        profile_resp = requests.get(
+            f"{FINNHUB_BASE}/stock/profile2",
+            params={"symbol": symbol, "token": key},
+            timeout=30,
+        )
+        profile_resp.raise_for_status()
+        metric_resp = requests.get(
+            f"{FINNHUB_BASE}/stock/metric",
+            params={"symbol": symbol, "metric": "all", "token": key},
+            timeout=30,
+        )
+        metric_resp.raise_for_status()
+        payload = {
+            "symbol": symbol,
+            "profile": profile_resp.json(),
+            "metric": metric_resp.json(),
+        }
+        return _wrap_content(json.dumps(payload))
+    except ValueError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        logger.exception("get_fundamentals_finnhub failed")
         return {"error": str(e)}
 
 
@@ -417,6 +479,17 @@ def _route_stock_data(symbol: str, start_date: str, end_date: str) -> dict:
         return {"error": f"Market data unavailable: {e}"}
 
 
+def _route_fundamentals(symbol: str) -> dict:
+    """Route get_fundamentals to configured vendor."""
+    if get_market_vendor() == "finnhub" and _has_finnhub_key():
+        return get_fundamentals_finnhub(symbol)
+    try:
+        return get_fundamentals_av(symbol)
+    except Exception as e:
+        logger.debug("Alpha Vantage fundamentals failed: %s", e)
+        return {"error": f"Fundamentals unavailable: {e}"}
+
+
 def _route_balance_sheet(symbol: str, freq: str) -> dict:
     """Route get_balance_sheet to configured vendor."""
     try:
@@ -476,5 +549,3 @@ def _route_insider_transactions(symbol: str) -> dict:
     except Exception as e:
         logger.debug("Alpha Vantage insider transactions failed: %s", e)
         return {"error": f"Insider transactions unavailable: {e}"}
-
-

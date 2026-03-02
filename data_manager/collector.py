@@ -13,13 +13,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from mcp.tools import market_tool, analyst_tool
+from mcp.mcp_client import MCPClient
+from mcp.mcp_server import MCPServer
 from data_manager.tasks import (
     CollectionTask,
-    COLLECTION_TASKS,
     GLOBAL_NEWS_TASK,
     get_task_by_type,
     get_enabled_tasks,
+    get_active_tool_names,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,14 +51,21 @@ class BatchResult:
 class DataCollector:
     """Collect data from MCP tools and save to local files."""
 
-    def __init__(self, data_dir: str = "datasets/raw"):
+    def __init__(self, data_dir: str = "datasets/raw", mcp_client: MCPClient | None = None):
         """
         Initialize DataCollector.
 
         Args:
             data_dir: Root directory for raw data files.
+            mcp_client: Optional MCP client; when omitted, uses default local MCP server registry.
         """
         self.data_dir = data_dir
+        self._active_tool_names = get_active_tool_names()
+        if mcp_client is None:
+            server = MCPServer()
+            server.register_default_tools()
+            mcp_client = MCPClient(server)
+        self.mcp_client = mcp_client
         os.makedirs(data_dir, exist_ok=True)
 
     def _get_symbol_dir(self, symbol: str) -> str:
@@ -77,75 +85,17 @@ class DataCollector:
         Returns:
             Tool response dict (contains "content" or "error").
         """
-        module_name, func_name = tool_name.split(".", 1)
-
-        if module_name == "market_tool":
-            return self._call_market_tool(func_name, payload)
-        elif module_name == "analyst_tool":
-            return self._call_analyst_tool(func_name, payload)
-        else:
-            return {"error": f"Unknown tool module: {module_name}"}
-
-    def _call_market_tool(self, func_name: str, payload: dict) -> dict:
-        """Call a market_tool function."""
-        func_map = {
-            "get_stock_data": lambda p: market_tool._route_stock_data(
-                p["symbol"], p["start_date"], p["end_date"]
-            ),
-            "get_fundamentals": lambda p: market_tool._route_fundamentals(p["symbol"]),
-            "get_balance_sheet": lambda p: market_tool._route_balance_sheet(
-                p["symbol"], p.get("freq", "quarterly")
-            ),
-            "get_cashflow": lambda p: market_tool._route_cashflow(
-                p["symbol"], p.get("freq", "quarterly")
-            ),
-            "get_income_statement": lambda p: market_tool._route_income_statement(
-                p["symbol"], p.get("freq", "quarterly")
-            ),
-            "get_insider_transactions": lambda p: market_tool._route_insider_transactions(
-                p["symbol"]
-            ),
-            "get_news": lambda p: market_tool._route_news(
-                p["symbol"],
-                p.get("limit", 20),
-                p.get("start_date"),
-                p.get("end_date"),
-            ),
-            "get_global_news": lambda p: market_tool._route_global_news(
-                p["as_of_date"],
-                p.get("look_back_days", 7),
-                p.get("limit", 50),
-            ),
-            "get_ticker_info": lambda p: market_tool.get_ticker_info(p["symbol"]),
-        }
-
-        if func_name not in func_map:
-            return {"error": f"Unknown market_tool function: {func_name}"}
-
+        if tool_name not in self._active_tool_names:
+            return {
+                "error": (
+                    f"Tool '{tool_name}' is not an active DataCollector API. "
+                    "Use one of the task-defined MCP tools."
+                )
+            }
         try:
-            return func_map[func_name](payload)
+            return self.mcp_client.call_tool(tool_name, payload)
         except Exception as e:
-            logger.exception("market_tool.%s failed", func_name)
-            return {"error": str(e)}
-
-    def _call_analyst_tool(self, func_name: str, payload: dict) -> dict:
-        """Call an analyst_tool function."""
-        func_map = {
-            "get_indicators": lambda p: analyst_tool._route_indicators(
-                p["symbol"],
-                p["indicator"],
-                p["as_of_date"],
-                p.get("look_back_days", 30),
-            ),
-        }
-
-        if func_name not in func_map:
-            return {"error": f"Unknown analyst_tool function: {func_name}"}
-
-        try:
-            return func_map[func_name](payload)
-        except Exception as e:
-            logger.exception("analyst_tool.%s failed", func_name)
+            logger.exception("MCP call failed for %s", tool_name)
             return {"error": str(e)}
 
     def _save_to_file(
@@ -266,8 +216,14 @@ class DataCollector:
         result = CollectionResult(symbol=symbol, as_of_date=as_of_date)
 
         if task_types:
-            tasks = [get_task_by_type(t) for t in task_types]
-            tasks = [t for t in tasks if t is not None]
+            tasks = []
+            for task_type in task_types:
+                task = get_task_by_type(task_type)
+                if task is None:
+                    result.failed.append(task_type)
+                    result.errors[task_type] = f"Unknown or unsupported task type: {task_type}"
+                    continue
+                tasks.append(task)
         else:
             tasks = get_enabled_tasks()
 

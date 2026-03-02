@@ -219,6 +219,12 @@ class MCPServer:
         if market_tool is not None:
             # Vendor-routed tools (alpha_vantage or finnhub via config)
             self.register_tool(
+                "market_tool.get_fundamentals",
+                lambda p: market_tool._route_fundamentals(
+                    p.get("symbol") or p.get("ticker") or ""
+                ),
+            )
+            self.register_tool(
                 "market_tool.get_stock_data",
                 lambda p: market_tool._route_stock_data(
                     p.get("symbol") or p.get("ticker") or "",

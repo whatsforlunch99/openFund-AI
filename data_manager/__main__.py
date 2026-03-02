@@ -18,6 +18,7 @@ import sys
 from datetime import datetime
 
 from config.config import load_config
+from data_manager.backend_cli import add_backend_subcommands
 from data_manager.collector import DataCollector
 from data_manager.distributor import DataDistributor
 from data_manager.tasks import COLLECTION_TASKS
@@ -221,12 +222,12 @@ def cmd_distribute(args: argparse.Namespace) -> int:
         return 0 if result.success else 1
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point."""
     load_config()
     parser = argparse.ArgumentParser(
         prog="data_manager",
-        description="Collect fund/stock data from MCP tools and save to local files.",
+        description="OpenFund-AI data management: collect/distribute data and run backend maintenance commands.",
     )
     parser.add_argument(
         "--data-dir",
@@ -235,6 +236,7 @@ def main() -> int:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    add_backend_subcommands(subparsers)
 
     # collect command
     collect_parser = subparsers.add_parser(
@@ -336,7 +338,11 @@ def main() -> int:
         help="Directory for failed files (default: datasets/failed)",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+
+    func = getattr(args, "func", None)
+    if callable(func):
+        return func(args)
 
     if args.command == "collect":
         return cmd_collect(args)

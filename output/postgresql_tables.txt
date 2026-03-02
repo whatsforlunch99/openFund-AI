@@ -1,0 +1,382 @@
+PostgreSQL Data Export (table format)
+===================================
+
+TABLE: public.company_fundamentals
+ROWS: 0
++----+--------+------------+------+--------+----------+------------+----------+------------+-----------+---------------+---------+----------------+------+---------------------+--------------------+--------------+
+| id | symbol | as_of_date | name | sector | industry | market_cap | pe_ratio | forward_pe | peg_ratio | price_to_book | eps_ttm | dividend_yield | beta | fifty_two_week_high | fifty_two_week_low | collected_at |
++----+--------+------------+------+--------+----------+------------+----------+------------+-----------+---------------+---------+----------------+------+---------------------+--------------------+--------------+
++----+--------+------------+------+--------+----------+------------+----------+------------+-----------+---------------+---------+----------------+------+---------------------+--------------------+--------------+
+
+TABLE: public.financial_statements
+ROWS: 0
++----+--------+----------------+-------------+---------------+-----------+-------+--------------+
+| id | symbol | statement_type | report_date | fiscal_period | line_item | value | collected_at |
++----+--------+----------------+-------------+---------------+-----------+-------+--------------+
++----+--------+----------------+-------------+---------------+-----------+-------+--------------+
+
+TABLE: public.fund_flows
+ROWS: 3
++----+--------+--------+----------------+-----------------+------------------+------------+------------+---------------------+
+| id | symbol | period | inflow_billion | outflow_billion | net_flow_billion | pct_of_aum | as_of_date | collected_at        |
++----+--------+--------+----------------+-----------------+------------------+------------+------------+---------------------+
+| 1  | VOO    | 2025   | 137.7000       | NULL            | NULL             | 0.250000   | 2025-02-28 | 2026-02-28 00:00:00 |
+| 2  | SPY    | 2025   | NULL           | NULL            | NULL             | NULL       | 2025-02-28 | 2026-02-28 00:00:00 |
+| 3  | QQQ    | 2025   | NULL           | NULL            | NULL             | NULL       | 2025-02-28 | 2026-02-28 00:00:00 |
++----+--------+--------+----------------+-----------------+------------------+------------+------------+---------------------+
+
+TABLE: public.fund_holdings
+ROWS: 141
++-----+-------------+----------------+------------------------------------+----------+------------------------+------------+---------------------+
+| id  | fund_symbol | holding_symbol | holding_name                       | weight   | sector                 | as_of_date | collected_at        |
++-----+-------------+----------------+------------------------------------+----------+------------------------+------------+---------------------+
+| 3   | VOO         | NVDA           | NVIDIA Corporation                 | 0.055000 | Technology             | 2025-02-28 | 2026-02-28 00:00:00 |
+| 4   | VOO         | AMZN           | Amazon.com Inc.                    | 0.038000 | Consumer Discretionary | 2025-02-28 | 2026-02-28 00:00:00 |
+| 5   | VOO         | META           | Meta Platforms Inc.                | 0.028000 | Communication Services | 2025-02-28 | 2026-02-28 00:00:00 |
+| 6   | VOO         | GOOGL          | Alphabet Inc. Class A              | 0.024000 | Communication Services | 2025-02-28 | 2026-02-28 00:00:00 |
+| 7   | VOO         | GOOG           | Alphabet Inc. Class C              | 0.023000 | Communication Services | 2025-02-28 | 2026-02-28 00:00:00 |
+| 8   | VOO         | BRK.B          | Berkshire Hathaway                 | 0.020000 | Financials             | 2025-02-28 | 2026-02-28 00:00:00 |
+| 9   | VOO         | AVGO           | Broadcom Inc.                      | 0.019000 | Technology             | 2025-02-28 | 2026-02-28 00:00:00 |
+| 10  | VOO         | TSLA           | Tesla Inc.                         | 0.018000 | Consumer Discretionary | 2025-02-28 | 2026-02-28 00:00:00 |
+| 11  | QQQ         | AAPL           | Apple Inc.                         | 0.088000 | Technology             | 2025-02-28 | 2026-02-28 00:00:00 |
+| 12  | QQQ         | MSFT           | Microsoft Corporation              | 0.082000 | Technology             | 2025-02-28 | 2026-02-28 00:00:00 |
+| 13  | QQQ         | NVDA           | NVIDIA Corporation                 | 0.078000 | Technology             | 2025-02-28 | 2026-02-28 00:00:00 |
+| 14  | QQQ         | AMZN           | Amazon.com Inc.                    | 0.052000 | Consumer Discretionary | 2025-02-28 | 2026-02-28 00:00:00 |
+| 15  | QQQ         | AVGO           | Broadcom Inc.                      | 0.048000 | Technology             | 2025-02-28 | 2026-02-28 00:00:00 |
+| 16  | QQQ         | META           | Meta Platforms Inc.                | 0.046000 | Communication Services | 2025-02-28 | 2026-02-28 00:00:00 |
+| 17  | QQQ         | TSLA           | Tesla Inc.                         | 0.038000 | Consumer Discretionary | 2025-02-28 | 2026-02-28 00:00:00 |
+| 18  | QQQ         | GOOGL          | Alphabet Inc. Class A              | 0.032000 | Communication Services | 2025-02-28 | 2026-02-28 00:00:00 |
+| 19  | QQQ         | GOOG           | Alphabet Inc. Class C              | 0.030000 | Communication Services | 2025-02-28 | 2026-02-28 00:00:00 |
+| 20  | QQQ         | COST           | Costco Wholesale                   | 0.025000 | Consumer Staples       | 2025-02-28 | 2026-02-28 00:00:00 |
+| 42  | VWO         | 700.HK         | Tencent Holdings Ltd.              | 0.038000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 1   | VOO         | AAPL           | Apple Inc.                         | 0.072000 | Technology             | 2025-02-28 | 2026-02-28 00:00:00 |
+| 63  | VGT         | MSFT           | Microsoft Corporation              | 0.120000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 64  | VGT         | AVGO           | Broadcom Inc.                      | 0.060000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 65  | VGT         | ORCL           | Oracle Corporation                 | 0.040000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 66  | VGT         | CRM            | Salesforce Inc.                    | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 67  | VGT         | AMD            | Advanced Micro Devices             | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 68  | VGT         | ADBE           | Adobe Inc.                         | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 69  | VGT         | CSCO           | Cisco Systems Inc.                 | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 70  | VGT         | INTC           | Intel Corporation                  | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 91  | XLK         | NVDA           | NVIDIA Corporation                 | 0.150000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 72  | XLV         | UNH            | UnitedHealth Group                 | 0.100000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 73  | XLV         | JNJ            | Johnson & Johnson                  | 0.080000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 74  | XLV         | ABBV           | AbbVie Inc.                        | 0.060000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 75  | XLV         | MRK            | Merck & Co. Inc.                   | 0.060000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 76  | XLV         | PFE            | Pfizer Inc.                        | 0.040000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 77  | XLV         | TMO            | Thermo Fisher Scientific           | 0.040000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 78  | XLV         | ABT            | Abbott Laboratories                | 0.040000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 79  | XLV         | DHR            | Danaher Corporation                | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 80  | XLV         | BMY            | Bristol-Myers Squibb               | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 111 | IBB         | AMGN           | Amgen Inc.                         | 0.080000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 61  | VGT         | NVDA           | NVIDIA Corporation                 | 0.180000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 53  | VTV         | XOM            | Exxon Mobil Corporation            | 0.028000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 54  | VTV         | WMT            | Walmart Inc.                       | 0.025000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 55  | VTV         | JNJ            | Johnson & Johnson                  | 0.024000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 56  | VTV         | ORCL           | Oracle Corporation                 | 0.022000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 57  | VTV         | PG             | Procter & Gamble Co.               | 0.021000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 58  | VTV         | HD             | Home Depot Inc.                    | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 59  | VTV         | CVX            | Chevron Corporation                | 0.019000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 60  | VTV         | MRK            | Merck & Co. Inc.                   | 0.018000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 41  | VWO         | TSM            | Taiwan Semiconductor Manufacturing | 0.095000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 62  | VGT         | AAPL           | Apple Inc.                         | 0.140000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 43  | VWO         | BABA           | Alibaba Group Holding              | 0.028000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 44  | VWO         | 005930.KS      | Samsung Electronics                | 0.025000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 45  | VWO         | 3690.HK        | Meituan                            | 0.015000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 46  | VWO         | RELIANCE.NS    | Reliance Industries                | 0.014000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 47  | VWO         | HDFC.NS        | HDFC Bank                          | 0.011000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 48  | VWO         | PDD            | PDD Holdings Inc.                  | 0.010000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 49  | VWO         | INFY           | Infosys Ltd.                       | 0.009000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 50  | VWO         | JD             | JD.com Inc.                        | 0.008000 | Consumer Discretionary | 2025-02-28 | 2026-02-28 00:00:00 |
+| 2   | VOO         | MSFT           | Microsoft Corporation              | 0.065000 | Technology             | 2025-02-28 | 2026-02-28 00:00:00 |
+| 52  | VTV         | BRK.B          | Berkshire Hathaway Inc.            | 0.032000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 92  | XLK         | AAPL           | Apple Inc.                         | 0.140000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 93  | XLK         | MSFT           | Microsoft Corporation              | 0.130000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 94  | XLK         | AVGO           | Broadcom Inc.                      | 0.050000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 95  | XLK         | ORCL           | Oracle Corporation                 | 0.040000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 96  | XLK         | CRM            | Salesforce Inc.                    | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 97  | XLK         | AMD            | Advanced Micro Devices             | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 98  | XLK         | ADBE           | Adobe Inc.                         | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 99  | XLK         | CSCO           | Cisco Systems Inc.                 | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 100 | XLK         | ACN            | Accenture PLC                      | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 71  | XLV         | LLY            | Eli Lilly and Company              | 0.120000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 112 | IBB         | GILD           | Gilead Sciences Inc.               | 0.070000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 113 | IBB         | VRTX           | Vertex Pharmaceuticals             | 0.060000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 114 | IBB         | REGN           | Regeneron Pharmaceuticals          | 0.050000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 115 | IBB         | MRNA           | Moderna Inc.                       | 0.040000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 116 | IBB         | BIIB           | Biogen Inc.                        | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 117 | IBB         | ILMN           | Illumina Inc.                      | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 118 | IBB         | SGEN           | Seagen Inc.                        | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 119 | IBB         | ALNY           | Alnylam Pharmaceuticals            | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 120 | IBB         | BMRN           | BioMarin Pharmaceutical            | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 121 | XLF         | JPM            | JPMorgan Chase & Co.               | 0.120000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 122 | XLF         | BRK.B          | Berkshire Hathaway Inc.            | 0.110000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 123 | XLF         | V              | Visa Inc.                          | 0.080000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 124 | XLF         | MA             | Mastercard Inc.                    | 0.060000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 125 | XLF         | BAC            | Bank of America Corp.              | 0.050000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 126 | XLF         | WFC            | Wells Fargo & Company              | 0.040000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 127 | XLF         | GS             | Goldman Sachs Group                | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 51  | VTV         | JPM            | JPMorgan Chase & Co.               | 0.035000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 128 | XLF         | MS             | Morgan Stanley                     | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 129 | XLF         | SCHW           | Charles Schwab Corp.               | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 130 | XLF         | AXP            | American Express Co.               | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 131 | FXAIX       | AAPL           | Apple Inc.                         | 0.072000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 132 | FXAIX       | MSFT           | Microsoft Corporation              | 0.065000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 133 | FXAIX       | NVDA           | NVIDIA Corporation                 | 0.055000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 134 | FXAIX       | AMZN           | Amazon.com Inc.                    | 0.038000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 135 | FXAIX       | META           | Meta Platforms Inc.                | 0.028000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 136 | FXAIX       | GOOGL          | Alphabet Inc. Class A              | 0.024000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 137 | FXAIX       | GOOG           | Alphabet Inc. Class C              | 0.023000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 138 | FXAIX       | BRK.B          | Berkshire Hathaway Inc.            | 0.020000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 139 | FXAIX       | AVGO           | Broadcom Inc.                      | 0.019000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 140 | FXAIX       | TSLA           | Tesla Inc.                         | 0.018000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 141 | FCNTX       | META           | Meta Platforms Inc.                | 0.100000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 142 | FCNTX       | AMZN           | Amazon.com Inc.                    | 0.080000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 143 | FCNTX       | NVDA           | NVIDIA Corporation                 | 0.070000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 144 | FCNTX       | MSFT           | Microsoft Corporation              | 0.060000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 145 | FCNTX       | GOOGL          | Alphabet Inc.                      | 0.050000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 146 | FCNTX       | BRK.A          | Berkshire Hathaway                 | 0.040000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 147 | FCNTX       | LLY            | Eli Lilly and Company              | 0.040000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 148 | FCNTX       | JPM            | JPMorgan Chase & Co.               | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 149 | FCNTX       | V              | Visa Inc.                          | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 150 | FCNTX       | UNH            | UnitedHealth Group                 | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 151 | VUG         | NVDA           | NVIDIA Corporation                 | 0.136000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 152 | VUG         | AAPL           | Apple Inc.                         | 0.121000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 153 | VUG         | MSFT           | Microsoft Corporation              | 0.092000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 154 | VUG         | AMZN           | Amazon.com Inc.                    | 0.065000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 155 | VUG         | META           | Meta Platforms Inc.                | 0.048000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 156 | VUG         | GOOGL          | Alphabet Inc. Class A              | 0.042000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 157 | VUG         | GOOG           | Alphabet Inc. Class C              | 0.038000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 158 | VUG         | TSLA           | Tesla Inc.                         | 0.032000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 159 | VUG         | LLY            | Eli Lilly and Company              | 0.028000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 160 | VUG         | AVGO           | Broadcom Inc.                      | 0.025000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 171 | SCHD        | HD             | Home Depot Inc.                    | 0.045000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 172 | SCHD        | VZ             | Verizon Communications             | 0.042000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 173 | SCHD        | TXN            | Texas Instruments                  | 0.040000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 174 | SCHD        | PEP            | PepsiCo Inc.                       | 0.038000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 175 | SCHD        | AMGN           | Amgen Inc.                         | 0.035000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 176 | SCHD        | CSCO           | Cisco Systems Inc.                 | 0.033000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 177 | SCHD        | BMY            | Bristol-Myers Squibb               | 0.032000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 178 | SCHD        | KO             | Coca-Cola Company                  | 0.030000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 179 | SCHD        | CVX            | Chevron Corporation                | 0.028000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 180 | SCHD        | LMT            | Lockheed Martin Corp.              | 0.026000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 181 | VXUS        | TSM            | Taiwan Semiconductor Manufacturing | 0.029000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 182 | VXUS        | 700.HK         | Tencent Holdings Ltd.              | 0.012700 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 183 | VXUS        | ASML           | ASML Holding NV                    | 0.010800 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 184 | VXUS        | BABA           | Alibaba Group Holding              | 0.009100 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 185 | VXUS        | NVO            | Novo Nordisk A/S                   | 0.008500 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 186 | VXUS        | SAP            | SAP SE                             | 0.007800 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 187 | VXUS        | TM             | Toyota Motor Corp.                 | 0.007200 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 188 | VXUS        | SHEL           | Shell PLC                          | 0.006800 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 189 | VXUS        | AZN            | AstraZeneca PLC                    | 0.006500 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 190 | VXUS        | NESN           | Nestle SA                          | 0.006200 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
+| 197 | VWO         | 9988.HK        | Alibaba Group (HK)                 | 0.012000 |                        | 2025-02-28 | 2026-02-28 00:00:00 |
++-----+-------------+----------------+------------------------------------+----------+------------------------+------------+---------------------+
+
+TABLE: public.fund_info
+ROWS: 50
++----+--------+-----------------------------------------------+------------------------------------+-------------------------------------------------+---------------------------+----------------------+---------------+----------------+----------------+------------+---------------------+
+| id | symbol | name                                          | category                           | index_tracked                                   | investment_style          | total_assets_billion | expense_ratio | dividend_yield | holdings_count | as_of_date | collected_at        |
++----+--------+-----------------------------------------------+------------------------------------+-------------------------------------------------+---------------------------+----------------------+---------------+----------------+----------------+------------+---------------------+
+| 30 | VHT    | Vanguard Health Care ETF                      | Healthcare                         | NULL                                            | NULL                      | 18.50                | 0.001000      | 0.012000       | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 3  | IVV    | iShares Core S&P 500 ETF                      | NULL                               | NULL                                            | NULL                      | NULL                 | NULL          | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 37 | AGTHX  | American Funds Growth Fund of America         | Large Cap Growth                   | NULL                                            | NULL                      | 280.00               | 0.006200      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 33 | IBB    | iShares Biotechnology ETF                     | Biotechnology                      | NULL                                            | NULL                      | 6.80                 | 0.004500      | 0.002000       | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 41 | XLE    | Energy Select Sector SPDR Fund                | Energy                             | NULL                                            | Passive Index             | 38.00                | 0.000900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 27 | XLF    | Financial Select Sector SPDR Fund             | Financials                         | NULL                                            | NULL                      | 45.00                | 0.000900      | 0.015000       | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 35 | FXAIX  | Fidelity 500 Index Fund                       | Large Cap Blend                    | S&P 500                                         | NULL                      | 550.00               | 0.000150      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 36 | VFIAX  | Vanguard 500 Index Fund Admiral Shares        | Large Cap Blend                    | S&P 500                                         | NULL                      | 485.00               | 0.000400      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 19 | IWM    | iShares Russell 2000 ETF                      | Small Cap Blend                    | Russell 2000                                    | Small Cap Blend           | 73.70                | 0.001900      | 0.011300       | 1961           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 12 | VB     | Vanguard Small-Cap ETF                        | Small Cap Blend                    | CRSP US Small Cap                               | Small Cap Blend           | 153.30               | 0.000500      | 0.014000       | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 14 | VTV    | Vanguard Value ETF                            | Large Cap Value                    | CRSP US Large Cap Value                         | Large Cap Value           | 139.20               | 0.000400      | NULL           | 337            | 2025-02-28 | 2026-02-28 00:00:00 |
+| 34 | ARKK   | ARK Innovation ETF                            | Thematic/Disruptive Innovation     | NULL                                            | NULL                      | 6.50                 | 0.007500      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 55 | RYVYX  | Rydex NASDAQ-100 2x Strategy Fund             | Leveraged                          | NULL                                            | NULL                      | NULL                 | 0.017500      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 42 | XLI    | Industrial Select Sector SPDR Fund            | Industrials                        | NULL                                            | Passive Index             | 20.00                | 0.000900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 43 | XLY    | Consumer Discretionary Select Sector SPDR     | Consumer Discretionary             | NULL                                            | Passive Index             | 22.00                | 0.000900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 46 | XLRE   | Real Estate Select Sector SPDR Fund           | Real Estate                        | NULL                                            | Passive Index             | 6.50                 | 0.000900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 44 | XLP    | Consumer Staples Select Sector SPDR Fund      | Consumer Staples                   | NULL                                            | Passive Index             | 18.00                | 0.000900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 45 | XLU    | Utilities Select Sector SPDR Fund             | Utilities                          | NULL                                            | Passive Index             | 15.00                | 0.000900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 5  | VTI    | Vanguard Total Stock Market ETF               | NULL                               | NULL                                            | NULL                      | NULL                 | NULL          | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 51 | VO     | Vanguard Mid-Cap ETF                          | Mid Cap Blend                      | NULL                                            | Passive Index             | 65.00                | 0.000400      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 15 | VXUS   | Vanguard Total International Stock ETF        | International Developed & Emerging | FTSE Global All Cap ex US                       | NULL                      | 120.70               | 0.000700      | 0.025000       | 9950           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 49 | PRWCX  | T. Rowe Price Capital Appreciation Fund       | Moderate Allocation                | NULL                                            | NULL                      | 32.00                | 0.007000      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 32 | SCHV   | Schwab U.S. Large-Cap Value ETF               | Large Cap Value                    | Dow Jones U.S. Large-Cap Value                  | Large Cap Value           | 12.80                | 0.000400      | NULL           | 523            | 2025-02-28 | 2026-02-28 00:00:00 |
+| 13 | VWO    | Vanguard FTSE Emerging Markets ETF            | Emerging Markets                   | FTSE Emerging Markets All Cap China A Inclusion | NULL                      | 141.00               | 0.000800      | 0.028300       | 6146           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 22 | EFA    | iShares MSCI EAFE ETF                         | International Developed            | MSCI EAFE                                       | NULL                      | 65.00                | 0.003200      | 0.022000       | 800            | 2025-02-28 | 2026-02-28 00:00:00 |
+| 23 | IWD    | iShares Russell 1000 Value ETF                | Large Cap Value                    | Russell 1000 Value                              | Large Cap Value           | 61.90                | 0.001900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 16 | IEMG   | iShares Core MSCI Emerging Markets ETF        | Emerging Markets                   | MSCI Emerging Markets Investable Market         | NULL                      | 117.00               | 0.000900      | 0.028000       | 2725           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 26 | VEU    | Vanguard FTSE All-World ex-US ETF             | International Developed & Emerging | FTSE All-World ex US                            | NULL                      | 45.00                | 0.000700      | 0.026000       | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 21 | SCHD   | Schwab U.S. Dividend Equity ETF               | Dividend                           | Dow Jones U.S. Dividend 100                     | Large Cap Dividend        | 65.00                | 0.000600      | 0.038000       | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 11 | VUG    | Vanguard Growth ETF                           | Large Cap Growth                   | CRSP US Large Cap Growth                        | Large Cap Growth          | 352.00               | 0.000400      | NULL           | 160            | 2025-02-28 | 2026-02-28 00:00:00 |
+| 25 | SCHG   | Schwab U.S. Large-Cap Growth ETF              | Large Cap Growth                   | Dow Jones U.S. Large-Cap Growth                 | Large Cap Growth          | 53.00                | 0.000400      | NULL           | 198            | 2025-02-28 | 2026-02-28 00:00:00 |
+| 39 | SWPPX  | Schwab S&P 500 Index Fund                     | Large Cap Blend                    | S&P 500                                         | NULL                      | 95.00                | 0.000200      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 31 | EEM    | iShares MSCI Emerging Markets ETF             | Emerging Markets                   | MSCI Emerging Markets                           | NULL                      | 17.24                | 0.007000      | 0.024200       | 1197           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 17 | IWF    | iShares Russell 1000 Growth ETF               | Large Cap Growth                   | Russell 1000 Growth                             | Large Cap Growth          | 98.00                | 0.001900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 24 | VYM    | Vanguard High Dividend Yield ETF              | Dividend                           | FTSE High Dividend Yield                        | Large Cap Dividend        | 58.00                | 0.000600      | 0.024900       | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 38 | FCNTX  | Fidelity Contrafund                           | Large Cap Growth                   | NULL                                            | NULL                      | 140.00               | 0.003900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 29 | DGRO   | iShares Core Dividend Growth ETF              | Dividend Growth                    | Morningstar US Dividend Growth                  | Large Cap Dividend Growth | 32.00                | 0.000800      | 0.020200       | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 47 | XLB    | Materials Select Sector SPDR Fund             | Materials                          | NULL                                            | Passive Index             | 5.50                 | 0.000900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 48 | XLC    | Communication Services Select Sector SPDR     | Communication Services             | NULL                                            | Passive Index             | 18.00                | 0.000900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 50 | VIG    | Vanguard Dividend Appreciation ETF            | Dividend Growth                    | NULL                                            | Passive Index             | 85.00                | 0.000600      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 52 | VCIT   | Vanguard Intermediate-Term Corporate Bond ETF | Corporate Bond                     | NULL                                            | Passive Index             | 50.00                | 0.000400      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 53 | BND    | Vanguard Total Bond Market ETF                | Aggregate Bond                     | NULL                                            | Passive Index             | 115.00               | 0.000300      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 54 | AGG    | iShares Core U.S. Aggregate Bond ETF          | Aggregate Bond                     | NULL                                            | Passive Index             | 110.00               | 0.000300      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 1  | VOO    | Vanguard S&P 500 ETF                          | NULL                               | NULL                                            | NULL                      | NULL                 | NULL          | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 4  | QQQ    | Invesco QQQ Trust                             | NULL                               | NULL                                            | NULL                      | NULL                 | NULL          | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 2  | SPY    | SPDR S&P 500 ETF Trust                        | NULL                               | NULL                                            | NULL                      | NULL                 | NULL          | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 18 | VGT    | Vanguard Information Technology ETF           | Technology                         | NULL                                            | NULL                      | 85.00                | 0.000900      | NULL           | 320            | 2025-02-28 | 2026-02-28 00:00:00 |
+| 20 | XLK    | Technology Select Sector SPDR Fund            | Technology                         | NULL                                            | NULL                      | 72.00                | 0.000800      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 28 | XLV    | Health Care Select Sector SPDR Fund           | Healthcare                         | NULL                                            | NULL                      | 42.00                | 0.000900      | 0.013000       | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
+| 40 | TRBCX  | T. Rowe Price Blue Chip Growth Fund           | Large Cap Growth                   | NULL                                            | NULL                      | 55.00                | 0.006900      | NULL           | NULL           | 2025-02-28 | 2026-02-28 00:00:00 |
++----+--------+-----------------------------------------------+------------------------------------+-------------------------------------------------+---------------------------+----------------------+---------------+----------------+----------------+------------+---------------------+
+
+TABLE: public.fund_performance
+ROWS: 50
++----+--------+------------+------------+------------+------------+------------+-------------+---------------------+
+| id | symbol | as_of_date | ytd_return | return_1yr | return_3yr | return_5yr | return_10yr | collected_at        |
++----+--------+------------+------------+------------+------------+------------+-------------+---------------------+
+| 55 | RYVYX  | 2025-02-28 | NULL       | 0.850000   | 0.250000   | 0.350000   | NULL        | 2026-02-28 00:00:00 |
+| 18 | VGT    | 2025-02-28 | 0.217800   | 0.217800   | 0.339500   | 0.171200   | NULL        | 2026-02-28 00:00:00 |
+| 20 | XLK    | 2025-02-28 | -0.110000  | -0.002000  | 0.101000   | 0.218000   | NULL        | 2026-02-28 00:00:00 |
+| 28 | XLV    | 2025-02-28 | 0.050000   | 0.082000   | 0.114000   | 0.098000   | NULL        | 2026-02-28 00:00:00 |
+| 30 | VHT    | 2025-02-28 | 0.055000   | 0.088000   | 0.118000   | 0.102000   | NULL        | 2026-02-28 00:00:00 |
+| 33 | IBB    | 2025-02-28 | 0.020000   | 0.098000   | 0.045000   | 0.055000   | NULL        | 2026-02-28 00:00:00 |
+| 27 | XLF    | 2025-02-28 | 0.120000   | 0.220000   | 0.080000   | 0.110000   | NULL        | 2026-02-28 00:00:00 |
+| 35 | FXAIX  | 2025-02-28 | NULL       | 0.260000   | 0.120000   | 0.145100   | 0.120000    | 2026-02-28 00:00:00 |
+| 36 | VFIAX  | 2025-02-28 | NULL       | 0.260000   | 0.120000   | 0.145000   | 0.120000    | 2026-02-28 00:00:00 |
+| 39 | SWPPX  | 2025-02-28 | NULL       | 0.260000   | 0.120000   | 0.145000   | NULL        | 2026-02-28 00:00:00 |
+| 38 | FCNTX  | 2025-02-28 | NULL       | 0.320000   | 0.140000   | 0.160000   | 0.140000    | 2026-02-28 00:00:00 |
+| 40 | TRBCX  | 2025-02-28 | NULL       | 0.280000   | 0.120000   | 0.150000   | 0.140000    | 2026-02-28 00:00:00 |
+| 37 | AGTHX  | 2025-02-28 | NULL       | 0.250000   | 0.110000   | 0.140000   | 0.130000    | 2026-02-28 00:00:00 |
+| 34 | ARKK   | 2025-02-28 | NULL       | -0.100000  | -0.250000  | 0.050000   | NULL        | 2026-02-28 00:00:00 |
+| 49 | PRWCX  | 2025-02-28 | NULL       | 0.150000   | 0.080000   | 0.100000   | NULL        | 2026-02-28 00:00:00 |
+| 11 | VUG    | 2025-02-28 | 0.220000   | 0.201900   | 0.140000   | 0.180000   | NULL        | 2026-02-28 00:00:00 |
+| 25 | SCHG   | 2025-02-28 | 0.200000   | 0.178800   | 0.130000   | 0.190000   | NULL        | 2026-02-28 00:00:00 |
+| 17 | IWF    | 2025-02-28 | 0.210000   | 0.190000   | 0.130000   | 0.170000   | NULL        | 2026-02-28 00:00:00 |
+| 14 | VTV    | 2025-02-28 | 0.058500   | 0.132800   | 0.115900   | 0.138300   | NULL        | 2026-02-28 00:00:00 |
+| 32 | SCHV   | 2025-02-28 | 0.079300   | 0.162900   | 0.107800   | 0.124600   | NULL        | 2026-02-28 00:00:00 |
+| 23 | IWD    | 2025-02-28 | 0.021000   | 0.070000   | 0.065000   | 0.159000   | NULL        | 2026-02-28 00:00:00 |
+| 21 | SCHD   | 2025-02-28 | 0.080000   | 0.116600   | 0.090000   | 0.115900   | NULL        | 2026-02-28 00:00:00 |
+| 24 | VYM    | 2025-02-28 | 0.100000   | 0.176000   | 0.080000   | 0.099300   | NULL        | 2026-02-28 00:00:00 |
+| 29 | DGRO   | 2025-02-28 | 0.120000   | 0.166200   | 0.100000   | 0.130100   | NULL        | 2026-02-28 00:00:00 |
+| 19 | IWM    | 2025-02-28 | 0.126900   | 0.113500   | 0.020000   | 0.080000   | NULL        | 2026-02-28 00:00:00 |
+| 12 | VB     | 2025-02-28 | 0.030100   | 0.141700   | 0.030000   | 0.090000   | NULL        | 2026-02-28 00:00:00 |
+| 15 | VXUS   | 2025-02-28 | 0.080000   | 0.120000   | 0.040000   | 0.060000   | NULL        | 2026-02-28 00:00:00 |
+| 22 | EFA    | 2025-02-28 | 0.060000   | 0.100000   | 0.050000   | 0.070000   | NULL        | 2026-02-28 00:00:00 |
+| 26 | VEU    | 2025-02-28 | 0.070000   | 0.110000   | 0.040000   | 0.060000   | NULL        | 2026-02-28 00:00:00 |
+| 13 | VWO    | 2025-02-28 | NULL       | 0.231000   | 0.020000   | 0.050000   | NULL        | 2026-02-28 00:00:00 |
+| 16 | IEMG   | 2025-02-28 | NULL       | 0.292000   | 0.030000   | 0.060000   | NULL        | 2026-02-28 00:00:00 |
+| 1  | VOO    | 2025-02-28 | NULL       | 0.264000   | 0.116000   | 0.148000   | 0.121000    | 2026-02-28 00:00:00 |
+| 3  | IVV    | 2025-02-28 | NULL       | 0.264000   | 0.116000   | 0.147000   | 0.121000    | 2026-02-28 00:00:00 |
+| 2  | SPY    | 2025-02-28 | NULL       | 0.264000   | 0.116000   | 0.147000   | 0.120000    | 2026-02-28 00:00:00 |
+| 5  | VTI    | 2025-02-28 | NULL       | 0.258000   | 0.112000   | 0.143000   | 0.118000    | 2026-02-28 00:00:00 |
+| 4  | QQQ    | 2025-02-28 | NULL       | 0.541000   | 0.152000   | 0.198000   | 0.177000    | 2026-02-28 00:00:00 |
+| 41 | XLE    | 2025-02-28 | NULL       | 0.080000   | 0.200000   | 0.120000   | NULL        | 2026-02-28 00:00:00 |
+| 42 | XLI    | 2025-02-28 | NULL       | 0.180000   | 0.100000   | 0.130000   | NULL        | 2026-02-28 00:00:00 |
+| 43 | XLY    | 2025-02-28 | NULL       | 0.150000   | 0.070000   | 0.140000   | NULL        | 2026-02-28 00:00:00 |
+| 44 | XLP    | 2025-02-28 | NULL       | 0.120000   | 0.080000   | 0.090000   | NULL        | 2026-02-28 00:00:00 |
+| 45 | XLU    | 2025-02-28 | NULL       | 0.200000   | 0.050000   | 0.060000   | NULL        | 2026-02-28 00:00:00 |
+| 46 | XLRE   | 2025-02-28 | NULL       | 0.100000   | 0.020000   | 0.050000   | NULL        | 2026-02-28 00:00:00 |
+| 47 | XLB    | 2025-02-28 | NULL       | 0.050000   | 0.060000   | 0.100000   | NULL        | 2026-02-28 00:00:00 |
+| 48 | XLC    | 2025-02-28 | NULL       | 0.350000   | 0.100000   | 0.120000   | NULL        | 2026-02-28 00:00:00 |
+| 50 | VIG    | 2025-02-28 | NULL       | 0.150000   | 0.095000   | 0.115000   | NULL        | 2026-02-28 00:00:00 |
+| 51 | VO     | 2025-02-28 | NULL       | 0.160000   | 0.080000   | 0.120000   | NULL        | 2026-02-28 00:00:00 |
+| 52 | VCIT   | 2025-02-28 | NULL       | 0.055000   | -0.010000  | 0.020000   | NULL        | 2026-02-28 00:00:00 |
+| 53 | BND    | 2025-02-28 | NULL       | 0.045000   | -0.015000  | 0.010000   | NULL        | 2026-02-28 00:00:00 |
+| 54 | AGG    | 2025-02-28 | NULL       | 0.044000   | -0.016000  | 0.009000   | NULL        | 2026-02-28 00:00:00 |
+| 31 | EEM    | 2025-02-28 | NULL       | 0.098000   | 0.010000   | 0.040000   | NULL        | 2026-02-28 00:00:00 |
++----+--------+------------+------------+------------+------------+------------+-------------+---------------------+
+
+TABLE: public.fund_risk_metrics
+ROWS: 50
++----+--------+------------+--------+--------------------+--------------+--------------+---------------------+
+| id | symbol | as_of_date | beta   | standard_deviation | sharpe_ratio | max_drawdown | collected_at        |
++----+--------+------------+--------+--------------------+--------------+--------------+---------------------+
+| 24 | VYM    | 2025-02-28 | 0.8200 | 0.135000           | NULL         | -0.260000    | 2026-02-28 00:00:00 |
+| 29 | DGRO   | 2025-02-28 | 0.8800 | 0.140000           | NULL         | -0.270000    | 2026-02-28 00:00:00 |
+| 26 | VEU    | 2025-02-28 | 0.8400 | 0.158000           | NULL         | -0.315000    | 2026-02-28 00:00:00 |
+| 19 | IWM    | 2025-02-28 | 1.1800 | 0.220000           | NULL         | -0.400000    | 2026-02-28 00:00:00 |
+| 12 | VB     | 2025-02-28 | 1.1500 | 0.210000           | NULL         | -0.380000    | 2026-02-28 00:00:00 |
+| 15 | VXUS   | 2025-02-28 | 0.8500 | 0.160000           | NULL         | -0.320000    | 2026-02-28 00:00:00 |
+| 22 | EFA    | 2025-02-28 | 0.8200 | 0.155000           | NULL         | -0.300000    | 2026-02-28 00:00:00 |
+| 13 | VWO    | 2025-02-28 | 0.9500 | 0.200000           | NULL         | -0.420000    | 2026-02-28 00:00:00 |
+| 16 | IEMG   | 2025-02-28 | 0.9800 | 0.210000           | NULL         | -0.400000    | 2026-02-28 00:00:00 |
+| 31 | EEM    | 2025-02-28 | 0.9600 | 0.215000           | NULL         | -0.420000    | 2026-02-28 00:00:00 |
+| 39 | SWPPX  | 2025-02-28 | 1.0000 | 0.133000           | NULL         | -0.245000    | 2026-02-28 00:00:00 |
+| 41 | XLE    | 2025-02-28 | 1.3500 | 0.280000           | NULL         | -0.550000    | 2026-02-28 00:00:00 |
+| 42 | XLI    | 2025-02-28 | 1.0800 | 0.165000           | NULL         | -0.320000    | 2026-02-28 00:00:00 |
+| 1  | VOO    | 2025-02-28 | 1.0000 | 0.133000           | 1.8600       | -0.245000    | 2026-02-28 00:00:00 |
+| 3  | IVV    | 2025-02-28 | 1.0000 | 0.133000           | 1.8500       | -0.246000    | 2026-02-28 00:00:00 |
+| 2  | SPY    | 2025-02-28 | 1.0000 | 0.133000           | 1.8400       | -0.246000    | 2026-02-28 00:00:00 |
+| 5  | VTI    | 2025-02-28 | 1.0100 | 0.138000           | 1.7800       | -0.258000    | 2026-02-28 00:00:00 |
+| 4  | QQQ    | 2025-02-28 | 1.1500 | 0.183000           | 2.7600       | -0.351000    | 2026-02-28 00:00:00 |
+| 43 | XLY    | 2025-02-28 | 1.1500 | 0.200000           | NULL         | -0.380000    | 2026-02-28 00:00:00 |
+| 44 | XLP    | 2025-02-28 | 0.5800 | 0.110000           | NULL         | -0.180000    | 2026-02-28 00:00:00 |
+| 45 | XLU    | 2025-02-28 | 0.4500 | 0.155000           | NULL         | -0.280000    | 2026-02-28 00:00:00 |
+| 46 | XLRE   | 2025-02-28 | 0.8200 | 0.200000           | NULL         | -0.400000    | 2026-02-28 00:00:00 |
+| 47 | XLB    | 2025-02-28 | 1.1000 | 0.190000           | NULL         | -0.350000    | 2026-02-28 00:00:00 |
+| 48 | XLC    | 2025-02-28 | 1.1800 | 0.220000           | NULL         | -0.420000    | 2026-02-28 00:00:00 |
+| 49 | PRWCX  | 2025-02-28 | 0.6500 | 0.120000           | NULL         | -0.200000    | 2026-02-28 00:00:00 |
+| 50 | VIG    | 2025-02-28 | 0.8500 | 0.135000           | NULL         | -0.250000    | 2026-02-28 00:00:00 |
+| 51 | VO     | 2025-02-28 | 1.0500 | 0.170000           | NULL         | -0.320000    | 2026-02-28 00:00:00 |
+| 52 | VCIT   | 2025-02-28 | 0.1500 | 0.065000           | NULL         | -0.150000    | 2026-02-28 00:00:00 |
+| 53 | BND    | 2025-02-28 | 0.0800 | 0.055000           | NULL         | -0.180000    | 2026-02-28 00:00:00 |
+| 54 | AGG    | 2025-02-28 | 0.0700 | 0.054000           | NULL         | -0.182000    | 2026-02-28 00:00:00 |
+| 55 | RYVYX  | 2025-02-28 | 2.3000 | 0.380000           | NULL         | -0.750000    | 2026-02-28 00:00:00 |
+| 18 | VGT    | 2025-02-28 | 1.2500 | 0.220000           | NULL         | -0.380000    | 2026-02-28 00:00:00 |
+| 20 | XLK    | 2025-02-28 | 1.2200 | 0.210000           | NULL         | -0.350000    | 2026-02-28 00:00:00 |
+| 28 | XLV    | 2025-02-28 | 0.7200 | 0.140000           | 0.8500       | -0.220000    | 2026-02-28 00:00:00 |
+| 30 | VHT    | 2025-02-28 | 0.7000 | 0.135000           | NULL         | -0.210000    | 2026-02-28 00:00:00 |
+| 33 | IBB    | 2025-02-28 | 0.9500 | 0.240000           | NULL         | -0.450000    | 2026-02-28 00:00:00 |
+| 27 | XLF    | 2025-02-28 | 1.0500 | 0.180000           | NULL         | -0.350000    | 2026-02-28 00:00:00 |
+| 35 | FXAIX  | 2025-02-28 | 1.0000 | 0.133000           | 1.8500       | -0.245000    | 2026-02-28 00:00:00 |
+| 36 | VFIAX  | 2025-02-28 | 1.0000 | 0.133000           | 1.8400       | -0.246000    | 2026-02-28 00:00:00 |
+| 38 | FCNTX  | 2025-02-28 | 1.0500 | 0.160000           | 1.5000       | -0.300000    | 2026-02-28 00:00:00 |
+| 40 | TRBCX  | 2025-02-28 | 1.1200 | 0.180000           | NULL         | -0.350000    | 2026-02-28 00:00:00 |
+| 37 | AGTHX  | 2025-02-28 | 1.0800 | 0.165000           | NULL         | -0.320000    | 2026-02-28 00:00:00 |
+| 34 | ARKK   | 2025-02-28 | 1.8500 | 0.450000           | NULL         | -0.780000    | 2026-02-28 00:00:00 |
+| 11 | VUG    | 2025-02-28 | 1.2100 | 0.190000           | 1.6500       | -0.356100    | 2026-02-28 00:00:00 |
+| 25 | SCHG   | 2025-02-28 | 1.1700 | 0.185000           | NULL         | -0.345900    | 2026-02-28 00:00:00 |
+| 17 | IWF    | 2025-02-28 | 1.1800 | 0.188000           | NULL         | -0.350000    | 2026-02-28 00:00:00 |
+| 14 | VTV    | 2025-02-28 | 0.8800 | 0.140000           | 1.2500       | -0.280000    | 2026-02-28 00:00:00 |
+| 32 | SCHV   | 2025-02-28 | 0.9000 | 0.145000           | NULL         | -0.290000    | 2026-02-28 00:00:00 |
+| 23 | IWD    | 2025-02-28 | 0.9200 | 0.150000           | NULL         | -0.300000    | 2026-02-28 00:00:00 |
+| 21 | SCHD   | 2025-02-28 | 0.7800 | 0.130000           | 1.1000       | -0.250000    | 2026-02-28 00:00:00 |
++----+--------+------------+--------+--------------------+--------------+--------------+---------------------+
+
+TABLE: public.fund_sector_allocation
+ROWS: 0
++----+--------+--------+--------+------------+--------------+
+| id | symbol | sector | weight | as_of_date | collected_at |
++----+--------+--------+--------+------------+--------------+
++----+--------+--------+--------+------------+--------------+
+
+TABLE: public.funds
+ROWS: 1
++--------+--------------------+
+| symbol | name               |
++--------+--------------------+
+| NVDA   | NVIDIA Corporation |
++--------+--------------------+
+
+TABLE: public.insider_transactions
+ROWS: 0
++----+--------+--------------+----------+------------------+--------+-------+------------------+--------------+
+| id | symbol | insider_name | relation | transaction_type | shares | value | transaction_date | collected_at |
++----+--------+--------------+----------+------------------+--------+-------+------------------+--------------+
++----+--------+--------------+----------+------------------+--------+-------+------------------+--------------+
+
+TABLE: public.stock_ohlcv
+ROWS: 0
++----+--------+------------+------+------+-----+-------+--------+--------------+
+| id | symbol | trade_date | open | high | low | close | volume | collected_at |
++----+--------+------------+------+------+-----+-------+--------+--------------+
++----+--------+------------+------+------+-----+-------+--------+--------------+
+
+TABLE: public.technical_indicators
+ROWS: 0
++----+--------+----------------+----------------+-------+--------------+
+| id | symbol | indicator_name | indicator_date | value | collected_at |
++----+--------+----------------+----------------+-------+--------------+
++----+--------+----------------+----------------+-------+--------------+
+

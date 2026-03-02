@@ -115,12 +115,12 @@ def _run_e2e_once() -> None:
 
 
 def main() -> None:
-    """Initialize and start the OpenFund-AI stack.
+    """Initialize entry modes for OpenFund-AI.
 
-    Creates MessageBus, ConversationManager, SafetyGateway, MCP client,
-    all agents with live LLM when LLM_API_KEY is set; starts FastAPI (REST + WebSocket).
-    If --e2e-once is in sys.argv, runs one E2E conversation and exits.
-    Otherwise starts the API server (uvicorn).
+    Modes:
+    - --e2e-once: run one end-to-end conversation and exit 0.
+    - --serve: run FastAPI via uvicorn.
+    - default: load config/situation memory and log readiness only.
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -130,8 +130,6 @@ def main() -> None:
         _run_e2e_once()
         return
 
-    import uvicorn
-
     cfg = load_config()
     # Optional: load BM25 situation memory from MEMORY_STORE_PATH/situation_memory.json
     try:
@@ -140,13 +138,17 @@ def main() -> None:
         get_situation_memory(cfg.memory_store_path)
     except ImportError as e:
         logger.info("Situation memory unavailable: %s", e)
-    logger.info("OpenFund-AI starting (LLM_API_KEY required for /chat)")
-    uvicorn.run(
-        "api.rest:create_app",
-        factory=True,
-        host="0.0.0.0",
-        port=8000,
-    )
+    logger.info("OpenFund-AI ready (config loaded)")
+
+    if "--serve" in sys.argv:
+        import uvicorn
+
+        uvicorn.run(
+            "api.rest:create_app",
+            factory=True,
+            host="0.0.0.0",
+            port=8000,
+        )
 
 
 if __name__ == "__main__":

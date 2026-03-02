@@ -39,6 +39,7 @@ TOOL_DESCRIPTIONS_BY_NAME: dict[str, str] = {
     "sql_tool.export_results": "Run SQL and return JSON/CSV. Payload: query (string), params (optional), format ('json'|'csv'), row_limit (optional int).",
     "sql_tool.connection_health_check": "Test PostgreSQL connectivity. Payload: {}.",
     # market_tool
+    "market_tool.get_fundamentals": "Company fundamentals/overview (vendor-routed). Payload: symbol or ticker (string).",
     "market_tool.get_stock_data": "OHLCV historical data (vendor-routed). Payload: symbol (string), start_date (yyyy-mm-dd), end_date (yyyy-mm-dd).",
     "market_tool.get_balance_sheet": "Balance sheet (vendor-routed). Payload: ticker (string), freq (optional 'quarterly'|'annual').",
     "market_tool.get_cashflow": "Cash flow statement (vendor-routed). Payload: ticker (string), freq (optional).",
@@ -82,6 +83,7 @@ LIBRARIAN_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
 ])
 
 WEBSEARCHER_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
+    "market_tool.get_fundamentals",
     "market_tool.get_stock_data",
     "market_tool.get_balance_sheet",
     "market_tool.get_cashflow",
@@ -127,6 +129,7 @@ _LIBRARIAN_TOOL_ORDER: list[str] = [
 ]
 
 _WEBSEARCHER_TOOL_ORDER: list[str] = [
+    "market_tool.get_fundamentals",
     "market_tool.get_stock_data",
     "market_tool.get_news",
     "market_tool.get_global_news",

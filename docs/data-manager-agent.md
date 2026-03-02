@@ -52,20 +52,14 @@ DataManagerAgent is a **background data infrastructure component**, not part of 
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### Relationship with Existing `data/` Module
+### Relationship with Data CLI and MCP Tools
 
-The existing `data/` module provides basic CLI commands for data operations. DataManagerAgent extends this with agent-based orchestration:
+Data management is unified under `python -m data_manager`, including both:
 
-| Existing Module | DataManagerAgent | Relationship |
-|-----------------|------------------|--------------|
-| `data/populate.py` | `DataDistributor` | DataDistributor replaces populate.py logic with configurable, multi-source distribution |
-| `data/cli.py` | Agent message protocol | CLI remains as direct access; agent adds A2A integration |
-| `mcp/tools/*_tool.py` | DataCollector/Distributor | Agent calls existing MCP tools; no duplication |
+- collection/distribution flows (`collect`, `distribute`, `status`, `list`, `global-news`, `distribute-funds`)
+- backend maintenance commands (`populate`, `sql`, `neo4j`, `milvus`)
 
-**Migration path:**
-1. DataManagerAgent reuses `mcp/tools/sql_tool.py`, `kg_tool.py`, `vector_tool.py` for writes
-2. `data/populate.py` can be refactored to call DataDistributor internally
-3. CLI (`python -m data`) preserved for direct operations; agent for orchestrated/scheduled tasks
+DataManager components call MCP tool interfaces and follow the public tool names documented in [agent-tools-reference.md](agent-tools-reference.md). Deprecated/undocumented API names are rejected.
 
 ### Trigger Mechanisms
 
@@ -167,16 +161,15 @@ For production, use external scheduler (cron, Airflow, etc.) to trigger collecti
 
 | Data Type | MCP Tool | Function | Output File Format |
 |-----------|----------|----------|-------------------|
-| Stock Quotes | market_tool | `get_stock_data_yf` / `_route_stock_data` | `{symbol}_ohlcv_{date}.json` |
-| Company Fundamentals | market_tool | `get_fundamentals_yf` / `_route_fundamentals` | `{symbol}_fundamentals_{date}.json` |
-| Balance Sheet | market_tool | `get_balance_sheet_yf` / `_route_balance_sheet` | `{symbol}_balance_sheet_{date}.json` |
-| Cash Flow Statement | market_tool | `get_cashflow_yf` / `_route_cashflow` | `{symbol}_cashflow_{date}.json` |
-| Income Statement | market_tool | `get_income_statement_yf` / `_route_income_statement` | `{symbol}_income_{date}.json` |
-| Insider Transactions | market_tool | `get_insider_transactions_yf` / `_route_insider_transactions` | `{symbol}_insider_{date}.json` |
-| Company News | market_tool | `get_news_yf` / `_route_news` | `{symbol}_news_{date}.json` |
-| Global News | market_tool | `get_global_news_yf` / `_route_global_news` | `global_news_{date}.json` |
-| Company Info | market_tool | `get_ticker_info` | `{symbol}_info_{date}.json` |
-| Technical Indicators | analyst_tool | `get_indicators_yf` / `_route_indicators` | `{symbol}_indicators_{date}.json` |
+| Stock Quotes | market_tool | `market_tool.get_stock_data` | `{symbol}_ohlcv_{date}.json` |
+| Company Fundamentals | market_tool | `market_tool.get_fundamentals` | `{symbol}_fundamentals_{date}.json` |
+| Balance Sheet | market_tool | `market_tool.get_balance_sheet` | `{symbol}_balance_sheet_{date}.json` |
+| Cash Flow Statement | market_tool | `market_tool.get_cashflow` | `{symbol}_cashflow_{date}.json` |
+| Income Statement | market_tool | `market_tool.get_income_statement` | `{symbol}_income_{date}.json` |
+| Insider Transactions | market_tool | `market_tool.get_insider_transactions` | `{symbol}_insider_{date}.json` |
+| Company News | market_tool | `market_tool.get_news` | `{symbol}_news_{date}.json` |
+| Global News | market_tool | `market_tool.get_global_news` | `global_news_{date}.json` |
+| Technical Indicators | analyst_tool | `analyst_tool.get_indicators` | `{symbol}_indicators_{date}.json` |
 
 ### Data Collection Flow
 
@@ -213,7 +206,7 @@ class DataCollector:
 class CollectionTask:
     """Single collection task configuration."""
     task_type: str           # "stock_data" | "fundamentals" | "news" | "indicators" | ...
-    tool_name: str           # MCP tool name (e.g. "market_tool.get_stock_data_yf")
+    tool_name: str           # MCP tool name (e.g. "market_tool.get_stock_data")
     payload_builder: Callable[[str, str], dict]  # (symbol, as_of_date) -> payload
     output_filename: Callable[[str, str], str]   # (symbol, as_of_date) -> filename
 
@@ -251,7 +244,7 @@ Each collected file is JSON containing metadata and raw content:
     "symbol": "NVDA",
     "task_type": "fundamentals",
     "collected_at": "2024-01-15T10:30:00Z",
-    "source": "market_tool.get_fundamentals_yf",
+    "source": "market_tool.get_fundamentals",
     "as_of_date": "2024-01-15"
   },
   "content": {

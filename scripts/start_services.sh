@@ -90,5 +90,5 @@ if [[ -f "$ROOT/scripts/start_backends.py" ]]; then
 fi
 
 echo ""
-echo "==> Next: python -m data populate   then   python -m demo   or   python main.py --demo"
+echo "==> Next: python -m data populate   then   python -m demo   (optional: python -m demo --ensure-data)"
 echo ""

@@ -1,63 +1,86 @@
 # Demo Mode
 
-The demo runs the full flow with **backend services** (PostgreSQL, Neo4j, Milvus) and **static LLM** (no API key). All demo-related code lives under the **demo/** package.
+The demo runs the **full stack** with **real data**, **real API calls**, and **real LLM** from `.env`. There are no static stubs or `OPENFUND_DEMO`; the API uses live MCP tools and a live LLM for decomposition and answers.
 
-## Single entry: run the demo
+## What runs in the demo
 
-**Recommended:** From the project root run `./demo/run.sh`. First run: it creates `.env` and runs install; edit `.env` (NEO4J_PASSWORD etc.) and run again. Every run: starts backends, seeds data, then `python -m demo`. Alternative: run backends and `python -m data populate` yourself, then `python -m demo`.
+- **API:** Started by `python -m demo`; uses real `MCPClient` and real `get_llm_client(config)`. Planner and specialist agents use the LLM for task decomposition and tool selection.
+- **Backends:** PostgreSQL, Neo4j, and Milvus are used when `DATABASE_URL`, `NEO4J_URI`, and `MILVUS_URI` are set in `.env`. SQL, KG, and vector tools run against these backends.
+- **Market / analyst:** Market and analyst tools call real external APIs (Alpha Vantage, Finnhub, etc.) when the corresponding API keys are set in `.env`.
+- **LLM:** Required. Set `LLM_API_KEY` in `.env`; optionally `LLM_BASE_URL` and `LLM_MODEL` (e.g. for DeepSeek).
 
+## Prerequisites
 
-## What runs in demo mode
+- **Required:** `LLM_API_KEY` in `.env` (see `.env.example`). Install LLM extra: `pip install -e ".[llm]"`.
+- **For rich answers:** `DATABASE_URL`, `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `MILVUS_URI` so the app can query PostgreSQL, Neo4j, and Milvus.
+- **For market/analyst data:** `ALPHA_VANTAGE_API_KEY`, `FINNHUB_API_KEY` (optional but recommended).
 
-- **API:** When the demo entry point runs, it starts the app with `OPENFUND_DEMO=1`, so the app uses `demo.demo_client.DemoMCPClient`. The planner uses a fixed three-step decomposition (no LLM).
-- **Backends:** SQL, KG, and vector tools use **real** PostgreSQL, Neo4j, and Milvus when `DATABASE_URL`, `NEO4J_URI`, or `MILVUS_URI` are set (e.g. after `python -m data populate`). When those env vars are not set, those tools return static data from `DEMO_RESPONSES`.
-- **Static data:** File, market, and analyst tools **always** return static data (no Tavily, Yahoo, or Analyst API calls).
-- **GET /demo:** Returns `{"demo": true}` when the server is in demo mode; the CLI uses this to show a "Demo mode" message.
+## First-time data load
 
-## Package layout
+Load data into the backends once before or when running the demo:
 
-| File | Purpose |
-|------|---------|
-| **demo/run.sh** | Single entry: first-time setup (install backends, .env), start services, seed data, run `python -m demo`. Run from project root. |
-| `demo/__main__.py` | `python -m demo` — starts API in demo mode in the background, waits for readiness, runs the chat client; stops the server on quit. |
-| `demo/demo_data.py` | Static response dicts per tool name (file_tool.read_file, vector_tool.search, market_tool.*, etc.). |
-| `demo/demo_client.py` | `DemoMCPClient.call_tool(tool_name, payload)`: uses real sql/kg/vector when DATABASE_URL/NEO4J_URI/MILVUS_URI are set; file, market, analyst always static. |
-| `demo/demo_chat.py` | CLI: prompt name → POST /register → chat loop (POST /chat), prints flow and response. |
+1. **NVDA-style seed (optional):**  
+   `python -m data populate`  
+   Seeds demo-style data for SQL, KG, and vector tools.
 
-See [file-structure.md](file-structure.md#demo) for module contracts.
+2. **Fund data (optional):**  
+   `PYTHONPATH=. python -m data_manager distribute-funds --funds-dir datasets/funds`  
+   Loads fund JSON files from `datasets/funds` into PostgreSQL and Neo4j.
+
+3. **Or use --ensure-data:**  
+   `python -m demo --ensure-data`  
+   Runs the fund distribution above automatically before starting the API, then starts the demo.
+
+## Run the demo
+
+From the project root:
+
+```bash
+python -m demo
+```
+
+Optional: load fund data into backends before starting:
+
+```bash
+python -m demo --ensure-data
+```
+
+Alternative: start the API yourself, then run the chat client:
+
+```bash
+python main.py
+# In another terminal:
+python -m demo.demo_chat --base-url http://localhost:8000
+```
+
+Package layout and module contracts: see [file-structure.md](file-structure.md#demo).
 
 ## Troubleshooting
 
-- **`.env` location:** `python -m data populate` and the API load `.env` from the **project root** (the folder that contains `data/` and `demo/`). Run commands from the project root or ensure `.env` is there.
-- **Variable names:** In `.env` use `DATABASE_URL`, `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `MILVUS_URI`. No spaces around `=`.
-- **Populate first:** Run `python -m data populate` once before running the demo; if a backend is skipped, its env var is missing or not loaded.
+- **`.env` location:** The API and `python -m data populate` / `python -m data_manager` load `.env` from the **project root** (the folder that contains `config/`, `data/`, and `demo/`). Run commands from the project root or ensure `.env` is there.
+- **Variable names:** In `.env` use `DATABASE_URL`, `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `MILVUS_URI`, `LLM_API_KEY`. No spaces around `=`.
+- **LLM required:** If the API fails to start with "LLM is required", set `LLM_API_KEY` in `.env` and install `pip install -e ".[llm]"`.
+- **Populate / distribute:** Run `python -m data populate` and/or `python -m data_manager distribute-funds --funds-dir datasets/funds` once so backends have data; or use `python -m demo --ensure-data`.
 - **Driver not installed:** Install backend drivers: `pip install -e ".[backends]"`.
-- **Connection failed:** PostgreSQL, Neo4j, and Milvus must be **running** on the host/port in `.env`. Start them (e.g. `./scripts/start_services.sh` or Docker), then run populate again.
+- **Connection failed:** PostgreSQL, Neo4j, and Milvus must be **running** on the host/port in `.env`. Start them (e.g. `./scripts/start_services.sh` or Docker), then run populate/distribute again.
 - **Start backends:** Run `python scripts/start_backends.py` or `./scripts/start_services.sh` to check or start services.
 
 ### First-time backend setup
 
 - **PostgreSQL: "role \"user\" does not exist"**  
-  Homebrew Postgres on macOS uses your **OS username** as the default superuser, not `user`. In `.env` set:
+  Homebrew Postgres on macOS uses your **OS username** as the default superuser. In `.env` set:
   ```bash
   DATABASE_URL=postgresql://YOUR_MAC_USERNAME@localhost:5432/openfund
   ```
   (Replace `YOUR_MAC_USERNAME` with the output of `whoami`.) Create the database if needed:
   ```bash
-  # If createdb is not found, add Postgres to PATH then run createdb:
-  export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"   # or postgresql@15, postgresql
+  export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
   createdb openfund
-  # Or run the project script (tries common paths for you):
-  ./scripts/create_db.sh
+  # Or: ./scripts/create_db.sh
   ```
 
 - **Neo4j: "Unsupported authentication token, missing key 'credentials'"**  
-  Set `NEO4J_USER=neo4j` and `NEO4J_PASSWORD` to the password you configured in Neo4j. If you never set one, set it (e.g. in Neo4j Browser at http://localhost:7474 on first run, or via Neo4j docs for your install).
+  Set `NEO4J_USER=neo4j` and `NEO4J_PASSWORD` to the password you configured in Neo4j (e.g. in Neo4j Browser at http://localhost:7474).
 
 - **Milvus: "Fail connecting to server on localhost:19530"**  
-  The default `docker run milvusdb/milvus:latest` does **not** start the Milvus server (the image runs `tini` with no command). Use the project script instead:
-  ```bash
-  ./scripts/start_milvus.sh
-  ```
-  That runs Milvus with embedded etcd and the correct `milvus run standalone` command. Wait ~30–60 seconds, then run `python -m data populate`.  
-  To reuse an existing container: `docker start milvus-standalone`.
+  Use the project script: `./scripts/start_milvus.sh`. Wait ~30–60 seconds, then run `python -m data populate` or `python -m demo --ensure-data`. To reuse a container: `docker start milvus-standalone`.

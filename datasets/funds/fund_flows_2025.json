@@ -1,0 +1,133 @@
+{
+  "metadata": {
+    "description": "ETF and Mutual Fund Flow Data - Quarterly Inflows/Outflows",
+    "as_of_date": "2025-02-28",
+    "data_sources": ["ETF.com", "Fidelity", "Morningstar", "ICI"],
+    "last_updated": "2026-02-28"
+  },
+  "annual_summary_2025": {
+    "total_etf_inflows_trillion": 1.49,
+    "previous_year_comparison": {
+      "2024_total_trillion": 1.12,
+      "yoy_growth_pct": 0.33
+    },
+    "record_notes": "2025 set new annual record, surpassing 2024's $1.12T"
+  },
+  "monthly_flows_2025": {
+    "december_2025": {
+      "total_inflows_billion": 225.3,
+      "note": "New monthly record"
+    },
+    "october_2025": {
+      "total_inflows_billion": 118.0,
+      "top_etf_inflows": [
+        {"symbol": "VOO", "inflow_billion": 17.74},
+        {"symbol": "SPY", "inflow_billion": 7.40},
+        {"symbol": "QQQ", "inflow_billion": 6.93}
+      ]
+    }
+  },
+  "asset_class_flows_2025": {
+    "us_equity_etfs_billion": 650,
+    "us_fixed_income_billion": 330.6,
+    "international_equity_billion": 270,
+    "gold_etfs_billion": 47.6,
+    "notes": "Equity ETFs outpaced fixed income for 9 consecutive quarters"
+  },
+  "top_fund_flows_2025": [
+    {
+      "symbol": "VOO",
+      "name": "Vanguard S&P 500 ETF",
+      "annual_inflow_billion": 137.7,
+      "pct_of_total_etf_flows": 0.25,
+      "aum_change_pct": 0.20,
+      "note": "Largest annual inflow ever recorded for a single ETF"
+    },
+    {
+      "symbol": "IVV",
+      "name": "iShares Core S&P 500 ETF",
+      "annual_inflow_billion": 45.0,
+      "aum_change_pct": 0.07
+    },
+    {
+      "symbol": "VTI",
+      "name": "Vanguard Total Stock Market ETF",
+      "annual_inflow_billion": 38.0,
+      "aum_change_pct": 0.08
+    },
+    {
+      "symbol": "QQQ",
+      "name": "Invesco QQQ Trust",
+      "annual_inflow_billion": 17.0,
+      "aum_change_pct": 0.05,
+      "note": "AI-fueled Nasdaq-100 momentum driving inflows"
+    },
+    {
+      "symbol": "SPY",
+      "name": "SPDR S&P 500 ETF Trust",
+      "annual_inflow_billion": 12.0,
+      "aum_change_pct": 0.02,
+      "note": "Lower relative inflows but highest trading liquidity"
+    }
+  ],
+  "sector_specific_flows": {
+    "technology_etfs": {
+      "quarterly_flow_trend": "positive",
+      "q4_2025_inflow_billion": 18.5,
+      "top_recipients": [
+        {"symbol": "VGT", "quarterly_inflow_billion": 5.2},
+        {"symbol": "XLK", "quarterly_inflow_billion": 3.8},
+        {"symbol": "QQQ", "quarterly_inflow_billion": 4.5}
+      ],
+      "driver": "AI and semiconductor growth"
+    },
+    "healthcare_etfs": {
+      "quarterly_flow_trend": "neutral",
+      "q4_2025_inflow_billion": 2.8,
+      "top_recipients": [
+        {"symbol": "XLV", "quarterly_inflow_billion": 1.5},
+        {"symbol": "VHT", "quarterly_inflow_billion": 0.8},
+        {"symbol": "IBB", "quarterly_inflow_billion": 0.5}
+      ],
+      "driver": "GLP-1 drug manufacturers and managed care"
+    },
+    "financials_etfs": {
+      "quarterly_flow_trend": "positive",
+      "q4_2025_inflow_billion": 4.2,
+      "top_recipients": [
+        {"symbol": "XLF", "quarterly_inflow_billion": 2.1}
+      ],
+      "driver": "Higher interest rate environment"
+    }
+  },
+  "emerging_markets_flows": {
+    "july_2024_inflow_billion": 36.5,
+    "note": "Highest monthly EM inflow since January 2024",
+    "top_performers": ["Taiwan", "India"],
+    "top_recipients": [
+      {"symbol": "VWO", "note": "Broad EM exposure"},
+      {"symbol": "IEMG", "note": "Core EM exposure"}
+    ]
+  },
+  "outflow_trends": {
+    "categories_with_outflows": [
+      {
+        "category": "High-Yield Bond ETFs",
+        "q4_2025_outflow_billion": -2.5,
+        "reason": "Risk-off sentiment and rate uncertainty"
+      },
+      {
+        "category": "Leveraged/Inverse ETFs",
+        "q4_2025_outflow_billion": -1.8,
+        "reason": "Reduced volatility trading"
+      }
+    ]
+  },
+  "quarterly_comparison": {
+    "q1_2025_billion": 320,
+    "q2_2025_billion": 285,
+    "q3_2025_billion": 310,
+    "q4_2025_billion": 575,
+    "note": "Q4 driven by year-end rebalancing and tax optimization"
+  }
+}

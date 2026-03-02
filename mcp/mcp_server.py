@@ -227,12 +227,6 @@ class MCPServer:
                 ),
             )
             self.register_tool(
-                "market_tool.get_fundamentals",
-                lambda p: market_tool._route_fundamentals(
-                    p.get("ticker") or p.get("symbol") or ""
-                ),
-            )
-            self.register_tool(
                 "market_tool.get_balance_sheet",
                 lambda p: market_tool._route_balance_sheet(
                     p.get("ticker") or p.get("symbol") or "",
@@ -278,20 +272,6 @@ class MCPServer:
                 "market_tool.get_insider_transactions",
                 lambda p: market_tool._route_insider_transactions(
                     p.get("ticker") or p.get("symbol") or ""
-                ),
-            )
-            self.register_tool(
-                "market_tool.get_ticker_info",
-                lambda p: market_tool.get_ticker_info(
-                    p.get("symbol") or p.get("ticker") or ""
-                ),
-            )
-            self.register_tool(
-                "market_tool.get_stock_analytics",
-                lambda p: market_tool.get_stock_analytics(
-                    p.get("symbol") or p.get("ticker") or "",
-                    p.get("start_date") or "",
-                    p.get("end_date") or "",
                 ),
             )
         analyst_tool: Any | None = None

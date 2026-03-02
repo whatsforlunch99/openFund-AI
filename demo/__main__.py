@@ -2,9 +2,12 @@
 
 Usage:
   python -m demo
+  python -m demo --ensure-data
 
 Starts the API server in the background, waits for it to be ready, then runs
-the interactive chat. Ensure LLM_API_KEY is set in .env. Type quit/exit to stop.
+the interactive chat. Uses real data, real API calls, and real LLM from .env.
+Use --ensure-data to load datasets/funds into PostgreSQL/Neo4j before starting.
+Type quit/exit to stop.
 """
 
 from __future__ import annotations
@@ -40,11 +43,37 @@ def _wait_for_server(base_url: str, timeout_seconds: float = 30) -> bool:
 
 
 def main() -> int:
+    # Ensure project root is on path and load .env first
+    if _PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, _PROJECT_ROOT)
+    from config.config import load_config
+
+    load_config()
+
+    # Parse our flags (do not pass to server or chat)
+    ensure_data = "--ensure-data" in sys.argv
     base_url = "http://localhost:8000"
     if "--base-url" in sys.argv:
         i = sys.argv.index("--base-url")
         if i + 1 < len(sys.argv):
             base_url = sys.argv[i + 1].rstrip("/")
+
+    if ensure_data:
+        funds_dir = os.path.join(_PROJECT_ROOT, "datasets", "funds")
+        if os.path.isdir(funds_dir):
+            print("Loading fund data into backends...")
+            try:
+                from data_manager.distributor import DataDistributor
+
+                dist = DataDistributor()
+                batch = dist.distribute_funds_dir(funds_dir)
+                print(
+                    f"  PostgreSQL: {batch.postgres_rows} rows, Neo4j: {batch.neo4j_nodes} nodes, {batch.neo4j_edges} edges."
+                )
+            except Exception as e:
+                print(f"  Warning: could not load fund data: {e}", file=sys.stderr)
+        else:
+            print("  datasets/funds not found; skipping.", file=sys.stderr)
 
     print("Starting API...")
     proc = subprocess.Popen(

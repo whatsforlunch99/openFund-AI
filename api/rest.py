@@ -147,7 +147,8 @@ def create_app(
                     "LLM is required. Set LLM_API_KEY in .env and install: pip install openfund-ai[llm]. See README."
                 ) from e
         planner = PlannerAgent(
-            "planner", bus, llm_client=llm_client, conversation_manager=manager
+            "planner", bus, llm_client=llm_client, conversation_manager=manager,
+            max_research_rounds=cfg.max_research_rounds,
         )
         librarian = LibrarianAgent(
             "librarian",
@@ -169,6 +170,7 @@ def create_app(
             mcp_client=mcp_client,
             conversation_manager=manager,
             llm_client=llm_client,
+            analyst_confidence_threshold=cfg.analyst_confidence_threshold,
         )
         responder = ResponderAgent(
             "responder",

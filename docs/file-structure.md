@@ -15,7 +15,8 @@ OpenFund-AI/
 │   ├── librarian_agent.py
 │   ├── websearch_agent.py
 │   ├── analyst_agent.py
-│   └── responder_agent.py
+│   ├── responder_agent.py
+│   └── data_manager_agent.py  # Background data collection/distribution agent
 ├── a2a/
 │   ├── __init__.py
 │   ├── acl_message.py
@@ -38,6 +39,20 @@ OpenFund-AI/
 │   ├── cli.py            # CLI: populate, sql, neo4j, milvus index/delete
 │   ├── env_loader.py      # load_dotenv from project root
 │   └── populate.py       # Orchestrator: load .env, call sql/kg/vector_tool.populate_demo()
+├── data_manager/              # Agent-based data collection/distribution (see data-manager-agent.md)
+│   ├── __init__.py
+│   ├── __main__.py            # Entry point for python -m data_manager
+│   ├── collector.py           # DataCollector: fetch from market_tool/analyst_tool, save to files
+│   ├── distributor.py         # DataDistributor: read files, write to sql/kg/vector_tool
+│   ├── classifier.py          # DataClassifier: route data to appropriate database
+│   ├── transformer.py         # DataTransformer: convert to PG rows / Neo4j nodes / Milvus docs
+│   ├── tasks.py               # CollectionTask definitions and COLLECTION_TASKS registry
+│   └── schemas.py             # Database schema definitions (SQL DDL, Cypher patterns)
+├── datasets/                     # Data files collected by DataManagerAgent
+│   ├── funds/                    # Static fund data files (JSON)
+│   ├── raw/                      # Raw collected JSON files (per symbol, gitignored)
+│   ├── processed/                # Successfully distributed files (gitignored)
+│   └── failed/                   # Failed collection/distribution records (gitignored)
 ├── scripts/
 │   ├── install_backends.sh   # Install Homebrew, Postgres, Neo4j, .env, pip [backends]
 │   ├── start_services.sh     # Start Postgres, Neo4j, Milvus (loads .env)
@@ -91,10 +106,14 @@ OpenFund-AI/
     ├── backend.md
     ├── frontend.md
     ├── file-structure.md
-    ├── backend-tools-design.md   # Suggested MCP tool functions and community-common patterns (Neo4j, Postgres, Milvus)
+    ├── agent-tools-reference.md   # MCP tool payloads and per-agent tool lists
+    ├── data-manager-agent.md     # Data Manager Agent design: data collection + distribution to DBs
+    ├── fund-data-schema.md       # Fund data schema: JSON field definitions and DB mapping
     ├── test_plan.md
     ├── progress.md
-    └── project-status.md
+    ├── project-status.md
+    ├── demo.md                   # How to run demo and troubleshoot
+    └── use-case-trace-beginner.md   # Step-by-step function trace for one beginner request
 ```
 
 ---
@@ -571,15 +590,13 @@ result = planner.resolve_conflicts({"librarian": d1, "analyst": d2})
 
 # agents/librarian_agent.py
 
-**Purpose:** Retrieve structured data from knowledge graph, vector DB, SQL, and files via MCP. When receiving a REQUEST from the Planner, uses an LLM (when available) with a system prompt and tool descriptions (see [agent-tools-reference.md](agent-tools-reference.md)) to decide which tools to call and with what parameters; executes those tool calls via mcp_client.call_tool, then combines results and sends INFORM (and optionally an LLM-generated summary). If no LLM is available, falls back to content-key-based dispatch (path, vector_query, fund, sql_query).
+**Purpose:** Retrieve structured data from knowledge graph, vector DB, SQL, and files via MCP. Tool selection may use LLM (see [backend.md](backend.md)); otherwise content-key dispatch. Tool list: [agent-tools-reference.md](agent-tools-reference.md).
 
 ---
 
 ## Class: `LibrarianAgent(BaseAgent)`
 
-**Purpose:** Retrieve documents and knowledge-graph data via MCP only; no direct DB access. When handling a REQUEST from the Planner, uses an LLM (prompt + tool descriptions) to choose which tools to call and with what parameters, then executes those calls and combines results. Tool descriptions come from [agent-tools-reference.md](agent-tools-reference.md) or an equivalent programmatic list.
-
-**Constructor:** Accepts optional `llm_client` (LLMClient). When set, the agent may use it for tool selection (prompt + tool descriptions → tool calls) and/or for summarizing combined result (complete(LIBRARIAN_SYSTEM, get_librarian_user_content(query, combined_data))) adding `summary` to INFORM content; when not set, behavior uses content-key dispatch.
+**Purpose:** Retrieve documents and knowledge-graph data via MCP only; no direct DB access. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](agent-tools-reference.md).
 
 **Docstring:** `Retrieves structured data from knowledge graph and vector database. Uses MCP vector_tool (Milvus) and kg_tool (Neo4j); does not access databases directly.`
 
@@ -587,11 +604,7 @@ result = planner.resolve_conflicts({"librarian": d1, "analyst": d2})
 
 ## Method: `LibrarianAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Process data retrieval requests. When llm_client is available: use LLM with prompt and tool descriptions to decide which tools to call and with what parameters; execute those tool calls via mcp_client.call_tool(tool_name, payload); combine results; optionally add LLM summary to reply; send INFORM to reply_to. When only path is provided or no LLM, reply uses content-key dispatch (file_tool path, vector_tool vector_query, kg_tool fund/entity, sql_tool sql_query) and sends INFORM to reply_to (backward compat).
-
-**Docstring:** `Process data retrieval requests. When LLM is available: uses prompt and tool descriptions to select tools and parameters, executes via call_tool, combines results, sends INFORM. Otherwise dispatches per content keys (path, vector_query, fund, entity, sql_query); combines results and sends INFORM to reply_to.`
-
-**Docstring:** `Process data retrieval requests. Dispatches to file_tool (path), vector_tool (vector_query), kg_tool (fund/entity), sql_tool (sql_query) per content; combines results and sends INFORM to reply_to. Content may include path, vector_query, fund, entity, sql_query, top_k, sql_params.`
+**Purpose:** Process data retrieval requests; dispatch via MCP (tool selection may use LLM per [backend.md](backend.md)); combine results and send INFORM to reply_to.
 
 ---
 
@@ -636,15 +649,13 @@ combined = agent.combine_results(docs, graph_data)
 
 # agents/websearch_agent.py
 
-**Purpose:** Fetch real-time market, sentiment, and regulatory data via MCP market_tool (Tavily + Yahoo). When receiving a REQUEST from the Planner, uses an LLM (when available) with a system prompt and tool descriptions (see [agent-tools-reference.md](agent-tools-reference.md)) to decide which tools to call and with what parameters; executes those tool calls via mcp_client.call_tool, then sends INFORM with timestamp (and optionally an LLM-generated summary). If no LLM is available, falls back to content-based dispatch (fetch_market_data, fetch_sentiment, fetch_regulatory). All returned data must include a timestamp.
+**Purpose:** Fetch real-time market, sentiment, and regulatory data via MCP market_tool. Tool selection may use LLM (see [backend.md](backend.md)); otherwise content-based dispatch. All returned data includes a timestamp. Tool list: [agent-tools-reference.md](agent-tools-reference.md).
 
 ---
 
 ## Class: `WebSearcherAgent(BaseAgent)`
 
-**Purpose:** Fetches real-time market and regulatory information via MCP. When handling a REQUEST from the Planner, uses an LLM (prompt + tool descriptions) to choose which tools to call and with what parameters, then executes those calls. Tool descriptions come from [agent-tools-reference.md](agent-tools-reference.md) or an equivalent programmatic list.
-
-**Constructor:** Accepts optional `llm_client` (LLMClient). When set, the agent may use it for tool selection (prompt + tool descriptions → tool calls) and/or for summarizing fetched data (complete(WEBSEARCHER_SYSTEM, get_websearcher_user_content(query, fetched_data))) adding `summary` to INFORM content; when not set, behavior uses content-based dispatch.
+**Purpose:** Fetches real-time market and regulatory information via MCP. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](agent-tools-reference.md).
 
 **Docstring:** `Fetches real-time market and regulatory information. Uses MCP market_tool (Tavily + Yahoo APIs). All returned data must include a timestamp.`
 
@@ -652,7 +663,7 @@ combined = agent.combine_results(docs, graph_data)
 
 ## Method: `WebSearcherAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Process requests. When llm_client is available: use LLM with prompt and tool descriptions to decide which tools to call and with what parameters; execute those tool calls via mcp_client.call_tool(tool_name, payload); optionally add LLM summary to reply; send INFORM with timestamp in content. Otherwise: call fetch_market_data / fetch_sentiment / fetch_regulatory via MCP and send INFORM with timestamp in content.
+**Purpose:** Process market/sentiment/regulatory requests; dispatch via MCP (tool selection may use LLM per [backend.md](backend.md)); send INFORM with timestamp in content.
 
 **Docstring:** `Process market/sentiment/regulatory requests. When LLM is available: uses prompt and tool descriptions to select tools and parameters, executes via call_tool, sends INFORM. Otherwise fetches via MCP and sends INFORM with timestamp. Args: message: The received ACL message.`
 
@@ -690,15 +701,13 @@ assert "timestamp" in data
 
 # agents/analyst_agent.py
 
-**Purpose:** Run quantitative analysis (e.g. Sharpe, max drawdown, Monte Carlo) using MCP analyst_tool (custom API) or local helpers. When receiving a REQUEST from the Planner, uses an LLM (when available) with a system prompt and tool descriptions (see [agent-tools-reference.md](agent-tools-reference.md)) to decide which tools to call and with what parameters; executes those tool calls, then runs analyze() on gathered data and sends INFORM to Planner (or refinement request if needs_more_data). If no LLM is available, receives structured_data and market_data from content and calls analyze. Planner sends consolidated data to Responder when sufficient.
+**Purpose:** Run quantitative analysis (e.g. Sharpe, max drawdown, Monte Carlo) using MCP analyst_tool or local helpers. Tool selection may use LLM (see [backend.md](backend.md)); otherwise uses structured_data and market_data from message. Sends INFORM or refinement request. Tool list: [agent-tools-reference.md](agent-tools-reference.md).
 
 ---
 
 ## Class: `AnalystAgent(BaseAgent)`
 
-**Purpose:** Performs quantitative reasoning and uncertainty estimation via MCP and local helpers. When handling a REQUEST from the Planner, uses an LLM (prompt + tool descriptions) to choose which tools to call and with what parameters, then executes those calls. Tool descriptions come from [agent-tools-reference.md](agent-tools-reference.md) or an equivalent programmatic list.
-
-**Constructor:** Accepts optional `llm_client` (LLMClient). When set, the agent may use it for tool selection (prompt + tool descriptions → tool calls) and/or for summarizing analysis (complete(ANALYST_SYSTEM, get_analyst_user_content(structured_data, market_data))) adding `summary` to INFORM content; when not set, behavior uses content-based data (structured_data, market_data from message).
+**Purpose:** Performs quantitative reasoning and uncertainty estimation via MCP and local helpers. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](agent-tools-reference.md).
 
 **Docstring:** `Performs quantitative reasoning and uncertainty estimation. Uses MCP analyst_tool (custom API) for heavy quant; may use local helpers for sharpe_ratio, max_drawdown, monte_carlo_simulation.`
 
@@ -706,9 +715,7 @@ assert "timestamp" in data
 
 ## Method: `AnalystAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Process analysis requests. When llm_client is available: use LLM with prompt and tool descriptions to decide which tools to call and with what parameters; execute those tool calls via mcp_client.call_tool(tool_name, payload); combine results and call analyze(); optionally add LLM summary to result; send INFORM to Planner (or refinement request if needs_more_data). Otherwise: receive structured_data and market_data from content; call analyze; when llm_client is set, call LLM to produce analysis summary and add it to result; send INFORM to Planner (or refinement request if needs_more_data).
-
-**Purpose:** Process analysis requests. When llm_client is available: use LLM with prompt and tool descriptions to decide which tools to call and with what parameters; execute those tool calls via mcp_client.call_tool(tool_name, payload); combine results and call analyze(); optionally add LLM summary to result; send INFORM to Planner (or refinement request if needs_more_data). Otherwise: receive structured_data and market_data from content; call analyze; when llm_client is set, call LLM to produce analysis summary and add it to result; send INFORM to Planner (or refinement request if needs_more_data).
+**Purpose:** Process analysis requests; dispatch via MCP (tool selection may use LLM per [backend.md](backend.md)) or use structured_data/market_data from content; call analyze(); send INFORM or refinement request to Planner.
 
 **Docstring:** `Process analysis requests. When LLM is available: uses prompt and tool descriptions to select tools and parameters, executes via call_tool, then analyze(); sends INFORM or refinement request. Otherwise receives structured_data and market_data, calls analyze; if needs_more_data sends refinement request else sends result to Planner (INFORM). Args: message: The received ACL message.`
 
@@ -772,6 +779,10 @@ sr = agent.sharpe_ratio([0.01, -0.02, 0.015], 0.02)
 
 ## Class: `ResponderAgent(BaseAgent)`
 
+**Purpose:** Evaluates sufficiency, formats response via OutputRail, enforces compliance; only this agent may trigger STOP. See [backend.md](backend.md).
+
+**Constructor:** Accepts optional `llm_client` (LLMClient). When set, handle_message uses llm_client.complete(RESPONDER_SYSTEM, user_content) to format the final answer before compliance check; otherwise uses OutputRail.format_for_user.
+
 **Docstring:** `Evaluates sufficiency and terminates or continues the research loop. Uses OutputRail for compliance check and user-profile formatting. Only this agent may trigger STOP.`
 
 **Constructor:** Accepts optional `llm_client` (LLMClient). When set, handle_message uses llm_client.complete(RESPONDER_SYSTEM, user_content) to format the final answer before compliance check; otherwise uses OutputRail.format_for_user.
@@ -780,7 +791,7 @@ sr = agent.sharpe_ratio([0.01, -0.02, 0.015], 0.02)
 
 ## Method: `ResponderAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** On INFORM with final_response and conversation_id, get user_profile from content. If llm_client is set, format via llm_client.complete(RESPONDER_SYSTEM, get_responder_user_content(...)); else format via OutputRail.format_for_user. Then check_compliance, register reply and broadcast STOP (Slice 8). Phase 2: evaluate_confidence, should_terminate, format_response, request_refinement not yet implemented.
+**Purpose:** On INFORM with final_response: format via LLM or OutputRail, check_compliance, register_reply, broadcast STOP. See [backend.md](backend.md).
 
 **Docstring:** `On INFORM with final_response and conversation_id: get user_profile from content, format via OutputRail.format_for_user, check_compliance, register_reply, broadcast_stop. Args: message: The received ACL message (expected INFORM with final_response).`
 
@@ -942,7 +953,7 @@ state = get_conversation("uuid-here")
 
 # data/
 
-**Purpose:** CLI entry point for backend data services. Create, update, and delete data in PostgreSQL, Neo4j, and Milvus. Run with `python -m data` (requires `pip install -e ".[backends]"` and corresponding env vars in `.env`). **Populate:** `python -m data populate` seeds all configured backends with demo data (NVDA/NVIDIA) matching `demo.demo_data`; the orchestrator is [data/populate.py](data/populate.py); backend logic lives in [mcp/tools/sql_tool.py](mcp/tools/sql_tool.py), [mcp/tools/kg_tool.py](mcp/tools/kg_tool.py), and [mcp/tools/vector_tool.py](mcp/tools/vector_tool.py) (`populate_demo`). See [docs/backend-tools-design.md](backend-tools-design.md) for suggested named helpers and community-common tool patterns.
+**Purpose:** CLI entry point for backend data services. Create, update, and delete data in PostgreSQL, Neo4j, and Milvus. Run with `python -m data` (requires `pip install -e ".[backends]"` and corresponding env vars in `.env`). **Populate:** `python -m data populate` seeds all configured backends with demo data (NVDA/NVIDIA) matching `demo.demo_data`; the orchestrator is [data/populate.py](data/populate.py); backend logic lives in [mcp/tools/sql_tool.py](mcp/tools/sql_tool.py), [mcp/tools/kg_tool.py](mcp/tools/kg_tool.py), and [mcp/tools/vector_tool.py](mcp/tools/vector_tool.py) (`populate_demo`).
 
 ---
 
@@ -973,6 +984,129 @@ state = get_conversation("uuid-here")
 ## data/__main__.py
 
 **Purpose:** Entry point for `python -m data`; calls `data.cli.main()`.
+
+---
+
+# data_manager/
+
+**Purpose:** Agent-based data collection and distribution. Background infrastructure for fetching market data via MCP tools and distributing to PostgreSQL, Neo4j, and Milvus. Extends `data/` module with A2A integration and configurable collection tasks. See [data-manager-agent.md](data-manager-agent.md) for full design.
+
+**Relationship with `data/` module:**
+- `data/` provides direct CLI access (`python -m data sql`, `python -m data populate`)
+- `data_manager/` provides agent-based orchestration (scheduled, on-demand via Planner REQUEST)
+- Both use the same underlying `mcp/tools/*_tool.py` for database operations
+
+---
+
+## data_manager/collector.py
+
+**Purpose:** Fetch data from MCP market_tool and analyst_tool, save as structured JSON files locally.
+
+**Class:** `DataCollector`
+
+**Methods:**
+- `collect_symbol(symbol: str, as_of_date: str) -> CollectionResult` — Collect all data for a single symbol
+- `collect_batch(symbols: list[str], as_of_date: str) -> BatchResult` — Batch collect for multiple symbols
+
+---
+
+## data_manager/distributor.py
+
+**Purpose:** Read local JSON files and distribute to PostgreSQL, Neo4j, and Milvus via MCP tools.
+
+**Class:** `DataDistributor`
+
+**Methods:**
+- `distribute_file(filepath: str) -> DistributionResult` — Distribute a single file
+- `distribute_symbol(symbol: str, as_of_date: str) -> BatchResult` — Distribute all files for a symbol
+- `distribute_pending() -> BatchResult` — Distribute all pending files
+- `_write_to_postgres(table: str, rows: list[dict]) -> int` — Write via sql_tool
+- `_write_to_neo4j(nodes: list, edges: list) -> int` — Write via kg_tool
+- `_write_to_milvus(docs: list[dict]) -> int` — Write via vector_tool
+
+---
+
+## data_manager/classifier.py
+
+**Purpose:** Route data to appropriate database based on task_type and content characteristics.
+
+**Class:** `DataClassifier`
+
+**Constants:**
+- `STATIC_ROUTING` — task_type → database mapping (e.g. "stock_data" → "postgres")
+- `MULTI_TARGET` — task_types that write to multiple databases (e.g. "fundamentals" → ["postgres", "neo4j"])
+
+**Methods:**
+- `classify(task_type: str, content: dict) -> ClassificationResult` — Return targets and sub_types
+
+---
+
+## data_manager/transformer.py
+
+**Purpose:** Transform raw data to formats required by each database.
+
+**Class:** `DataTransformer`
+
+**Methods:**
+- `to_postgres_rows(task_type: str, symbol: str, content: dict) -> list[dict]` — Transform to PostgreSQL rows
+- `to_neo4j_nodes_edges(task_type: str, symbol: str, content: dict) -> tuple[list, list]` — Transform to Neo4j nodes/edges
+- `to_milvus_docs(task_type: str, symbol: str, content: dict) -> list[dict]` — Transform to Milvus documents
+
+---
+
+## data_manager/tasks.py
+
+**Purpose:** CollectionTask definitions and COLLECTION_TASKS registry.
+
+**Dataclass:** `CollectionTask` — task_type, tool_name, payload_builder, output_filename
+
+**Constant:** `COLLECTION_TASKS` — List of predefined collection tasks (stock_data, balance_sheet, cashflow, income_statement, insider_transactions, indicators, news, etc.)
+
+---
+
+## data_manager/schemas.py
+
+**Purpose:** Database schema definitions (PostgreSQL DDL, Neo4j node/edge patterns, Milvus collection schema).
+
+---
+
+## data_manager/__main__.py
+
+**Purpose:** Entry point for `python -m data_manager`; parses CLI args and calls collector/distributor.
+
+**Usage:**
+```bash
+python -m data_manager collect --symbols NVDA,AAPL --date 2024-01-15
+python -m data_manager distribute --symbol NVDA
+python -m data_manager distribute --all
+python -m data_manager status --symbol NVDA
+```
+
+---
+
+# agents/data_manager_agent.py
+
+**Purpose:** Agent wrapper for DataCollector and DataDistributor. Handles A2A messages for data collection, distribution, and status queries. Background agent, not part of real-time user query flow.
+
+---
+
+## Class: `DataManagerAgent(BaseAgent)`
+
+**Purpose:** Handles A2A REQUEST/INFORM for collect, distribute, status. See [data-manager-agent.md](data-manager-agent.md) for design.
+
+**Docstring:** `Data Manager Agent. Handles data collection requests (collect from MCP tools and store locally), data distribution requests (distribute from local files to databases), and data status queries. Message types: REQUEST (action=collect|distribute|status), INFORM (return results).`
+
+---
+
+## Method: `DataManagerAgent.handle_message(self, message: ACLMessage) -> None`
+
+**Purpose:** Handle incoming messages. Dispatch to collector or distributor based on action in content.
+
+**Content format:**
+- `{"action": "collect", "symbols": [...], "as_of_date": "...", "tasks": [...]}` — Collect data
+- `{"action": "distribute", "symbols": [...], "as_of_date": "..."}` — Distribute data
+- `{"action": "distribute_pending"}` — Distribute all pending files
+- `{"action": "status", "symbol": "..."}` — Query status
 
 ---
 

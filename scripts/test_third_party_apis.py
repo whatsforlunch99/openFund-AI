@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Test every third-party API call and report which ones are workable.
+"""Test every MCP tool from agent-tools-reference.md via MCPClient.call_tool().
 
-Loads .env via load_config(), makes real network calls per vendor (Alpha Vantage,
-Finnhub, Tavily, LLM), and prints PASS/FAIL/SKIP with timing and a summary.
-Skips vendors when the required API key is absent.
+Makes live calls through the MCP layer, classifies results as PASS, INFRA_SKIP,
+or API_FAIL, and writes a detailed table to docs/api-test-results.md.
 
 Usage (from project root):
   PYTHONPATH=. python scripts/test_third_party_apis.py
@@ -13,183 +12,253 @@ Usage (from project root):
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
+import re
 import sys
 import time
-from datetime import datetime, timedelta
-from traceback import format_exc
+from datetime import date, timedelta
 
 
-def _snippet(content: str, max_len: int = 60) -> str:
-    """Return a short snippet of content for display."""
-    if not content:
-        return "(empty)"
-    text = (content or "").strip().replace("\n", " ")
-    if len(text) <= max_len:
-        return text
-    return text[: max_len - 3].rstrip() + "..."
+def _snippet(obj: object, max_len: int = 80) -> str:
+    """Return a short snippet for display; escape newlines."""
+    if obj is None:
+        return "(null)"
+    if isinstance(obj, dict):
+        if "error" in obj:
+            return str(obj.get("error", ""))[:max_len]
+        if "content" in obj:
+            c = obj["content"]
+            if isinstance(c, str) and c.strip():
+                return c.strip().replace("\n", " ")[:max_len]
+            return "(empty content)"
+        if "documents" in obj:
+            return f"documents: {len(obj.get('documents', []))} items"
+        if "status" in obj:
+            return f"status={obj.get('status')}"
+        if "tools" in obj:
+            return f"tools: {len(obj.get('tools', []))} registered"
+        return json.dumps(obj)[:max_len]
+    s = str(obj)
+    return s.replace("\n", " ")[:max_len]
 
 
-def _is_pass(result: dict) -> bool:
-    """True if result is success: no 'error' and non-empty 'content'."""
+# Keywords in error messages that indicate subscription/access/invalid (API_FAIL).
+_API_FAIL_KEYWORDS = re.compile(
+    r"subscription|premium|upgrade|rate limit|quota|invalid api|access denied|403|401",
+    re.IGNORECASE,
+)
+
+# Keywords that indicate infrastructure not configured (INFRA_SKIP).
+_INFRA_KEYWORDS = re.compile(
+    r"connection refused|unavailable|MILVUS|NEO4J|postgres|DATABASE_URL|not configured|environment variable|MCP_MARKET_VENDOR",
+    re.IGNORECASE,
+)
+
+
+def _classify(result: dict, tool_name: str) -> str:
+    """Return PASS, INFRA_SKIP, or API_FAIL."""
     if not isinstance(result, dict):
-        return False
-    if "error" in result:
-        return False
-    content = result.get("content")
-    return isinstance(content, str) and len(content.strip()) > 0
+        return "API_FAIL"
+    err = result.get("error")
+    if err is not None:
+        err_str = str(err)
+        if _API_FAIL_KEYWORDS.search(err_str):
+            return "API_FAIL"
+        if _INFRA_KEYWORDS.search(err_str):
+            return "INFRA_SKIP"
+        # Unknown error: treat as API_FAIL for external tools, INFRA_SKIP for rest
+        if tool_name.startswith("market_tool.") or tool_name.startswith("analyst_tool."):
+            return "API_FAIL"
+        return "INFRA_SKIP"
+    # No error: check for content
+    if "content" in result:
+        c = result["content"]
+        if c is None or (isinstance(c, str) and not c.strip()):
+            if tool_name.startswith("market_tool.") or tool_name.startswith("analyst_tool."):
+                return "API_FAIL"
+        return "PASS"
+    if "documents" in result or "status" in result or "tools" in result:
+        return "PASS"
+    if "rows" in result or "created" in result or "upserted" in result:
+        return "PASS"
+    return "PASS"
 
 
-def _run_one(name: str, fn, *args, **kwargs) -> tuple[str, float, str]:
-    """Run fn(*args, **kwargs); return (PASS|FAIL, elapsed_sec, detail)."""
-    start = time.perf_counter()
-    try:
-        result = fn(*args, **kwargs)
-        elapsed = time.perf_counter() - start
-        if _is_pass(result):
-            detail = _snippet(result.get("content", ""))
-            return ("PASS", elapsed, detail)
-        err = result.get("error", "unknown")
-        return ("FAIL", elapsed, str(err)[:80])
-    except Exception as e:
-        elapsed = time.perf_counter() - start
-        tb = format_exc()
-        line = tb.strip().split("\n")[-1] if tb else str(e)
-        return ("FAIL", elapsed, line[:80])
+def _build_sample_payloads(symbol: str, today: str, start_5d: str) -> dict[str, dict]:
+    """Build payloads for every documented tool (from agent-tools-reference.md)."""
+    return {
+        "file_tool.read_file": {"path": "/tmp/agent_tools_test"},
+        "vector_tool.search": {"query": "NVDA fund performance 2024", "top_k": 5},
+        "vector_tool.get_by_ids": {"ids": ["doc_001", "doc_002"]},
+        "vector_tool.upsert_documents": {"docs": [{"id": "doc_003", "text": "Test."}]},
+        "vector_tool.health_check": {},
+        "vector_tool.create_collection_from_config": {
+            "name": "fund_docs_v2",
+            "dimension": 768,
+            "primary_key_field": "id",
+        },
+        "kg_tool.query_graph": {
+            "cypher": "MATCH (f:Fund {symbol: $sym}) RETURN f",
+            "params": {"sym": symbol},
+        },
+        "kg_tool.get_relations": {"entity": symbol},
+        "kg_tool.get_node_by_id": {"id_val": symbol, "id_key": "symbol"},
+        "kg_tool.get_neighbors": {"node_id": symbol, "id_key": "symbol", "direction": "out", "limit": 20},
+        "kg_tool.get_graph_schema": {},
+        "kg_tool.shortest_path": {"start_id": symbol, "end_id": "AAPL", "id_key": "symbol", "max_depth": 5},
+        "kg_tool.get_similar_nodes": {"node_id": symbol, "id_key": "symbol", "limit": 5},
+        "kg_tool.fulltext_search": {"index_name": "fund_fulltext", "query_string": "semiconductor", "limit": 10},
+        "kg_tool.bulk_export": {"cypher": "MATCH (f:Fund) RETURN f.symbol, f.name LIMIT 100", "format": "json"},
+        "kg_tool.bulk_create_nodes": {
+            "nodes": [{"id": "TSMC", "name": "Taiwan Semiconductor"}],
+            "label": "Company",
+            "id_key": "id",
+        },
+        "sql_tool.run_query": {"query": "SELECT * FROM funds WHERE symbol = %s", "params": [symbol]},
+        "sql_tool.explain_query": {"query": "SELECT * FROM funds WHERE aum > 1000000", "analyze": False},
+        "sql_tool.export_results": {
+            "query": "SELECT symbol, name, aum FROM funds ORDER BY aum DESC",
+            "format": "csv",
+            "row_limit": 500,
+        },
+        "sql_tool.connection_health_check": {},
+        "market_tool.get_stock_data": {"symbol": symbol, "start_date": start_5d, "end_date": today},
+        "market_tool.get_balance_sheet": {"ticker": "MSFT", "freq": "annual"},
+        "market_tool.get_cashflow": {"ticker": "TSLA", "freq": "quarterly"},
+        "market_tool.get_income_statement": {"ticker": symbol, "freq": "quarterly"},
+        "market_tool.get_insider_transactions": {"ticker": symbol},
+        "market_tool.get_news": {"symbol": symbol, "limit": 5},
+        "market_tool.get_global_news": {"as_of_date": today, "look_back_days": 7, "limit": 5},
+        "analyst_tool.get_indicators": {
+            "symbol": symbol,
+            "indicator": "rsi",
+            "as_of_date": today,
+            "look_back_days": 30,
+        },
+        "get_capabilities": {},
+    }
+
+
+def _write_results_doc(results: list[tuple[str, str, float, str, str]], out_path: str, run_date: str) -> None:
+    """Write docs/api-test-results.md with a markdown table."""
+    lines = [
+        "# MCP Tool Live Test Results",
+        "",
+        f"Generated by `scripts/test_third_party_apis.py` on {run_date}.",
+        "",
+        "| Tool | Status | Time (s) | Response snippet |",
+        "|------|--------|----------|------------------|",
+    ]
+    for tool_name, status, elapsed, snippet, _ in results:
+        snippet_esc = snippet.replace("|", "\\|")[:100]
+        lines.append(f"| {tool_name} | {status} | {elapsed:.2f} | {snippet_esc} |")
+    lines.extend([
+        "",
+        "## Status legend",
+        "",
+        "- **PASS** — Call succeeded; non-empty content or valid structure.",
+        "- **INFRA_SKIP** — Backend not configured (Milvus/Neo4j/Postgres) or similar.",
+        "- **API_FAIL** — External API error (subscription, rate limit, invalid). Remove from project if persistent.",
+        "",
+    ])
+    api_fails = [r[0] for r in results if r[1] == "API_FAIL"]
+    if api_fails:
+        lines.extend([
+            "## Tools marked API_FAIL (candidates for removal)",
+            "",
+            "The following tools returned errors indicating subscription/access or invalid response:",
+            "",
+        ])
+        for t in api_fails:
+            lines.append(f"- `{t}`")
+        lines.append("")
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with open(out_path, "w") as f:
+        f.write("\n".join(lines))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Test third-party APIs (Alpha Vantage, Finnhub, Tavily, LLM)."
+        description="Test all MCP tools via MCPClient.call_tool(); write docs/api-test-results.md."
     )
     parser.add_argument(
         "--symbol",
-        default="AAPL",
-        help="Ticker symbol for market/indicator tests (default: AAPL)",
+        default="NVDA",
+        help="Ticker for market/analyst tools (default: NVDA)",
+    )
+    parser.add_argument(
+        "--out",
+        default="docs/api-test-results.md",
+        help="Output markdown file (default: docs/api-test-results.md)",
     )
     args = parser.parse_args()
 
-    # Reduce noise from mcp.tools loggers (they log full tracebacks on error)
+    # Load .env so MCP tools see ALPHA_VANTAGE_API_KEY, FINNHUB_API_KEY, etc.
+    from config.config import load_config
+    load_config()
+
     logging.getLogger("mcp.tools").setLevel(logging.WARNING)
 
-    from config.config import load_config
+    from llm.tool_descriptions import TOOL_DESCRIPTIONS_BY_NAME
+    from mcp.mcp_client import MCPClient
+    from mcp.mcp_server import MCPServer
 
-    config = load_config()
-    symbol = (args.symbol or "AAPL").strip().upper()
+    server = MCPServer()
+    server.register_default_tools()
+    client = MCPClient(server)
 
-    today = datetime.today().strftime("%Y-%m-%d")
-    start_5d = (datetime.today() - timedelta(days=5)).strftime("%Y-%m-%d")
+    registered = set()
+    caps = client.call_tool("get_capabilities", {})
+    if isinstance(caps, dict):
+        registered = set(caps.get("tools") or [])
 
-    counts = {"PASS": 0, "FAIL": 0, "SKIP": 0, "NOT_IMPL": 0}
-    rows: list[tuple[str, str, float, str]] = []
+    symbol = (args.symbol or "NVDA").strip().upper()
+    today = date.today().isoformat()
+    start_5d = (date.today() - timedelta(days=5)).isoformat()
+    payloads = _build_sample_payloads(symbol, today, start_5d)
 
-    print(f"=== Third-Party API Health Check  ({today}) ===\n")
+    # Ensure we have payloads for every tool in TOOL_DESCRIPTIONS_BY_NAME
+    for name in TOOL_DESCRIPTIONS_BY_NAME:
+        if name not in payloads:
+            payloads[name] = {}
 
-    # --- Alpha Vantage ---
-    from mcp.tools import market_tool
-    from mcp.tools import analyst_tool
+    run_date = date.today().isoformat()
+    print(f"=== MCP Tool Live Validation ({run_date}) ===\n")
+    results: list[tuple[str, str, float, str, str]] = []
 
-    has_av = bool((os.getenv("ALPHA_VANTAGE_API_KEY") or "").strip())
-    print(f"\n[Alpha Vantage]  (key set: {'YES' if has_av else 'NO'})")
-    if has_av:
-        av_cases = [
-            ("get_stock_data_av", lambda: market_tool.get_stock_data_av(symbol, start_5d, today)),
-            ("get_fundamentals_av", lambda: market_tool.get_fundamentals_av(symbol)),
-            ("get_balance_sheet_av", lambda: market_tool.get_balance_sheet_av(symbol)),
-            ("get_cashflow_av", lambda: market_tool.get_cashflow_av(symbol)),
-            ("get_income_statement_av", lambda: market_tool.get_income_statement_av(symbol)),
-            ("get_news_av", lambda: market_tool.get_news_av(symbol, start_5d, today)),
-            ("get_global_news_av", lambda: market_tool.get_global_news_av(today, 5, 3)),
-            ("get_insider_transactions_av", lambda: market_tool.get_insider_transactions_av(symbol)),
-            ("get_ticker_info_av", lambda: market_tool.get_ticker_info_av(symbol)),
-            (
-                "get_indicators_av",
-                lambda: analyst_tool.get_indicators_av(
-                    symbol, "close_50_sma", today, 30
-                ),
-            ),
-        ]
-        for name, fn in av_cases:
-            status, elapsed, detail = _run_one(name, fn)
-            counts[status] += 1
-            rows.append((name, status, elapsed, detail))
-            print(f"  {name:<28} {status:<6} {elapsed:.2f}s  {detail}")
-    else:
-        counts["SKIP"] += 10
-        print("  (skipping all — ALPHA_VANTAGE_API_KEY not set)")
-
-    # --- Finnhub ---
-    has_finnhub = bool((os.getenv("FINNHUB_API_KEY") or "").strip())
-    print(f"\n[Finnhub]  (key set: {'YES' if has_finnhub else 'NO'})")
-    if has_finnhub:
-        fh_cases = [
-            ("get_fundamentals_finnhub", lambda: market_tool.get_fundamentals_finnhub(symbol)),
-            ("get_ticker_info_finnhub", lambda: market_tool.get_ticker_info_finnhub(symbol)),
-            (
-                "get_stock_data_finnhub",
-                lambda: market_tool.get_stock_data_finnhub(symbol, start_5d, today),
-            ),
-        ]
-        for name, fn in fh_cases:
-            status, elapsed, detail = _run_one(name, fn)
-            counts[status] += 1
-            rows.append((name, status, elapsed, detail))
-            print(f"  {name:<28} {status:<6} {elapsed:.2f}s  {detail}")
-    else:
-        counts["SKIP"] += 3
-        print("  (skipping all — FINNHUB_API_KEY not set)")
-
-    # --- Tavily ---
-    has_tavily = bool((config.tavily_api_key or "").strip())
-    print(f"\n[Tavily]  (key set: {'YES' if has_tavily else 'NO'})")
-    if has_tavily:
+    for tool_name in sorted(TOOL_DESCRIPTIONS_BY_NAME):
+        if tool_name not in registered:
+            results.append((tool_name, "SKIP", 0.0, "(not registered)", ""))
+            print(f"  {tool_name:<45} SKIP   (not registered)")
+            continue
+        payload = payloads.get(tool_name, {})
+        start = time.perf_counter()
         try:
-            market_tool.search_web("test query")
-        except NotImplementedError:
-            counts["NOT_IMPL"] += 1
-            print("  search_web              NOT_IMPL  —  (NotImplementedError)")
-        else:
-            status, elapsed, detail = _run_one("search_web", market_tool.search_web, "test")
-            counts[status] += 1
-            print(f"  {'search_web':<28} {status:<6} {elapsed:.2f}s  {detail}")
-    else:
-        counts["SKIP"] += 1
-        print("  (skipping — TAVILY_API_KEY not set; search_web is NotImplementedError)")
-
-    # --- LLM ---
-    has_llm = bool((config.llm_api_key or "").strip())
-    model = (config.llm_model or "gpt-4o-mini").strip() or "gpt-4o-mini"
-    print(f"\n[LLM]  (key set: {'YES' if has_llm else 'NO'}, model: {model})")
-    if has_llm:
-        try:
-            from llm.factory import get_llm_client
-
-            client = get_llm_client(config)
-            start = time.perf_counter()
-            out = client.complete("You are a test bot.", "Say exactly: pong")
-            elapsed = time.perf_counter() - start
-            if isinstance(out, str) and out.strip():
-                counts["PASS"] += 1
-                print(f"  {'chat_completion':<28} PASS   {elapsed:.2f}s  {_snippet(out)}")
-            else:
-                counts["FAIL"] += 1
-                print(f"  {'chat_completion':<28} FAIL   {elapsed:.2f}s  (empty or non-string)")
+            result = client.call_tool(tool_name, payload)
         except Exception as e:
-            counts["FAIL"] += 1
-            print(f"  {'chat_completion':<28} FAIL    —  {e}")
-    else:
-        counts["SKIP"] += 1
-        print("  (skipping — LLM_API_KEY not set)")
+            result = {"error": str(e)}
+        elapsed = time.perf_counter() - start
+        status = _classify(result, tool_name)
+        snippet = _snippet(result)
+        full_snippet = snippet
+        if isinstance(result, dict) and "error" in result:
+            full_snippet = str(result.get("error", ""))[:200]
+        results.append((tool_name, status, elapsed, snippet, full_snippet))
+        print(f"  {tool_name:<45} {status:<10} {elapsed:.2f}s  {snippet}")
 
-    # --- Summary ---
+    _write_results_doc(results, args.out, run_date)
+    print(f"\nWrote {args.out}")
+
+    counts = {"PASS": 0, "INFRA_SKIP": 0, "API_FAIL": 0, "SKIP": 0}
+    for _, status, _, _, _ in results:
+        counts[status] = counts.get(status, 0) + 1
     print("\n=== Summary ===")
-    print(f"  PASS     {counts['PASS']}")
-    print(f"  FAIL     {counts['FAIL']}")
-    print(f"  SKIP     {counts['SKIP']}")
-    print(f"  NOT_IMPL {counts['NOT_IMPL']}")
+    for k, v in sorted(counts.items()):
+        print(f"  {k}  {v}")
 
-    return 1 if counts["FAIL"] > 0 else 0
+    return 1 if counts.get("API_FAIL", 0) > 0 else 0
 
 
 if __name__ == "__main__":

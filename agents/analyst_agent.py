@@ -2,6 +2,7 @@
 
 import logging
 import math
+from datetime import date
 from typing import TYPE_CHECKING, Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
@@ -13,6 +14,30 @@ if TYPE_CHECKING:
     from llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
+
+# Common tickers for fallback when symbol cannot be derived from context.
+_DEFAULT_SYMBOL = "NVDA"
+
+
+def _derive_symbol(structured_data: dict, market_data: dict) -> str:
+    """Derive a ticker symbol from structured_data or market_data for fallback get_indicators calls."""
+    if isinstance(structured_data, dict):
+        for key in ("symbol", "fund", "ticker"):
+            val = structured_data.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip().upper()
+        query = structured_data.get("query") or structured_data.get("vector_query")
+        if isinstance(query, str) and query.strip():
+            q = query.strip().upper()
+            for ticker in ("NVDA", "AAPL", "TSLA", "MSFT", "GOOGL"):
+                if ticker in q or ticker.lower() in query.lower():
+                    return ticker
+    if isinstance(market_data, dict):
+        for key in ("symbol", "ticker", "fund"):
+            val = market_data.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip().upper()
+    return _DEFAULT_SYMBOL
 
 
 class AnalystAgent(BaseAgent):
@@ -30,11 +55,13 @@ class AnalystAgent(BaseAgent):
         mcp_client: Any = None,
         conversation_manager: Any = None,
         llm_client: "LLMClient | None" = None,
+        analyst_confidence_threshold: float = 0.6,
     ) -> None:
         super().__init__(name, message_bus)
         self.mcp_client = mcp_client
         self.conversation_manager = conversation_manager
         self._llm_client = llm_client
+        self._analyst_confidence_threshold = analyst_confidence_threshold
 
     def handle_message(self, message: ACLMessage) -> None:
         """Process analysis requests and send INFORM to planner.
@@ -222,18 +249,21 @@ class AnalystAgent(BaseAgent):
             Analysis result with confidence and optional distributions.
         """
         if self.mcp_client:
+            symbol = _derive_symbol(structured_data, market_data)
+            as_of = date.today().isoformat()
+            payload = {
+                "symbol": symbol,
+                "indicator": "rsi",
+                "as_of_date": as_of,
+                "look_back_days": 30,
+            }
             api_result = self.mcp_client.call_tool(
                 "analyst_tool.get_indicators",
-                {
-                    "symbol": "AAPL",
-                    "indicator": "sma_50",
-                    "as_of_date": "2024-01-15",
-                    "look_back_days": 10,
-                },
+                payload,
             )
             if isinstance(api_result, dict) and "error" not in api_result:
                 return {"confidence": 0.7, "indicators": api_result, "distribution": {}}
-        # Stub when MCP unavailable or get_indicators not used
+        # Stub when MCP unavailable or get_indicators returned error
         return {"confidence": 0.6, "summary": "Stub analysis", "distribution": {}}
 
     def needs_more_data(self, analysis_result: dict) -> bool:
@@ -246,7 +276,7 @@ class AnalystAgent(BaseAgent):
         Returns:
             True if another research cycle is needed.
         """
-        return (analysis_result.get("confidence") or 0) < 0.5
+        return (analysis_result.get("confidence") or 0) < self._analyst_confidence_threshold
 
     def sharpe_ratio(self, returns: list[float], risk_free_rate: float) -> float:
         """

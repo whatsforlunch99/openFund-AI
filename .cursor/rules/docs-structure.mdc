@@ -17,6 +17,19 @@ All docs live in `/docs`. Each document has a single responsibility; no overlap 
 | **progress.md** | Development execution state: work breakdown (tasks, status, blockers), implementation notes (decisions, PRD deviations, refactors), repeated errors & resolutions. Changelog lives at repo root in **CHANGELOG.md**. Update progress right after implementation; update CHANGELOG.md for user-visible or notable changes. |
 | **project-status.md** | Major capability readiness table: Capability | Status | Notes. Status: Not Started, In Progress, Live, Deprecated. |
 
+### Supporting / reference docs
+
+| Document | Purpose |
+|----------|---------|
+| **agent-tools-reference.md** | MCP tool reference: payloads, samples, per-agent tool lists; single source for LLM tool descriptions. |
+| **data-manager-agent.md** | Data Manager Agent design: collection, distribution, CLI, triggers; no duplication of backend system overview. |
+| **fund-data-schema.md** | Fund data schema: JSON fields and DB mapping for datasets/funds; companion to data-manager-agent. |
+| **test_plan.md** | Test matrix and docs-consistency checklist; references progress for slice context. |
+| **demo.md** | How to run demo mode and troubleshoot; module layout in file-structure. |
+| **use-case-trace-beginner.md** | Step-by-step function trace for one beginner request (debugging/onboarding). |
+
+**Generated:** **api-test-results.md** is produced by `scripts/test_third_party_apis.py`; operational only, not edited by hand.
+
 ## Update triggers (when to touch which doc)
 
 - **user-flow.md:** New screen/state, navigation or auth flow change, error path change, new entry point.
@@ -26,6 +39,12 @@ All docs live in `/docs`. Each document has a single responsibility; no overlap 
 - **file-structure.md:** New module, changed file responsibility, function added/removed/refactored, directory structure change.
 - **progress.md:** Task completed/created, architectural decision, recurring error identified, behavioral change from a fix, dependency change. Update right after implementation. For **changelog entries** (features, fixes, refactors), update **CHANGELOG.md** at repo root.
 - **project-status.md:** Capability becomes operational, state change, deprecated, or release milestone.
+- **agent-tools-reference.md:** MCP tools added/removed/renamed or payload contract changed; keep in sync with llm/tool_descriptions.py.
+- **data-manager-agent.md:** Data Manager design, CLI, or trigger behavior changed.
+- **fund-data-schema.md:** Fund JSON or DB schema for datasets/funds changed.
+- **test_plan.md:** Stage/test matrix or docs checklist updated.
+- **demo.md:** Demo run steps or troubleshooting changed.
+- **use-case-trace-beginner.md:** Request flow or function sequence for the traced path changed.
 
 ## Governance
 

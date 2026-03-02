@@ -77,7 +77,7 @@ Invalid or unknown `user_profile` is rejected before processing.
 
 # OpenFund-AI — Use Case Flows by Target Audience
 
-This document describes, for each target audience, a **sample input** and the **sequence of function calls** from API entry to final response. It aligns with [prd.md](prd.md), [backend.md](backend.md), and the function-level contracts in [file-structure.md](file-structure.md).
+This section describes the pipeline at a **high level** (shared flow summary and audience-specific differences). For a **step-by-step function trace** of one beginner request from API entry to final response, see [use-case-trace-beginner.md](use-case-trace-beginner.md). That document aligns with [prd.md](prd.md), [backend.md](backend.md), and the function-level contracts in [file-structure.md](file-structure.md).
 
 ---
 
@@ -92,7 +92,7 @@ All three audiences use the same pipeline; only the **request body** (notably `u
 5. **Layer 6 (Output):** Responder evaluates confidence, formats via OutputRail using **user_profile**, checks compliance, registers final response, broadcasts STOP.
 6. **API** unblocks and returns JSON.
 
-Below: **one full example** (Beginner) with the exact function call sequence; then **differences only** for the other two audiences.
+For a step-by-step function trace of one beginner request, see [use-case-trace-beginner.md](use-case-trace-beginner.md).
 
 ---
 
@@ -112,67 +112,7 @@ Below: **one full example** (Beginner) with the exact function call sequence; th
 
 Optional: `conversation_id` omitted for a new conversation.
 
-## Function call sequence (in order)
-
-1. **API (REST)**  
-   - Request hits `POST /chat` handler in the FastAPI app created by `api/rest.create_app()`.  
-   - Handler validates body (query required; user_profile one of beginner | long_term | analyst; user_id optional, default `""`).
-
-2. **SafetyGateway.process_user_input(raw_input)**  
-   - `raw_input` = `body["query"]` (e.g. `"Is fund X safe for someone like me who's new to investing?"`).  
-   - Internally: `SafetyGateway.validate_input(text)` → `SafetyGateway.check_guardrails(text)` → `SafetyGateway.mask_pii(text)`.  
-   - Returns `ProcessedInput` or raises `SafetyError` → HTTP 400.
-
-3. **Conversation create or get**  
-   - If `body["conversation_id"]` absent: `ConversationManager.create_conversation(user_id, initial_query)` with `user_id = body.get("user_id", "")`, `initial_query = processed.text`; returns `conversation_id`.  
-   - If present: `ConversationManager.get_conversation(conversation_id)`; if None → 404.
-
-4. **Send to Planner**  
-   - Build `ACLMessage(performative="request", sender="api", receiver="planner", content={ "query": processed.text, "conversation_id": conversation_id, "user_profile": "beginner" })`.  
-   - `MessageBus.send(message)`.
-
-5. **Block for completion**  
-   - Get `ConversationState` for `conversation_id`; call `state.completion_event.wait(timeout=<configured_timeout_seconds>)` (default 30s).  
-   - On timeout: return HTTP 408 `{ "status": "timeout", "conversation_id": "...", "response": null, "flow": [...] }`.  
-   - When unblocked: read `state.final_response`; return 200 `{ "conversation_id", "status", "response": state.final_response, "flow": [...] }`.
-
-— **Agent threads (parallel to the above):** —
-
-6. **PlannerAgent.handle_message(message)**  
-   - Receives REQUEST from API (or from a prior round).  
-   - Reads `message.content["query"]`, `message.content["conversation_id"]`, `message.content["user_profile"]`, and any accumulated context.
-
-7. **Planner decides round:** The Planner **selects which agents to call** (one or more of Librarian, WebSearcher, Analyst) and **decomposes the user query into a specific sub-query per chosen agent**. Each REQUEST sent to a specialist contains **that agent's sub-query** (and conversation/round context as needed).  
-   - **PlannerAgent.decompose_task(query)** (or equivalent) returns a list of `TaskStep`s; each step targets one agent (`librarian` | `websearcher` | `analyst`) and includes that agent's **decomposed sub-query**.  
-   - For each chosen step: `PlannerAgent.create_research_request(query, step, context)` where `context` holds all information gathered so far (empty on first round).  
-   - **MessageBus.send("request")** for each chosen agent (one or more of librarian, websearcher, analyst), each with the same conversation_id and **that agent's sub-query** in content.
-
-8. **Chosen agents run (this round); each replies INFORM to Planner.**  
-   On receiving the REQUEST, each chosen agent **uses an LLM** (when available) with a **prompt** and **tool descriptions** to decide **which tools to call and with what parameters**; it then **executes those tool calls** via `mcp_client.call_tool(tool_name, payload)`, combines or summarizes results, and sends INFORM to the Planner. (The "researcher" role is fulfilled by the WebSearcher agent — web and market research.)  
-   - **LibrarianAgent.handle_message(message)** (if chosen): uses LLM + tool descriptions to select tools (e.g. file_tool.read_file, vector_tool.search, kg_tool.get_relations, sql_tool.run_query) and parameters; executes those calls; `combine_results(...)`; **MessageBus.send("inform")** to planner.  
-   - **WebSearcherAgent.handle_message(message)** (if chosen): uses LLM + tool descriptions to select market_tool calls and parameters; executes those calls; all returns include `timestamp`; **MessageBus.send("inform")** to planner.  
-   - **AnalystAgent.handle_message(message)** (if chosen): uses LLM + tool descriptions to select analyst_tool (and any other) calls and parameters; executes those calls; runs `analyze(...)` on gathered data; **MessageBus.send("inform")** to planner.
-
-9. **PlannerAgent** (after collecting INFORM replies for this round)  
-   - Aggregates results from whichever agents replied this round with all prior-round data.  
-   - Decides **sufficiency** according to planner policy/heuristics.  
-   - **If sufficient:** **MessageBus.send("request")** to `responder` with consolidated payload (including `user_profile`, `conversation_id`).  
-   - **If not sufficient:** starts a **new round**: generates **new queries** from **all current information** at hand, then goes back to step 7 (choose one or more agents again, send REQUEST(s), wait for INFORM(s), re-evaluate sufficiency). Repeat until sufficient, then send to Responder.
-
-10. **ResponderAgent.handle_message(message)**  
-    - Receives REQUEST with consolidated analysis and `message.content["user_profile"]` = `"beginner"`, `message.content["conversation_id"]`.  
-    - `ResponderAgent.evaluate_confidence(analysis)` computes confidence from the analysis payload.  
-    - `ResponderAgent.should_terminate(confidence)` decides whether to finalize or request refinement.  
-    - **When terminating:** Responder sends the final reply to the user (not to Planner): formats, checks compliance, registers the reply so the API can return it, then broadcasts STOP so all agents (including Planner) know the conversation is complete.  
-      - `ResponderAgent.format_response(analysis, user_profile)` → internally `OutputRail.format_for_user(draft_text, "beginner")` (conclusion-first, analogies, risk wording).  
-      - `OutputRail.check_compliance(final_text)` → `ComplianceResult`.  
-      - `ConversationManager.register_reply(conversation_id, ACLMessage(... performative="inform" ... final_response ...))`; implementation sets `state.final_response` and `state.completion_event.set()` (API returns this to the user).  
-      - `ConversationManager.broadcast_stop(conversation_id)` → `MessageBus.broadcast(ACLMessage(performative="stop", ...))` so all agent threads exit; this is the conversation-complete signal.  
-    - **When not terminating:** build refinement request to Planner and `MessageBus.send("request")` to planner.
-
-11. **API** (blocking caller)  
-    - Unblocks on `completion_event.set()`.  
-    - Reads `state.final_response` and flow events; returns JSON `{ "conversation_id", "status", "response": "<formatted answer for beginner>", "flow": [...] }`.
+For the full function call sequence (steps 1–11 from API to response), see [use-case-trace-beginner.md](use-case-trace-beginner.md).
 
 ---
 

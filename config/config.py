@@ -29,9 +29,10 @@ class Config:
         database_url: PostgreSQL connection URL for sql_tool.
         embedding_model: Model name for embeddings.
         embedding_dim: Embedding dimension.
-        planner_sufficiency_threshold: Planner sufficiency threshold (default 0.6).
+        planner_sufficiency_threshold: Planner sufficiency threshold (default 0.6); reserved, sufficiency is LLM-decided.
         analyst_confidence_threshold: Analyst confidence threshold (default 0.6).
-        responder_confidence_threshold: Responder confidence threshold (default 0.75).
+        responder_confidence_threshold: Responder confidence threshold (default 0.75); reserved for future use.
+        max_research_rounds: Max refinement rounds (default 2); env MAX_RESEARCH_ROUNDS.
     """
 
     milvus_uri: str = ""
@@ -56,6 +57,7 @@ class Config:
     planner_sufficiency_threshold: float = 0.6
     analyst_confidence_threshold: float = 0.6
     responder_confidence_threshold: float = 0.75
+    max_research_rounds: int = 2
 
 
 def load_config() -> Config:
@@ -122,4 +124,5 @@ def load_config() -> Config:
         planner_sufficiency_threshold=_float("PLANNER_SUFFICIENCY_THRESHOLD", 0.6),
         analyst_confidence_threshold=_float("ANALYST_CONFIDENCE_THRESHOLD", 0.6),
         responder_confidence_threshold=_float("RESPONDER_CONFIDENCE_THRESHOLD", 0.75),
+        max_research_rounds=_int("MAX_RESEARCH_ROUNDS", 2),
     )

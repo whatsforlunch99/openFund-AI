@@ -1,0 +1,1190 @@
+{
+  "metadata": {
+    "description": "Top 50 Equity Funds - Complete Holdings, Sector Distribution, and Risk Data",
+    "as_of_date": "2025-02-28",
+    "data_sources": ["ETF.com", "Morningstar", "Vanguard", "iShares", "Schwab", "Fidelity"],
+    "last_updated": "2026-02-28",
+    "total_funds": 50
+  },
+  "funds": [
+    {
+      "rank": 1,
+      "symbol": "VOO",
+      "name": "Vanguard S&P 500 ETF",
+      "category": "Large Cap Blend",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 688.6,
+      "expense_ratio": 0.0003,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.264,
+        "return_3yr": 0.116,
+        "return_5yr": 0.148,
+        "return_10yr": 0.121
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.133,
+        "beta": 1.00,
+        "sharpe_ratio": 1.86,
+        "max_drawdown": -0.245
+      },
+      "top_10_holdings": [
+        {"symbol": "AAPL", "name": "Apple Inc.", "weight": 0.072, "sector": "Technology"},
+        {"symbol": "MSFT", "name": "Microsoft Corporation", "weight": 0.065, "sector": "Technology"},
+        {"symbol": "NVDA", "name": "NVIDIA Corporation", "weight": 0.055, "sector": "Technology"},
+        {"symbol": "AMZN", "name": "Amazon.com Inc.", "weight": 0.038, "sector": "Consumer Discretionary"},
+        {"symbol": "META", "name": "Meta Platforms Inc.", "weight": 0.028, "sector": "Communication Services"},
+        {"symbol": "GOOGL", "name": "Alphabet Inc. Class A", "weight": 0.024, "sector": "Communication Services"},
+        {"symbol": "GOOG", "name": "Alphabet Inc. Class C", "weight": 0.023, "sector": "Communication Services"},
+        {"symbol": "BRK.B", "name": "Berkshire Hathaway", "weight": 0.020, "sector": "Financials"},
+        {"symbol": "AVGO", "name": "Broadcom Inc.", "weight": 0.019, "sector": "Technology"},
+        {"symbol": "TSLA", "name": "Tesla Inc.", "weight": 0.018, "sector": "Consumer Discretionary"}
+      ],
+      "sector_distribution": {
+        "Technology": 0.31,
+        "Financials": 0.13,
+        "Healthcare": 0.12,
+        "Consumer Discretionary": 0.10,
+        "Communication Services": 0.09,
+        "Industrials": 0.08,
+        "Consumer Staples": 0.06,
+        "Energy": 0.04,
+        "Materials": 0.03,
+        "Utilities": 0.02,
+        "Real Estate": 0.02
+      },
+      "geographic_distribution": {
+        "United States": 0.99,
+        "Other": 0.01
+      }
+    },
+    {
+      "rank": 2,
+      "symbol": "IVV",
+      "name": "iShares Core S&P 500 ETF",
+      "category": "Large Cap Blend",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 627.2,
+      "expense_ratio": 0.0003,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.264,
+        "return_3yr": 0.116,
+        "return_5yr": 0.147,
+        "return_10yr": 0.121
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.133,
+        "beta": 1.00,
+        "sharpe_ratio": 1.85,
+        "max_drawdown": -0.246
+      }
+    },
+    {
+      "rank": 3,
+      "symbol": "SPY",
+      "name": "SPDR S&P 500 ETF Trust",
+      "category": "Large Cap Blend",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 590.0,
+      "expense_ratio": 0.0945,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.264,
+        "return_3yr": 0.116,
+        "return_5yr": 0.147,
+        "return_10yr": 0.120
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.133,
+        "beta": 1.00,
+        "sharpe_ratio": 1.84,
+        "max_drawdown": -0.246
+      }
+    },
+    {
+      "rank": 4,
+      "symbol": "VTI",
+      "name": "Vanguard Total Stock Market ETF",
+      "category": "Large Cap Blend",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 502.2,
+      "expense_ratio": 0.0003,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.258,
+        "return_3yr": 0.112,
+        "return_5yr": 0.143,
+        "return_10yr": 0.118
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.138,
+        "beta": 1.01,
+        "sharpe_ratio": 1.78,
+        "max_drawdown": -0.258
+      }
+    },
+    {
+      "rank": 5,
+      "symbol": "QQQ",
+      "name": "Invesco QQQ Trust",
+      "category": "Large Cap Growth",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 352.7,
+      "expense_ratio": 0.0020,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.541,
+        "return_3yr": 0.152,
+        "return_5yr": 0.198,
+        "return_10yr": 0.177
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.183,
+        "beta": 1.15,
+        "sharpe_ratio": 2.76,
+        "max_drawdown": -0.351
+      },
+      "top_10_holdings": [
+        {"symbol": "AAPL", "name": "Apple Inc.", "weight": 0.088, "sector": "Technology"},
+        {"symbol": "MSFT", "name": "Microsoft Corporation", "weight": 0.082, "sector": "Technology"},
+        {"symbol": "NVDA", "name": "NVIDIA Corporation", "weight": 0.078, "sector": "Technology"},
+        {"symbol": "AMZN", "name": "Amazon.com Inc.", "weight": 0.052, "sector": "Consumer Discretionary"},
+        {"symbol": "AVGO", "name": "Broadcom Inc.", "weight": 0.048, "sector": "Technology"},
+        {"symbol": "META", "name": "Meta Platforms Inc.", "weight": 0.046, "sector": "Communication Services"},
+        {"symbol": "TSLA", "name": "Tesla Inc.", "weight": 0.038, "sector": "Consumer Discretionary"},
+        {"symbol": "GOOGL", "name": "Alphabet Inc. Class A", "weight": 0.032, "sector": "Communication Services"},
+        {"symbol": "GOOG", "name": "Alphabet Inc. Class C", "weight": 0.030, "sector": "Communication Services"},
+        {"symbol": "COST", "name": "Costco Wholesale", "weight": 0.025, "sector": "Consumer Staples"}
+      ],
+      "sector_distribution": {
+        "Technology": 0.51,
+        "Communication Services": 0.16,
+        "Consumer Discretionary": 0.13,
+        "Healthcare": 0.06,
+        "Consumer Staples": 0.05,
+        "Industrials": 0.05,
+        "Utilities": 0.02,
+        "Financials": 0.01,
+        "Energy": 0.01
+      }
+    },
+    {
+      "rank": 6,
+      "symbol": "VUG",
+      "name": "Vanguard Growth ETF",
+      "category": "Large Cap Growth",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 352.0,
+      "expense_ratio": 0.0004,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.202,
+        "return_3yr": 0.140,
+        "return_5yr": 0.180,
+        "return_10yr": 0.155
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.190,
+        "beta": 1.21,
+        "sharpe_ratio": 1.65,
+        "max_drawdown": -0.356
+      }
+    },
+    {
+      "rank": 7,
+      "symbol": "VB",
+      "name": "Vanguard Small-Cap ETF",
+      "category": "Small Cap Blend",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 153.3,
+      "expense_ratio": 0.0005,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.142,
+        "return_3yr": 0.030,
+        "return_5yr": 0.090,
+        "return_10yr": 0.085
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.210,
+        "beta": 1.15,
+        "sharpe_ratio": 0.85,
+        "max_drawdown": -0.380
+      }
+    },
+    {
+      "rank": 8,
+      "symbol": "VWO",
+      "name": "Vanguard FTSE Emerging Markets ETF",
+      "category": "Emerging Markets",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 141.0,
+      "expense_ratio": 0.0008,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.231,
+        "return_3yr": 0.020,
+        "return_5yr": 0.050,
+        "return_10yr": 0.045
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.200,
+        "beta": 0.95,
+        "sharpe_ratio": 0.65,
+        "max_drawdown": -0.420
+      },
+      "top_10_holdings": [
+        {"symbol": "TSM", "name": "Taiwan Semiconductor", "weight": 0.095, "sector": "Technology"},
+        {"symbol": "700.HK", "name": "Tencent Holdings", "weight": 0.038, "sector": "Communication Services"},
+        {"symbol": "BABA", "name": "Alibaba Group", "weight": 0.028, "sector": "Consumer Discretionary"},
+        {"symbol": "005930.KS", "name": "Samsung Electronics", "weight": 0.025, "sector": "Technology"},
+        {"symbol": "3690.HK", "name": "Meituan", "weight": 0.015, "sector": "Consumer Discretionary"},
+        {"symbol": "RELIANCE.NS", "name": "Reliance Industries", "weight": 0.014, "sector": "Energy"},
+        {"symbol": "HDFC.NS", "name": "HDFC Bank", "weight": 0.011, "sector": "Financials"},
+        {"symbol": "PDD", "name": "PDD Holdings", "weight": 0.010, "sector": "Consumer Discretionary"},
+        {"symbol": "INFY", "name": "Infosys Ltd.", "weight": 0.009, "sector": "Technology"},
+        {"symbol": "JD", "name": "JD.com Inc.", "weight": 0.008, "sector": "Consumer Discretionary"}
+      ],
+      "geographic_distribution": {
+        "China": 0.32,
+        "Taiwan": 0.18,
+        "India": 0.15,
+        "South Korea": 0.10,
+        "Brazil": 0.06,
+        "South Africa": 0.04,
+        "Other": 0.15
+      }
+    },
+    {
+      "rank": 9,
+      "symbol": "VTV",
+      "name": "Vanguard Value ETF",
+      "category": "Large Cap Value",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 139.2,
+      "expense_ratio": 0.0004,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.133,
+        "return_3yr": 0.116,
+        "return_5yr": 0.138,
+        "return_10yr": 0.110
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.140,
+        "beta": 0.88,
+        "sharpe_ratio": 1.25,
+        "max_drawdown": -0.280
+      },
+      "top_10_holdings": [
+        {"symbol": "JPM", "name": "JPMorgan Chase", "weight": 0.035, "sector": "Financials"},
+        {"symbol": "BRK.B", "name": "Berkshire Hathaway", "weight": 0.032, "sector": "Financials"},
+        {"symbol": "XOM", "name": "Exxon Mobil", "weight": 0.028, "sector": "Energy"},
+        {"symbol": "WMT", "name": "Walmart Inc.", "weight": 0.025, "sector": "Consumer Staples"},
+        {"symbol": "JNJ", "name": "Johnson & Johnson", "weight": 0.024, "sector": "Healthcare"},
+        {"symbol": "ORCL", "name": "Oracle Corporation", "weight": 0.022, "sector": "Technology"},
+        {"symbol": "PG", "name": "Procter & Gamble", "weight": 0.021, "sector": "Consumer Staples"},
+        {"symbol": "HD", "name": "Home Depot", "weight": 0.020, "sector": "Consumer Discretionary"},
+        {"symbol": "CVX", "name": "Chevron Corporation", "weight": 0.019, "sector": "Energy"},
+        {"symbol": "MRK", "name": "Merck & Co.", "weight": 0.018, "sector": "Healthcare"}
+      ],
+      "sector_distribution": {
+        "Financials": 0.22,
+        "Healthcare": 0.17,
+        "Industrials": 0.14,
+        "Consumer Staples": 0.11,
+        "Energy": 0.08,
+        "Technology": 0.08,
+        "Consumer Discretionary": 0.07,
+        "Utilities": 0.06,
+        "Materials": 0.04,
+        "Real Estate": 0.02,
+        "Communication Services": 0.01
+      }
+    },
+    {
+      "rank": 10,
+      "symbol": "VXUS",
+      "name": "Vanguard Total International Stock ETF",
+      "category": "International",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 120.7,
+      "expense_ratio": 0.0007,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.120,
+        "return_3yr": 0.040,
+        "return_5yr": 0.060,
+        "return_10yr": 0.050
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.160,
+        "beta": 0.85,
+        "sharpe_ratio": 0.75,
+        "max_drawdown": -0.320
+      }
+    },
+    {
+      "rank": 11,
+      "symbol": "IEMG",
+      "name": "iShares Core MSCI Emerging Markets ETF",
+      "category": "Emerging Markets",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 117.0,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.292,
+        "return_3yr": 0.030,
+        "return_5yr": 0.060
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.210,
+        "beta": 0.98,
+        "max_drawdown": -0.400
+      }
+    },
+    {
+      "rank": 12,
+      "symbol": "IWF",
+      "name": "iShares Russell 1000 Growth ETF",
+      "category": "Large Cap Growth",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 98.0,
+      "expense_ratio": 0.0019,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.190,
+        "return_3yr": 0.130,
+        "return_5yr": 0.170
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.188,
+        "beta": 1.18,
+        "max_drawdown": -0.350
+      }
+    },
+    {
+      "rank": 13,
+      "symbol": "VGT",
+      "name": "Vanguard Information Technology ETF",
+      "category": "Technology",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 85.0,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.218,
+        "return_3yr": 0.340,
+        "return_5yr": 0.171
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.220,
+        "beta": 1.25,
+        "max_drawdown": -0.380
+      },
+      "top_10_holdings": [
+        {"symbol": "NVDA", "name": "NVIDIA Corporation", "weight": 0.180, "sector": "Technology"},
+        {"symbol": "AAPL", "name": "Apple Inc.", "weight": 0.140, "sector": "Technology"},
+        {"symbol": "MSFT", "name": "Microsoft Corporation", "weight": 0.120, "sector": "Technology"},
+        {"symbol": "AVGO", "name": "Broadcom Inc.", "weight": 0.060, "sector": "Technology"},
+        {"symbol": "ORCL", "name": "Oracle Corporation", "weight": 0.040, "sector": "Technology"},
+        {"symbol": "CRM", "name": "Salesforce Inc.", "weight": 0.030, "sector": "Technology"},
+        {"symbol": "AMD", "name": "Advanced Micro Devices", "weight": 0.030, "sector": "Technology"},
+        {"symbol": "ADBE", "name": "Adobe Inc.", "weight": 0.020, "sector": "Technology"},
+        {"symbol": "CSCO", "name": "Cisco Systems", "weight": 0.020, "sector": "Technology"},
+        {"symbol": "INTC", "name": "Intel Corporation", "weight": 0.020, "sector": "Technology"}
+      ]
+    },
+    {
+      "rank": 14,
+      "symbol": "IWM",
+      "name": "iShares Russell 2000 ETF",
+      "category": "Small Cap Blend",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 73.7,
+      "expense_ratio": 0.0019,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.114,
+        "return_3yr": 0.020,
+        "return_5yr": 0.080
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.220,
+        "beta": 1.18,
+        "max_drawdown": -0.400
+      },
+      "sector_distribution": {
+        "Healthcare": 0.187,
+        "Financials": 0.177,
+        "Industrials": 0.173,
+        "Technology": 0.147,
+        "Consumer Discretionary": 0.090,
+        "Real Estate": 0.065,
+        "Energy": 0.055,
+        "Materials": 0.045,
+        "Consumer Staples": 0.035,
+        "Utilities": 0.020,
+        "Communication Services": 0.006
+      }
+    },
+    {
+      "rank": 15,
+      "symbol": "XLK",
+      "name": "Technology Select Sector SPDR Fund",
+      "category": "Technology",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 72.0,
+      "expense_ratio": 0.0008,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": -0.002,
+        "return_3yr": 0.101,
+        "return_5yr": 0.218
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.210,
+        "beta": 1.22,
+        "max_drawdown": -0.350
+      }
+    },
+    {
+      "rank": 16,
+      "symbol": "SCHD",
+      "name": "Schwab U.S. Dividend Equity ETF",
+      "category": "Dividend",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 65.0,
+      "expense_ratio": 0.0006,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.117,
+        "return_3yr": 0.090,
+        "return_5yr": 0.116
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.130,
+        "beta": 0.78,
+        "sharpe_ratio": 1.10,
+        "max_drawdown": -0.250
+      }
+    },
+    {
+      "rank": 17,
+      "symbol": "EFA",
+      "name": "iShares MSCI EAFE ETF",
+      "category": "International Developed",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 65.0,
+      "expense_ratio": 0.0032,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.100,
+        "return_3yr": 0.050,
+        "return_5yr": 0.070
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.155,
+        "beta": 0.82,
+        "max_drawdown": -0.300
+      }
+    },
+    {
+      "rank": 18,
+      "symbol": "IWD",
+      "name": "iShares Russell 1000 Value ETF",
+      "category": "Large Cap Value",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 61.9,
+      "expense_ratio": 0.0019,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.070,
+        "return_3yr": 0.065,
+        "return_5yr": 0.159
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.150,
+        "beta": 0.92,
+        "max_drawdown": -0.300
+      }
+    },
+    {
+      "rank": 19,
+      "symbol": "VYM",
+      "name": "Vanguard High Dividend Yield ETF",
+      "category": "Dividend",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 58.0,
+      "expense_ratio": 0.0006,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.176,
+        "return_3yr": 0.080,
+        "return_5yr": 0.099
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.135,
+        "beta": 0.82,
+        "max_drawdown": -0.260
+      }
+    },
+    {
+      "rank": 20,
+      "symbol": "SCHG",
+      "name": "Schwab U.S. Large-Cap Growth ETF",
+      "category": "Large Cap Growth",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 53.0,
+      "expense_ratio": 0.0004,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.179,
+        "return_3yr": 0.130,
+        "return_5yr": 0.190
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.185,
+        "beta": 1.17,
+        "max_drawdown": -0.346
+      }
+    },
+    {
+      "rank": 21,
+      "symbol": "VEU",
+      "name": "Vanguard FTSE All-World ex-US ETF",
+      "category": "International",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 45.0,
+      "expense_ratio": 0.0007,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.110,
+        "return_3yr": 0.040,
+        "return_5yr": 0.060
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.158,
+        "beta": 0.84,
+        "max_drawdown": -0.315
+      }
+    },
+    {
+      "rank": 22,
+      "symbol": "XLF",
+      "name": "Financial Select Sector SPDR Fund",
+      "category": "Financials",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 45.0,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.220,
+        "return_3yr": 0.080,
+        "return_5yr": 0.110
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.180,
+        "beta": 1.05,
+        "max_drawdown": -0.350
+      }
+    },
+    {
+      "rank": 23,
+      "symbol": "XLV",
+      "name": "Health Care Select Sector SPDR Fund",
+      "category": "Healthcare",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 42.0,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.082,
+        "return_3yr": 0.114,
+        "return_5yr": 0.098
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.140,
+        "beta": 0.72,
+        "sharpe_ratio": 0.85,
+        "max_drawdown": -0.220
+      },
+      "top_10_holdings": [
+        {"symbol": "LLY", "name": "Eli Lilly and Company", "weight": 0.120, "sector": "Healthcare"},
+        {"symbol": "UNH", "name": "UnitedHealth Group", "weight": 0.100, "sector": "Healthcare"},
+        {"symbol": "JNJ", "name": "Johnson & Johnson", "weight": 0.080, "sector": "Healthcare"},
+        {"symbol": "ABBV", "name": "AbbVie Inc.", "weight": 0.060, "sector": "Healthcare"},
+        {"symbol": "MRK", "name": "Merck & Co.", "weight": 0.060, "sector": "Healthcare"},
+        {"symbol": "PFE", "name": "Pfizer Inc.", "weight": 0.040, "sector": "Healthcare"},
+        {"symbol": "TMO", "name": "Thermo Fisher Scientific", "weight": 0.040, "sector": "Healthcare"},
+        {"symbol": "ABT", "name": "Abbott Laboratories", "weight": 0.040, "sector": "Healthcare"},
+        {"symbol": "DHR", "name": "Danaher Corporation", "weight": 0.030, "sector": "Healthcare"},
+        {"symbol": "BMY", "name": "Bristol-Myers Squibb", "weight": 0.030, "sector": "Healthcare"}
+      ]
+    },
+    {
+      "rank": 24,
+      "symbol": "DGRO",
+      "name": "iShares Core Dividend Growth ETF",
+      "category": "Dividend Growth",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 32.0,
+      "expense_ratio": 0.0008,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.166,
+        "return_3yr": 0.100,
+        "return_5yr": 0.130
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.140,
+        "beta": 0.88,
+        "max_drawdown": -0.270
+      }
+    },
+    {
+      "rank": 25,
+      "symbol": "VHT",
+      "name": "Vanguard Health Care ETF",
+      "category": "Healthcare",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 18.5,
+      "expense_ratio": 0.0010,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.088,
+        "return_3yr": 0.118,
+        "return_5yr": 0.102
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.135,
+        "beta": 0.70,
+        "max_drawdown": -0.210
+      }
+    },
+    {
+      "rank": 26,
+      "symbol": "EEM",
+      "name": "iShares MSCI Emerging Markets ETF",
+      "category": "Emerging Markets",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 17.24,
+      "expense_ratio": 0.0070,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.098,
+        "return_3yr": 0.010,
+        "return_5yr": 0.040
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.215,
+        "beta": 0.96,
+        "max_drawdown": -0.420
+      }
+    },
+    {
+      "rank": 27,
+      "symbol": "SCHV",
+      "name": "Schwab U.S. Large-Cap Value ETF",
+      "category": "Large Cap Value",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 12.8,
+      "expense_ratio": 0.0004,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.163,
+        "return_3yr": 0.108,
+        "return_5yr": 0.125
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.145,
+        "beta": 0.90,
+        "max_drawdown": -0.290
+      }
+    },
+    {
+      "rank": 28,
+      "symbol": "IBB",
+      "name": "iShares Biotechnology ETF",
+      "category": "Biotechnology",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 6.8,
+      "expense_ratio": 0.0045,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.098,
+        "return_3yr": 0.045,
+        "return_5yr": 0.055
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.240,
+        "beta": 0.95,
+        "max_drawdown": -0.450
+      }
+    },
+    {
+      "rank": 29,
+      "symbol": "ARKK",
+      "name": "ARK Innovation ETF",
+      "category": "Thematic/Disruptive Innovation",
+      "investment_style": "Active",
+      "total_assets_billion": 6.5,
+      "expense_ratio": 0.0075,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": -0.100,
+        "return_3yr": -0.250,
+        "return_5yr": 0.050
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.450,
+        "beta": 1.85,
+        "max_drawdown": -0.780
+      }
+    },
+    {
+      "rank": 30,
+      "symbol": "FXAIX",
+      "name": "Fidelity 500 Index Fund",
+      "category": "Large Cap Blend",
+      "investment_style": "Passive Index",
+      "fund_type": "Mutual Fund",
+      "total_assets_billion": 550.0,
+      "expense_ratio": 0.00015,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.260,
+        "return_3yr": 0.120,
+        "return_5yr": 0.145
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.133,
+        "beta": 1.00,
+        "sharpe_ratio": 1.85,
+        "max_drawdown": -0.245
+      }
+    },
+    {
+      "rank": 31,
+      "symbol": "VFIAX",
+      "name": "Vanguard 500 Index Fund Admiral",
+      "category": "Large Cap Blend",
+      "investment_style": "Passive Index",
+      "fund_type": "Mutual Fund",
+      "total_assets_billion": 485.0,
+      "expense_ratio": 0.0004,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.260,
+        "return_3yr": 0.120,
+        "return_5yr": 0.145
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.133,
+        "beta": 1.00,
+        "max_drawdown": -0.246
+      }
+    },
+    {
+      "rank": 32,
+      "symbol": "AGTHX",
+      "name": "American Funds Growth Fund of America",
+      "category": "Large Cap Growth",
+      "investment_style": "Active",
+      "fund_type": "Mutual Fund",
+      "total_assets_billion": 280.0,
+      "expense_ratio": 0.0062,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.250,
+        "return_3yr": 0.110,
+        "return_5yr": 0.140
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.165,
+        "beta": 1.08,
+        "max_drawdown": -0.320
+      }
+    },
+    {
+      "rank": 33,
+      "symbol": "FCNTX",
+      "name": "Fidelity Contrafund",
+      "category": "Large Cap Growth",
+      "investment_style": "Active",
+      "fund_type": "Mutual Fund",
+      "total_assets_billion": 140.0,
+      "expense_ratio": 0.0039,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.320,
+        "return_3yr": 0.140,
+        "return_5yr": 0.160
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.160,
+        "beta": 1.05,
+        "sharpe_ratio": 1.50,
+        "max_drawdown": -0.300
+      }
+    },
+    {
+      "rank": 34,
+      "symbol": "SWPPX",
+      "name": "Schwab S&P 500 Index Fund",
+      "category": "Large Cap Blend",
+      "investment_style": "Passive Index",
+      "fund_type": "Mutual Fund",
+      "total_assets_billion": 95.0,
+      "expense_ratio": 0.0002,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.260,
+        "return_3yr": 0.120,
+        "return_5yr": 0.145
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.133,
+        "beta": 1.00,
+        "max_drawdown": -0.245
+      }
+    },
+    {
+      "rank": 35,
+      "symbol": "TRBCX",
+      "name": "T. Rowe Price Blue Chip Growth Fund",
+      "category": "Large Cap Growth",
+      "investment_style": "Active",
+      "fund_type": "Mutual Fund",
+      "total_assets_billion": 55.0,
+      "expense_ratio": 0.0069,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.280,
+        "return_3yr": 0.120,
+        "return_5yr": 0.150
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.180,
+        "beta": 1.12,
+        "max_drawdown": -0.350
+      }
+    },
+    {
+      "rank": 36,
+      "symbol": "XLE",
+      "name": "Energy Select Sector SPDR Fund",
+      "category": "Energy",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 38.0,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.080,
+        "return_3yr": 0.200,
+        "return_5yr": 0.120
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.280,
+        "beta": 1.35,
+        "max_drawdown": -0.550
+      }
+    },
+    {
+      "rank": 37,
+      "symbol": "XLI",
+      "name": "Industrial Select Sector SPDR Fund",
+      "category": "Industrials",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 20.0,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.180,
+        "return_3yr": 0.100,
+        "return_5yr": 0.130
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.165,
+        "beta": 1.08,
+        "max_drawdown": -0.320
+      }
+    },
+    {
+      "rank": 38,
+      "symbol": "XLY",
+      "name": "Consumer Discretionary Select Sector SPDR",
+      "category": "Consumer Discretionary",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 22.0,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.150,
+        "return_3yr": 0.070,
+        "return_5yr": 0.140
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.200,
+        "beta": 1.15,
+        "max_drawdown": -0.380
+      }
+    },
+    {
+      "rank": 39,
+      "symbol": "XLP",
+      "name": "Consumer Staples Select Sector SPDR Fund",
+      "category": "Consumer Staples",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 18.0,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.120,
+        "return_3yr": 0.080,
+        "return_5yr": 0.090
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.110,
+        "beta": 0.58,
+        "max_drawdown": -0.180
+      }
+    },
+    {
+      "rank": 40,
+      "symbol": "XLU",
+      "name": "Utilities Select Sector SPDR Fund",
+      "category": "Utilities",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 15.0,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.200,
+        "return_3yr": 0.050,
+        "return_5yr": 0.060
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.155,
+        "beta": 0.45,
+        "max_drawdown": -0.280
+      }
+    },
+    {
+      "rank": 41,
+      "symbol": "XLRE",
+      "name": "Real Estate Select Sector SPDR Fund",
+      "category": "Real Estate",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 6.5,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.100,
+        "return_3yr": 0.020,
+        "return_5yr": 0.050
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.200,
+        "beta": 0.82,
+        "max_drawdown": -0.400
+      }
+    },
+    {
+      "rank": 42,
+      "symbol": "XLB",
+      "name": "Materials Select Sector SPDR Fund",
+      "category": "Materials",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 5.5,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.050,
+        "return_3yr": 0.060,
+        "return_5yr": 0.100
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.190,
+        "beta": 1.10,
+        "max_drawdown": -0.350
+      }
+    },
+    {
+      "rank": 43,
+      "symbol": "XLC",
+      "name": "Communication Services Select Sector SPDR",
+      "category": "Communication Services",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 18.0,
+      "expense_ratio": 0.0009,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.350,
+        "return_3yr": 0.100,
+        "return_5yr": 0.120
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.220,
+        "beta": 1.18,
+        "max_drawdown": -0.420
+      }
+    },
+    {
+      "rank": 44,
+      "symbol": "PRWCX",
+      "name": "T. Rowe Price Capital Appreciation Fund",
+      "category": "Moderate Allocation",
+      "investment_style": "Active",
+      "fund_type": "Mutual Fund",
+      "total_assets_billion": 32.0,
+      "expense_ratio": 0.0070,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.150,
+        "return_3yr": 0.080,
+        "return_5yr": 0.100
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.120,
+        "beta": 0.65,
+        "max_drawdown": -0.200
+      }
+    },
+    {
+      "rank": 45,
+      "symbol": "VIG",
+      "name": "Vanguard Dividend Appreciation ETF",
+      "category": "Dividend Growth",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 85.0,
+      "expense_ratio": 0.0006,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.150,
+        "return_3yr": 0.095,
+        "return_5yr": 0.115
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.135,
+        "beta": 0.85,
+        "max_drawdown": -0.250
+      }
+    },
+    {
+      "rank": 46,
+      "symbol": "VO",
+      "name": "Vanguard Mid-Cap ETF",
+      "category": "Mid Cap Blend",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 65.0,
+      "expense_ratio": 0.0004,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.160,
+        "return_3yr": 0.080,
+        "return_5yr": 0.120
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.170,
+        "beta": 1.05,
+        "max_drawdown": -0.320
+      }
+    },
+    {
+      "rank": 47,
+      "symbol": "VCIT",
+      "name": "Vanguard Intermediate-Term Corporate Bond ETF",
+      "category": "Corporate Bond",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 50.0,
+      "expense_ratio": 0.0004,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.055,
+        "return_3yr": -0.010,
+        "return_5yr": 0.020
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.065,
+        "beta": 0.15,
+        "max_drawdown": -0.150
+      }
+    },
+    {
+      "rank": 48,
+      "symbol": "BND",
+      "name": "Vanguard Total Bond Market ETF",
+      "category": "Aggregate Bond",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 115.0,
+      "expense_ratio": 0.0003,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.045,
+        "return_3yr": -0.015,
+        "return_5yr": 0.010
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.055,
+        "beta": 0.08,
+        "max_drawdown": -0.180
+      }
+    },
+    {
+      "rank": 49,
+      "symbol": "AGG",
+      "name": "iShares Core U.S. Aggregate Bond ETF",
+      "category": "Aggregate Bond",
+      "investment_style": "Passive Index",
+      "total_assets_billion": 110.0,
+      "expense_ratio": 0.0003,
+      "expense_warning": false,
+      "performance": {
+        "return_1yr": 0.044,
+        "return_3yr": -0.016,
+        "return_5yr": 0.009
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.054,
+        "beta": 0.07,
+        "max_drawdown": -0.182
+      }
+    },
+    {
+      "rank": 50,
+      "symbol": "RYVYX",
+      "name": "Rydex NASDAQ-100 2x Strategy Fund",
+      "category": "Leveraged",
+      "investment_style": "Leveraged",
+      "fund_type": "Mutual Fund",
+      "total_assets_billion": 1.5,
+      "expense_ratio": 0.0175,
+      "expense_warning": true,
+      "expense_warning_message": "EXPENSE RATIO ABOVE 1% THRESHOLD (1.75%)",
+      "performance": {
+        "return_1yr": 0.85,
+        "return_3yr": 0.25,
+        "return_5yr": 0.35
+      },
+      "risk_metrics": {
+        "volatility_std_dev": 0.380,
+        "beta": 2.30,
+        "max_drawdown": -0.750
+      },
+      "note": "HIGH RISK - Leveraged strategy with significantly elevated fees"
+    }
+  ],
+  "summary_statistics": {
+    "total_aum_trillion": 7.2,
+    "average_expense_ratio": 0.0018,
+    "median_expense_ratio": 0.0009,
+    "funds_below_0_1_pct_expense": 42,
+    "funds_above_1_pct_expense": 1,
+    "average_5yr_return": 0.118,
+    "average_beta": 0.98,
+    "average_max_drawdown": -0.305
+  }
+}

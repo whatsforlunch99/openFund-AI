@@ -53,6 +53,7 @@ class PlannerAgent(BaseAgent):
         message_bus: MessageBus,
         llm_client: Optional[LLMClient] = None,
         conversation_manager: Any = None,
+        max_research_rounds: int = 2,
     ) -> None:
         super().__init__(name, message_bus)
         self._llm_client = llm_client
@@ -66,8 +67,9 @@ class PlannerAgent(BaseAgent):
         self._user_profile_by_conversation: dict[
             str, str
         ] = {}  # conversation_id -> user_profile
-        self._round_number: dict[str, int] = {}  # conversation_id -> 1 or 2 (max 2 rounds)
+        self._round_number: dict[str, int] = {}  # conversation_id -> round (capped by max_research_rounds)
         self._original_query_by_conversation: dict[str, str] = {}  # for sufficiency/refined
+        self._max_rounds = max(1, max_research_rounds)
 
     def handle_message(self, message: ACLMessage) -> None:
         """Handle incoming messages directed to the Planner.
@@ -141,7 +143,7 @@ class PlannerAgent(BaseAgent):
                     sufficient = self._check_sufficiency(original_query, aggregated)
                     if sufficient:
                         pass
-                    elif round_num < 2:
+                    elif round_num < self._max_rounds:
                         refined_steps = self._get_refined_steps(
                             original_query, aggregated
                         )
@@ -213,7 +215,7 @@ class PlannerAgent(BaseAgent):
                                 "step": "planner_complete",
                                 "message": "All agents have responded. Sending combined results to Responder to format your answer."
                                 if not insufficient
-                                else "Information still insufficient after 2 rounds. Responder will reply with insufficient.",
+                                else f"Information still insufficient after {self._max_rounds} round(s). Responder will reply with insufficient.",
                                 "detail": {"final_length": len(final)},
                             },
                         )
@@ -522,8 +524,20 @@ class PlannerAgent(BaseAgent):
         # No LLM or parse failed; use fixed three steps (librarian, websearcher, analyst)
         # Pass vector_query and fund so the librarian calls vector_tool and kg_tool
         # (demo can then use populated backends; file_tool uses path=query)
+        # Fallback fund/symbol: small heuristic map; full decomposition requires LLM.
+        _QUERY_TO_SYMBOL = (
+            ("nvidia", "NVDA"), ("nvda", "NVDA"),
+            ("apple", "AAPL"), ("aapl", "AAPL"),
+            ("tesla", "TSLA"), ("tsla", "TSLA"),
+            ("microsoft", "MSFT"), ("msft", "MSFT"),
+            ("google", "GOOGL"), ("googl", "GOOGL"), ("alphabet", "GOOGL"),
+        )
         q_lower = query.lower()
-        fund = "NVDA" if ("nvidia" in q_lower or "nvda" in q_lower) else ""
+        fund = ""
+        for substring, symbol in _QUERY_TO_SYMBOL:
+            if substring in q_lower:
+                fund = symbol
+                break
         return [
             TaskStep(
                 agent="librarian",

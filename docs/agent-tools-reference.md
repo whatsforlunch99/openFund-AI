@@ -242,7 +242,7 @@ Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls retur
 
 ## market_tool _(optional — requires `pandas`)_
 
-**Vendor routing:** Vendor-agnostic tools (e.g. `market_tool.get_fundamentals`) route to the configured vendor (`MCP_MARKET_VENDOR`: `alpha_vantage` (default) or `finnhub`; unset or invalid → `alpha_vantage`). No yfinance; Alpha Vantage or Finnhub only.
+**Vendor routing:** Vendor-agnostic tools route to the configured vendor (`MCP_MARKET_VENDOR`: `alpha_vantage` (default) or `finnhub`; unset or invalid → `alpha_vantage`). No yfinance; Alpha Vantage or Finnhub only.
 
 When the backend is unavailable or the dependency is missing, calls return `{"error": str}`.
 
@@ -254,16 +254,6 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
 - **Sample call:**
   ```json
   { "symbol": "NVDA", "start_date": "2024-01-01", "end_date": "2024-12-31" }
-  ```
-
-#### market_tool.get_fundamentals
-
-- **Description:** Fetch fundamental company data (P/E, market cap, sector, description, etc.) for a ticker.
-- **Payload:** `ticker` or `symbol` (required, string).
-- **Returns:** `{"content": str, "timestamp": str}` or `{"error": str}`.
-- **Sample call:**
-  ```json
-  { "ticker": "AAPL" }
   ```
 
 #### market_tool.get_balance_sheet
@@ -326,26 +316,6 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
   { "as_of_date": "2024-12-31", "look_back_days": 7, "limit": 5 }
   ```
 
-#### market_tool.get_ticker_info
-
-- **Description:** Fetch a concise summary of ticker metadata (name, exchange, sector, currency, etc.).
-- **Payload:** `symbol` or `ticker` (required, string).
-- **Returns:** `{"content": str, "timestamp": str}` or `{"error": str}`.
-- **Sample call:**
-  ```json
-  { "symbol": "NVDA" }
-  ```
-
-#### market_tool.get_stock_analytics
-
-- **Description:** Fetch a combined analytics report (price history, volume, moving averages) for a ticker over a date range.
-- **Payload:** `symbol` or `ticker` (required, string), `start_date` (required, string `yyyy-mm-dd`), `end_date` (required, string `yyyy-mm-dd`).
-- **Returns:** `{"content": str, "timestamp": str}` or `{"error": str}`.
-- **Sample call:**
-  ```json
-  { "symbol": "NVDA", "start_date": "2024-06-01", "end_date": "2024-12-31" }
-  ```
-
 ---
 
 ## analyst_tool _(optional — requires `pandas`)_
@@ -384,7 +354,7 @@ Each agent uses `mcp_client.call_tool(...)` to access MCP tools. **Planner** and
 | Agent | Tools available |
 |---|---|
 | **Librarian** | `file_tool.read_file` · `vector_tool.search` · `vector_tool.get_by_ids` · `vector_tool.upsert_documents` · `vector_tool.health_check` · `vector_tool.create_collection_from_config` · `kg_tool.query_graph` · `kg_tool.get_relations` · `kg_tool.get_node_by_id` · `kg_tool.get_neighbors` · `kg_tool.get_graph_schema` · `kg_tool.shortest_path` · `kg_tool.get_similar_nodes` · `kg_tool.fulltext_search` · `kg_tool.bulk_export` · `kg_tool.bulk_create_nodes` · `sql_tool.run_query` · `sql_tool.explain_query` · `sql_tool.export_results` · `sql_tool.connection_health_check` · `get_capabilities` |
-| **WebSearcher** | `market_tool.get_stock_data` · `market_tool.get_fundamentals` · `market_tool.get_balance_sheet` · `market_tool.get_cashflow` · `market_tool.get_income_statement` · `market_tool.get_insider_transactions` · `market_tool.get_news` · `market_tool.get_global_news` · `market_tool.get_ticker_info` · `market_tool.get_stock_analytics` · `get_capabilities` |
+| **WebSearcher** | `market_tool.get_stock_data` · `market_tool.get_balance_sheet` · `market_tool.get_cashflow` · `market_tool.get_income_statement` · `market_tool.get_insider_transactions` · `market_tool.get_news` · `market_tool.get_global_news` · `get_capabilities` |
 | **Analyst** | `analyst_tool.get_indicators` · `get_capabilities` |
 | **Planner** | _(none — orchestrates specialists and sends decomposed queries via ACL)_ |
 | **Responder** | _(none — formats the final answer)_ |
@@ -406,7 +376,6 @@ Each agent uses `mcp_client.call_tool(...)` to access MCP tools. **Planner** and
 
 | Content need | Tool to call |
 |---|---|
-| Market data / fundamentals (live) | `market_tool.get_fundamentals` |
 | Recent news / sentiment | `market_tool.get_news` |
 | Global macro / regulatory news | `market_tool.get_global_news` |
 | Historical price data | `market_tool.get_stock_data` |

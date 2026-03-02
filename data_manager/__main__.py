@@ -138,10 +138,18 @@ def cmd_distribute_funds(args: argparse.Namespace) -> int:
 
     if args.file:
         print(f"Distributing fund file: {args.file}")
-        batch = distributor.distribute_fund_file(args.file)
+        batch = distributor.distribute_fund_file(
+            args.file,
+            load_mode=args.load_mode,
+            fresh_scope=args.fresh_scope,
+        )
     else:
         print(f"Distributing all fund files from {funds_dir}...")
-        batch = distributor.distribute_funds_dir(funds_dir)
+        batch = distributor.distribute_funds_dir(
+            funds_dir,
+            load_mode=args.load_mode,
+            fresh_scope=args.fresh_scope,
+        )
 
     print(f"\nResults:")
     print(f"  Total files: {batch.total_files}")
@@ -326,6 +334,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     dist_funds_parser.add_argument(
         "--file", "-f", help="Distribute a specific fund file"
+    )
+    dist_funds_parser.add_argument(
+        "--load-mode",
+        choices=["existing", "fresh"],
+        default="existing",
+        help="Load behavior: existing=upsert into current DB, fresh=purge old rows then reload",
+    )
+    dist_funds_parser.add_argument(
+        "--fresh-scope",
+        choices=["symbols", "all"],
+        default="symbols",
+        help='When --load-mode fresh: symbols=purge only symbols in file, all=purge all fund data first',
     )
     dist_funds_parser.add_argument(
         "--processed-dir",

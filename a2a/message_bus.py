@@ -75,6 +75,7 @@ class InMemoryMessageBus(MessageBus):
         Args:
             name: Agent name. receive(agent_name) will block on this queue.
         """
+        # Queue creation is idempotent so repeated register calls are safe.
         if name not in self._queues:
             self._queues[name] = queue.Queue()
 
@@ -84,6 +85,7 @@ class InMemoryMessageBus(MessageBus):
         Args:
             message: ACL message. No-op if receiver not registered.
         """
+        # Declare receiver once, then enqueue only to that target queue.
         receiver = message.receiver
         if receiver in self._queues:
             self._queues[receiver].put(message)
@@ -115,5 +117,6 @@ class InMemoryMessageBus(MessageBus):
         Args:
             message: Message to send (e.g. STOP for shutdown).
         """
+        # Write one copy into each registered queue for fan-out semantics.
         for name in self._queues:
             self._queues[name].put(message)

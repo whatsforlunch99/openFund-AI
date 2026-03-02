@@ -30,7 +30,9 @@ class StaticLLMClient:
         """
         self._steps = steps if steps is not None else list(DEFAULT_STATIC_STEPS)
 
-    def decompose_to_steps(self, query: str) -> list[dict[str, Any]]:
+    def decompose_to_steps(
+        self, query: str, memory_context: str = ""
+    ) -> list[dict[str, Any]]:
         """Return static steps with query filled into params."""
         result = []
         # Copy each step and inject the user query into params for the agents

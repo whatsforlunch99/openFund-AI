@@ -9,4 +9,5 @@ from llm.base import LLMClient
 from llm.factory import get_llm_client
 from llm.static_client import StaticLLMClient
 
+# Public LLM surface for runtime wiring and tests.
 __all__ = ["LLMClient", "StaticLLMClient", "get_llm_client"]

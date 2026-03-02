@@ -115,7 +115,7 @@ For production, use external scheduler (cron, Airflow, etc.) to trigger collecti
 
 ```bash
 # Example cron job (daily at 6:00 AM)
-0 6 * * * cd /path/to/openfund-ai && python -m data_manager collect --symbols-file watchlist.txt --date $(date +%Y-%m-%d)
+0 6 * * * cd /path/to/openfund-ai && python -m data_manager collect --symbols NVDA,AAPL,MSFT --date $(date +%Y-%m-%d)
 ```
 
 ---
@@ -735,10 +735,8 @@ tasks:
 ### File Structure
 
 ```
-agents/
-└── data_manager_agent.py       # Agent main class
-
 data_manager/
+├── __main__.py                 # CLI entrypoint (collect/distribute/status/list/global-news/distribute-funds)
 ├── __init__.py
 ├── collector.py                # DataCollector
 ├── distributor.py              # DataDistributor
@@ -746,9 +744,6 @@ data_manager/
 ├── transformer.py              # DataTransformer
 ├── tasks.py                    # CollectionTask definitions
 └── schemas.py                  # Database schema definitions
-
-config/
-└── collection_tasks.yaml       # Collection task configuration
 ```
 
 ---
@@ -817,10 +812,9 @@ python -m data_manager list
 ### API Call
 
 ```python
-from agents.data_manager_agent import DataManagerAgent
 from a2a.acl_message import ACLMessage
 
-# Send collection request
+# Conceptual A2A message shape (no concrete DataManagerAgent class in repo)
 msg = ACLMessage(
     performative="request",
     sender="planner",
@@ -914,7 +908,7 @@ $env:MILVUS_URI="http://localhost:19530"  # Optional
 #### Distribute All Fund Files
 
 ```bash
-python -m data_manager distribute-funds --funds-dir datasets
+python -m data_manager distribute-funds --funds-dir datasets --load-mode existing
 ```
 
 This command processes fund JSON files in `datasets/` (typically `datasets/combined_funds.json`) and distributes data to:
@@ -924,8 +918,13 @@ This command processes fund JSON files in `datasets/` (typically `datasets/combi
 #### Distribute a Single Fund File
 
 ```bash
-python -m data_manager distribute-funds --file datasets/combined_funds.json
+python -m data_manager distribute-funds --file datasets/combined_funds.json --load-mode existing
 ```
+
+Load-mode options:
+- `--load-mode existing`: upsert into existing rows (default)
+- `--load-mode fresh --fresh-scope symbols`: delete rows for symbols in incoming file, then reload
+- `--load-mode fresh --fresh-scope all`: clear all fund tables, then reload
 
 ### Expected Output
 

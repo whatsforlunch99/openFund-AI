@@ -37,9 +37,11 @@ class OutputRail:
         Returns:
             ComplianceResult with passed flag and optional reason.
         """
+        # Empty output is treated as non-violating from a phrase-policy perspective.
         if not text or not text.strip():
             return ComplianceResult(passed=True)
         lower = text.lower()
+        # Phrase scan is intentionally simple and deterministic for predictable blocking.
         for phrase in OUTPUT_BLOCKED_PHRASES:
             if phrase in lower:
                 return ComplianceResult(

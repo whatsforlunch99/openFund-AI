@@ -29,23 +29,34 @@ class LiveLLMClient:
         self._client: Any = None
 
     def _get_client(self) -> Any:
+        # Lazily create the OpenAI-compatible SDK client once and reuse it.
         if self._client is None:
             from openai import OpenAI
 
+            # Declare connection kwargs first, then append provider-specific base_url if configured.
             kwargs: dict[str, Any] = {"api_key": self._api_key}
             if self._base_url:
                 kwargs["base_url"] = self._base_url
             self._client = OpenAI(**kwargs)
         return self._client
 
-    def decompose_to_steps(self, query: str) -> list[dict[str, Any]]:
+    def decompose_to_steps(
+        self, query: str, memory_context: str = ""
+    ) -> list[dict[str, Any]]:
         """Call the LLM to decompose the query into steps; parse and validate."""
         try:
-            # Call OpenAI and parse response into step dicts
+            # Build request payload: combine current query with optional user memory context.
             client = self._get_client()
+            user_input = query
+            if isinstance(memory_context, str) and memory_context.strip():
+                user_input = (
+                    f"User query:\n{query}\n\n"
+                    f"Prior memory context (use when relevant):\n{memory_context.strip()}"
+                )
+            # Declare chat message list in OpenAI format, then request a compact JSON response.
             planner_messages: list[dict[str, str]] = [
                 {"role": "system", "content": PLANNER_DECOMPOSE},  # type: ignore[dict-item]
-                {"role": "user", "content": query},
+                {"role": "user", "content": user_input},
             ]
             response = client.chat.completions.create(
                 model=self._model,
@@ -54,12 +65,13 @@ class LiveLLMClient:
             )
             raw = response.choices[0].message.content if response.choices and response.choices[0].message else None
             text = (raw or "").strip()
+            # Parse + validate into canonical planner steps.
             steps = self._parse_steps(text, query)
             if steps:
                 return steps
         except Exception as e:
             logger.warning("LLM decompose_to_steps failed: %s", e)
-        # Fall back to default three steps so the flow still runs
+        # Fallback path: keep the pipeline running with static three-agent steps.
         from llm.static_client import DEFAULT_STATIC_STEPS
 
         return [
@@ -69,7 +81,7 @@ class LiveLLMClient:
 
     def _parse_steps(self, text: str, query: str) -> list[dict[str, Any]]:
         """Extract JSON array from LLM response and validate agent names."""
-        # Strip markdown code fence if present so we can parse raw JSON
+        # Normalize markdown-wrapped answers into raw JSON text before decoding.
         if "```" in text:
             match = re.search(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", text)
             if match:
@@ -80,7 +92,7 @@ class LiveLLMClient:
             return []
         if not isinstance(raw, list):
             return []
-        # Keep only items with allowed agent names and build step dicts
+        # Validate each element and coerce to canonical planner-step shape.
         result = []
         for item in raw:
             if not isinstance(item, dict):
@@ -125,12 +137,13 @@ class LiveLLMClient:
     ) -> list[dict[str, Any]]:
         """Call the LLM to get tool calls; parse JSON array of {tool, payload}. Returns [] on failure."""
         try:
-            # system_prompt may contain {tool_descriptions} placeholder
+            # Inject runtime tool-description text into the system prompt template.
             if "{tool_descriptions}" in system_prompt:
                 system_prompt = system_prompt.format(tool_descriptions=tool_descriptions)
             text = self.complete(system_prompt, user_content)
             from llm.tool_descriptions import normalize_tool_calls
 
+            # Parse raw model output and normalize to [{"tool", "payload"}].
             parsed = self._parse_tool_calls(text)
             return normalize_tool_calls(parsed)
         except Exception as e:

@@ -65,6 +65,7 @@ class ResponderAgent(BaseAgent):
         # When planner marks insufficient after max rounds, force this exact message
         if content.get("insufficient"):
             final_response = "Insufficient information."
+        # Normalize profile value before formatting so OutputRail logic is deterministic.
         user_profile = content.get("user_profile") or "beginner"
         if isinstance(user_profile, str):
             user_profile = user_profile.strip() or "beginner"
@@ -93,7 +94,7 @@ class ResponderAgent(BaseAgent):
                 },
             )
 
-        # Format by profile and check compliance; append disclaimer if blocked phrase found
+        # Formatting phase: derive user-facing draft and run policy compliance checks.
         final_text = (
             final_response if isinstance(final_response, str) else str(final_response)
         )
@@ -124,7 +125,7 @@ class ResponderAgent(BaseAgent):
                 draft = f"{draft}\n\nThis is not investment advice."
             final_response = draft
 
-        # Register reply and broadcast STOP so other agents exit their run loop
+        # Finalization phase: persist answer to conversation state and stop all agent loops.
         reply_content = {
             "final_response": final_response,
             "conversation_id": conversation_id,

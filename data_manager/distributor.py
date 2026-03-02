@@ -125,6 +125,7 @@ class DataDistributor:
         if not template:
             return 0, f"No upsert template for table: {table}"
 
+        # Row-by-row execution keeps failures isolated to bad records.
         written = 0
         for row in rows:
             result = sql_tool.run_query(template, row)
@@ -490,7 +491,11 @@ class DataDistributor:
         return batch
 
     def distribute_fund_file(
-        self, filepath: str, move_after: bool = False
+        self,
+        filepath: str,
+        move_after: bool = False,
+        load_mode: str = "existing",
+        fresh_scope: str = "symbols",
     ) -> BatchDistributionResult:
         """
         Distribute a fund data file (multiple funds in one file) to target databases.
@@ -501,6 +506,9 @@ class DataDistributor:
         Args:
             filepath: Path to the fund data file.
             move_after: Whether to move file after processing (default False for fund files).
+            load_mode: "existing" (upsert into existing DB) or "fresh" (delete old copies first).
+            fresh_scope: When load_mode="fresh", "symbols" purges only symbols in this file,
+                "all" purges all fund data tables before loading.
 
         Returns:
             BatchDistributionResult with details.
@@ -516,6 +524,7 @@ class DataDistributor:
             logger.error("Failed to read fund file %s: %s", filepath, e)
             return batch
 
+        # Resolve file-level defaults first; per-fund fields can override later.
         metadata = data.get("metadata", {})
         metadata_as_of_date = str(metadata.get("as_of_date") or "").strip()
         collected_at = (
@@ -526,7 +535,9 @@ class DataDistributor:
 
         transformer = DataTransformer(collected_at=collected_at)
 
+        # Parse heterogeneous top-level structure into a flat list of fund dicts.
         funds_processed = []
+        pending_funds: list[dict] = []
         for key, value in data.items():
             if key == "metadata":
                 continue
@@ -541,97 +552,114 @@ class DataDistributor:
                 if not symbol:
                     continue
 
+                pending_funds.append(fund)
                 funds_processed.append(symbol)
-                effective_as_of_date = (
-                    str(fund.get("as_of_date") or "").strip()
-                    or metadata_as_of_date
-                    or datetime.utcnow().strftime("%Y-%m-%d")
-                )
-                fund["as_of_date"] = effective_as_of_date
+        if load_mode == "fresh":
+            # Fresh mode removes old copies before writing the new snapshot.
+            self._purge_fund_data(
+                symbols=sorted({str(f.get("symbol", "")).strip().upper() for f in pending_funds if f.get("symbol")}),
+                scope=fresh_scope,
+            )
 
-                table, rows = transformer._transform_fund_info(symbol, fund)
+        for fund in pending_funds:
+            # Compute effective as_of_date per fund: fund-level > metadata-level > today.
+            symbol = str(fund.get("symbol", "")).strip().upper()
+            effective_as_of_date = (
+                str(fund.get("as_of_date") or "").strip()
+                or metadata_as_of_date
+                or datetime.utcnow().strftime("%Y-%m-%d")
+            )
+            fund["as_of_date"] = effective_as_of_date
+
+            # 1) Core fund profile rows + fund node.
+            table, rows = transformer._transform_fund_info(symbol, fund)
+            if rows:
+                written, _ = self._write_to_postgres(table, rows)
+                batch.postgres_rows += written
+
+            nodes, edges = transformer._fund_info_to_neo4j(symbol, fund)
+            if nodes:
+                nodes_created, edges_created, _ = self._write_to_neo4j(nodes, edges)
+                batch.neo4j_nodes += nodes_created
+                batch.neo4j_edges += edges_created
+
+            # 2) Time-series style single-row tables.
+            if fund.get("performance"):
+                fund_perf = {"performance": fund["performance"], "as_of_date": effective_as_of_date}
+                table, rows = transformer._transform_fund_performance(symbol, fund_perf)
                 if rows:
                     written, _ = self._write_to_postgres(table, rows)
                     batch.postgres_rows += written
 
-                nodes, edges = transformer._fund_info_to_neo4j(symbol, fund)
-                if nodes:
+            if fund.get("risk_metrics"):
+                fund_risk = {"risk_metrics": fund["risk_metrics"], "as_of_date": effective_as_of_date}
+                table, rows = transformer._transform_fund_risk(symbol, fund_risk)
+                if rows:
+                    written, _ = self._write_to_postgres(table, rows)
+                    batch.postgres_rows += written
+
+            # 3) Holdings and holdings graph edges.
+            if fund.get("top_10_holdings"):
+                holdings_data = {"top_10_holdings": fund["top_10_holdings"], "as_of_date": effective_as_of_date}
+                table, rows = transformer._transform_fund_holdings(symbol, holdings_data)
+                if rows:
+                    written, _ = self._write_to_postgres(table, rows)
+                    batch.postgres_rows += written
+
+                nodes, edges = transformer._fund_holdings_to_neo4j(symbol, holdings_data)
+                if nodes or edges:
                     nodes_created, edges_created, _ = self._write_to_neo4j(nodes, edges)
                     batch.neo4j_nodes += nodes_created
                     batch.neo4j_edges += edges_created
 
-                if fund.get("performance"):
-                    fund_perf = {"performance": fund["performance"], "as_of_date": effective_as_of_date}
-                    table, rows = transformer._transform_fund_performance(symbol, fund_perf)
-                    if rows:
-                        written, _ = self._write_to_postgres(table, rows)
-                        batch.postgres_rows += written
+            # 4) Sector allocations and sector edges.
+            if fund.get("sector_allocation") or fund.get("sector_distribution"):
+                sectors = fund.get("sector_allocation") or fund.get("sector_distribution")
+                sectors_data = {"sector_allocation": sectors, "as_of_date": effective_as_of_date}
+                table, rows = transformer._transform_fund_sectors(symbol, sectors_data)
+                if rows:
+                    written, _ = self._write_to_postgres(table, rows)
+                    batch.postgres_rows += written
 
-                if fund.get("risk_metrics"):
-                    fund_risk = {"risk_metrics": fund["risk_metrics"], "as_of_date": effective_as_of_date}
-                    table, rows = transformer._transform_fund_risk(symbol, fund_risk)
-                    if rows:
-                        written, _ = self._write_to_postgres(table, rows)
-                        batch.postgres_rows += written
+                nodes, edges = transformer._fund_sectors_to_neo4j(symbol, sectors_data)
+                if nodes or edges:
+                    nodes_created, edges_created, _ = self._write_to_neo4j(nodes, edges)
+                    batch.neo4j_nodes += nodes_created
+                    batch.neo4j_edges += edges_created
 
-                if fund.get("top_10_holdings"):
-                    holdings_data = {"top_10_holdings": fund["top_10_holdings"], "as_of_date": effective_as_of_date}
-                    table, rows = transformer._transform_fund_holdings(symbol, holdings_data)
-                    if rows:
-                        written, _ = self._write_to_postgres(table, rows)
-                        batch.postgres_rows += written
+            # 5) Flow statistics.
+            if fund.get("fund_flows_2025") or fund.get("fund_flows"):
+                flows_payload = fund.get("fund_flows_2025") or fund.get("fund_flows")
+                flows_data = {"fund_flows_2025": flows_payload, "as_of_date": effective_as_of_date}
+                table, rows = transformer._transform_fund_flows(symbol, flows_data)
+                if rows:
+                    written, _ = self._write_to_postgres(table, rows)
+                    batch.postgres_rows += written
 
-                    nodes, edges = transformer._fund_holdings_to_neo4j(symbol, holdings_data)
-                    if nodes or edges:
-                        nodes_created, edges_created, _ = self._write_to_neo4j(nodes, edges)
-                        batch.neo4j_nodes += nodes_created
-                        batch.neo4j_edges += edges_created
-
-                if fund.get("sector_allocation") or fund.get("sector_distribution"):
-                    sectors = fund.get("sector_allocation") or fund.get("sector_distribution")
-                    sectors_data = {"sector_allocation": sectors, "as_of_date": effective_as_of_date}
-                    table, rows = transformer._transform_fund_sectors(symbol, sectors_data)
-                    if rows:
-                        written, _ = self._write_to_postgres(table, rows)
-                        batch.postgres_rows += written
-
-                    nodes, edges = transformer._fund_sectors_to_neo4j(symbol, sectors_data)
-                    if nodes or edges:
-                        nodes_created, edges_created, _ = self._write_to_neo4j(nodes, edges)
-                        batch.neo4j_nodes += nodes_created
-                        batch.neo4j_edges += edges_created
-
-                if fund.get("fund_flows_2025") or fund.get("fund_flows"):
-                    flows_payload = fund.get("fund_flows_2025") or fund.get("fund_flows")
-                    flows_data = {"fund_flows_2025": flows_payload, "as_of_date": effective_as_of_date}
-                    table, rows = transformer._transform_fund_flows(symbol, flows_data)
-                    if rows:
-                        written, _ = self._write_to_postgres(table, rows)
-                        batch.postgres_rows += written
-
-                if fund.get("company_fundamentals"):
-                    cf = fund["company_fundamentals"]
-                    if isinstance(cf, dict):
-                        cf_row = {
-                            "symbol": symbol,
-                            "as_of_date": str(cf.get("as_of_date") or "").strip() or effective_as_of_date,
-                            "name": fund.get("name") or cf.get("name"),
-                            "sector": cf.get("sector"),
-                            "industry": cf.get("industry"),
-                            "market_cap": cf.get("market_cap"),
-                            "pe_ratio": cf.get("pe_ratio"),
-                            "forward_pe": cf.get("forward_pe"),
-                            "peg_ratio": cf.get("peg_ratio"),
-                            "price_to_book": cf.get("price_to_book"),
-                            "eps_ttm": cf.get("eps_ttm"),
-                            "dividend_yield": cf.get("dividend_yield"),
-                            "beta": cf.get("beta"),
-                            "fifty_two_week_high": cf.get("fifty_two_week_high"),
-                            "fifty_two_week_low": cf.get("fifty_two_week_low"),
-                            "collected_at": str(cf.get("collected_at") or "").strip() or transformer.collected_at,
-                        }
-                        written, _ = self._write_to_postgres("company_fundamentals", [cf_row])
-                        batch.postgres_rows += written
+            # 6) Optional company fundamentals row.
+            if fund.get("company_fundamentals"):
+                cf = fund["company_fundamentals"]
+                if isinstance(cf, dict):
+                    cf_row = {
+                        "symbol": symbol,
+                        "as_of_date": str(cf.get("as_of_date") or "").strip() or effective_as_of_date,
+                        "name": fund.get("name") or cf.get("name"),
+                        "sector": cf.get("sector"),
+                        "industry": cf.get("industry"),
+                        "market_cap": cf.get("market_cap"),
+                        "pe_ratio": cf.get("pe_ratio"),
+                        "forward_pe": cf.get("forward_pe"),
+                        "peg_ratio": cf.get("peg_ratio"),
+                        "price_to_book": cf.get("price_to_book"),
+                        "eps_ttm": cf.get("eps_ttm"),
+                        "dividend_yield": cf.get("dividend_yield"),
+                        "beta": cf.get("beta"),
+                        "fifty_two_week_high": cf.get("fifty_two_week_high"),
+                        "fifty_two_week_low": cf.get("fifty_two_week_low"),
+                        "collected_at": str(cf.get("collected_at") or "").strip() or transformer.collected_at,
+                    }
+                    written, _ = self._write_to_postgres("company_fundamentals", [cf_row])
+                    batch.postgres_rows += written
 
         batch.total_files = 1
         batch.success_count = 1 if funds_processed else 0
@@ -647,8 +675,86 @@ class DataDistributor:
 
         return batch
 
+    def _purge_fund_data(self, symbols: list[str], scope: str = "symbols") -> None:
+        """Delete previously loaded fund data before a fresh load.
+
+        Args:
+            symbols: Fund symbols from incoming data file.
+            scope: "symbols" to purge only incoming symbols, "all" to purge all fund rows.
+        """
+        if not symbols and scope != "all":
+            return
+
+        # Purge relational rows first to avoid stale duplicates on fresh reload.
+        if os.environ.get("DATABASE_URL"):
+            if scope == "all":
+                statements = [
+                    "DELETE FROM fund_sector_allocation",
+                    "DELETE FROM fund_holdings",
+                    "DELETE FROM fund_flows",
+                    "DELETE FROM fund_risk_metrics",
+                    "DELETE FROM fund_performance",
+                    "DELETE FROM fund_info",
+                    "DELETE FROM company_fundamentals",
+                ]
+                for q in statements:
+                    sql_tool.run_query(q)
+            else:
+                for symbol in symbols:
+                    params = {"symbol": symbol}
+                    sql_tool.run_query(
+                        "DELETE FROM fund_sector_allocation WHERE symbol = %(symbol)s",
+                        params,
+                    )
+                    sql_tool.run_query(
+                        "DELETE FROM fund_holdings WHERE fund_symbol = %(symbol)s",
+                        params,
+                    )
+                    sql_tool.run_query(
+                        "DELETE FROM fund_flows WHERE symbol = %(symbol)s",
+                        params,
+                    )
+                    sql_tool.run_query(
+                        "DELETE FROM fund_risk_metrics WHERE symbol = %(symbol)s",
+                        params,
+                    )
+                    sql_tool.run_query(
+                        "DELETE FROM fund_performance WHERE symbol = %(symbol)s",
+                        params,
+                    )
+                    sql_tool.run_query(
+                        "DELETE FROM fund_info WHERE symbol = %(symbol)s",
+                        params,
+                    )
+                    sql_tool.run_query(
+                        "DELETE FROM company_fundamentals WHERE symbol = %(symbol)s",
+                        params,
+                    )
+
+        # Purge graph nodes for affected funds (or all funds when scope=all).
+        if os.environ.get("NEO4J_URI"):
+            if scope == "all":
+                kg_tool.query_graph("MATCH (f:Fund) DETACH DELETE f")
+            else:
+                for symbol in symbols:
+                    kg_tool.query_graph(
+                        "MATCH (f:Fund {symbol: $symbol}) DETACH DELETE f",
+                        {"symbol": symbol},
+                    )
+
+        # Purge vector entries by fund_id; use tautology expr for full wipe.
+        if os.environ.get("MILVUS_URI"):
+            if scope == "all":
+                vector_tool.delete_by_expr('fund_id != ""')
+            else:
+                for symbol in symbols:
+                    vector_tool.delete_by_expr(f'fund_id == "{symbol}"')
+
     def distribute_funds_dir(
-        self, funds_dir: str = "datasets"
+        self,
+        funds_dir: str = "datasets",
+        load_mode: str = "existing",
+        fresh_scope: str = "symbols",
     ) -> BatchDistributionResult:
         """
         Distribute all fund data files in a directory.
@@ -672,7 +778,11 @@ class DataDistributor:
                 continue
 
             filepath = os.path.join(funds_dir, filename)
-            result = self.distribute_fund_file(filepath)
+            result = self.distribute_fund_file(
+                filepath,
+                load_mode=load_mode,
+                fresh_scope=fresh_scope,
+            )
 
             batch.total_files += result.total_files
             batch.success_count += result.success_count

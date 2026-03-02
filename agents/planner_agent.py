@@ -94,6 +94,7 @@ class PlannerAgent(BaseAgent):
             "websearcher",
             "analyst",
         ):
+            # Aggregation phase: store specialist payload and track pending agents.
             if conversation_id not in self._collected:
                 return
             self._collected[conversation_id][message.sender] = content
@@ -127,6 +128,7 @@ class PlannerAgent(BaseAgent):
                     },
                 )
             if not self._round_pending[conversation_id]:
+                # All specialist results are in; compute combined answer candidate.
                 collected = self._collected[conversation_id]
                 final = self._format_final(collected)
                 user_profile = self._user_profile_by_conversation.get(
@@ -139,6 +141,7 @@ class PlannerAgent(BaseAgent):
                 send_to_responder = True
                 insufficient = False
                 if self._llm_client and original_query:
+                    # Sufficiency phase: decide whether to stop or run a refined second round.
                     aggregated = self._format_aggregated_for_sufficiency(collected)
                     sufficient = self._check_sufficiency(original_query, aggregated)
                     if sufficient:
@@ -167,6 +170,7 @@ class PlannerAgent(BaseAgent):
                                     },
                                 )
                             for step in refined_steps:
+                                # Dispatch each refined step as a new REQUEST to the target specialist.
                                 step.params = dict(step.params)
                                 req = self.create_research_request(
                                     original_query, step, context=collected
@@ -198,6 +202,7 @@ class PlannerAgent(BaseAgent):
                 if send_to_responder:
                     if insufficient:
                         final = "Insufficient information."
+                    # Finalization phase: send one INFORM to responder and clean planner state.
                     trace(
                         12,
                         "planner_format_final",
@@ -247,7 +252,7 @@ class PlannerAgent(BaseAgent):
                     self._original_query_by_conversation.pop(conversation_id, None)
             return
 
-        # New request from API: send REQUEST to all three agents (one round)
+        # New user request phase: decompose into specialist steps and dispatch round 1.
         query = content.get("query", "")
         if not query:
             return
@@ -268,7 +273,10 @@ class PlannerAgent(BaseAgent):
         self._user_profile_by_conversation[conversation_id] = profile
         self._original_query_by_conversation[conversation_id] = query
         self._round_number[conversation_id] = 1
-        steps = self.decompose_task(query)
+        user_memory = content.get("user_memory")
+        if not isinstance(user_memory, str):
+            user_memory = ""
+        steps = self.decompose_task(query, user_memory=user_memory)
         if not steps:
             return
         # Flow: one summary message with actual decomposed steps and full sub-queries
@@ -491,7 +499,7 @@ class PlannerAgent(BaseAgent):
             logger.debug("Refined steps parse failed: %s", e)
             return []
 
-    def decompose_task(self, query: str) -> list[TaskStep]:
+    def decompose_task(self, query: str, user_memory: str = "") -> list[TaskStep]:
         """Produce a ReAct-style task chain from the user query.
 
         Uses llm_client.decompose_to_steps when available (Stage 10.2); otherwise
@@ -506,7 +514,9 @@ class PlannerAgent(BaseAgent):
         if self._llm_client is not None:
             try:
                 # Use LLM to get step dicts; filter to allowed agents and build TaskSteps
-                step_dicts = self._llm_client.decompose_to_steps(query)
+                step_dicts = self._llm_client.decompose_to_steps(
+                    query, memory_context=user_memory
+                )
                 if step_dicts:
                     return [
                         TaskStep(

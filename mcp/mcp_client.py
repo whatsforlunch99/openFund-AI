@@ -19,6 +19,7 @@ class MCPClient:
         Args:
             server: MCPServer instance to dispatch tool calls to.
         """
+        # Store server reference; dispatch remains centralized server-side.
         self._server = server
 
     def call_tool(self, tool_name: str, payload: dict) -> dict:
@@ -31,4 +32,5 @@ class MCPClient:
         Returns:
             Tool response dict. Structure depends on the tool.
         """
+        # Thin pass-through wrapper so agents do not depend on server internals.
         return self._server.dispatch(tool_name, payload)

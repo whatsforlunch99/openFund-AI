@@ -30,6 +30,7 @@ class BaseAgent(ABC):
         (e.g. after Responder calls broadcast_stop).
         """
         while True:
+            # Blocking receive loop: each agent processes only messages addressed to itself.
             message = self.bus.receive(self.name)
             if message is None:
                 continue

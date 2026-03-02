@@ -123,6 +123,111 @@ class ConversationManager:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
+    def load_user_conversations(self, user_id: str) -> int:
+        """Load persisted conversations for a user into memory.
+
+        Args:
+            user_id: User whose conversations should be loaded.
+
+        Returns:
+            Number of conversations loaded into in-memory state.
+        """
+        if not user_id:
+            return 0
+        path = os.path.join(self._user_dir(user_id), "conversations.json")
+        if not os.path.exists(path):
+            return 0
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return 0
+
+        if not isinstance(data, dict):
+            return 0
+
+        # Parse persisted JSON map into in-memory ConversationState objects.
+        loaded = 0
+        for cid, raw in data.items():
+            if not isinstance(cid, str) or not isinstance(raw, dict):
+                continue
+            if cid in self._conversations:
+                continue
+
+            created_at = datetime.utcnow()
+            created_raw = raw.get("created_at")
+            if isinstance(created_raw, str) and created_raw.strip():
+                try:
+                    created_at = datetime.fromisoformat(created_raw)
+                except ValueError:
+                    pass
+
+            # Declare state fields from JSON record, then restore completion marker if finished.
+            state = ConversationState(
+                conversation_id=raw.get("id") or cid,
+                user_id=raw.get("user_id") or user_id,
+                initial_query=raw.get("initial_query") or "",
+                messages=raw.get("messages") if isinstance(raw.get("messages"), list) else [],
+                status=raw.get("status") or "active",
+                final_response=raw.get("final_response"),
+                created_at=created_at,
+            )
+            if state.status == "complete" or state.final_response:
+                state.status = "complete"
+                state.completion_event.set()
+            self._conversations[cid] = state
+            loaded += 1
+
+        return loaded
+
+    def get_user_memory_context(
+        self, user_id: str, max_conversations: int = 3, max_chars: int = 3000
+    ) -> str:
+        """Build a compact memory context from recent completed conversations.
+
+        Args:
+            user_id: User identifier.
+            max_conversations: Max number of historical conversations to include.
+            max_chars: Max output characters.
+
+        Returns:
+            Memory context text for planner input; empty string when unavailable.
+        """
+        if not user_id:
+            return ""
+        self.load_user_conversations(user_id)
+
+        # Gather completed conversations only; these are useful as planner memory.
+        history = [
+            s
+            for s in self._conversations.values()
+            if s.user_id == user_id and (s.final_response or s.status == "complete")
+        ]
+        if not history:
+            return ""
+
+        history.sort(key=lambda s: s.created_at or datetime.utcnow(), reverse=True)
+        selected = history[: max(1, max_conversations)]
+
+        # Build compact Q/A memory blocks until char budget is reached.
+        parts: list[str] = []
+        current_len = 0
+        for state in selected:
+            q = (state.initial_query or "").strip()
+            a = (state.final_response or "").strip()
+            if not q and not a:
+                continue
+            block = f"- Q: {q}\n  A: {a}"
+            add_len = len(block) + (1 if parts else 0)
+            if current_len + add_len > max_chars:
+                break
+            parts.append(block)
+            current_len += add_len
+
+        if not parts:
+            return ""
+        return "Recent user memory:\n" + "\n".join(parts)
+
     def create_conversation(self, user_id: str, initial_query: str) -> str:
         """Create a new conversation and return its id.
 
@@ -135,6 +240,7 @@ class ConversationManager:
         Returns:
             New conversation_id (UUID string).
         """
+        self.load_user_conversations(user_id)
         cid = str(uuid.uuid4())
         state = ConversationState(
             conversation_id=cid,

@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 def _fmt(items: dict[str, Any]) -> str:
     """Format key=value pairs for In/Out."""
+    # Keep formatter deterministic so trace lines are easy to compare in logs/tests.
     if not items:
         return ""
     return ", ".join(f"{k}={v}" for k, v in items.items())

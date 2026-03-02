@@ -5,6 +5,7 @@ Contains SQL DDL for PostgreSQL tables, Cypher patterns for Neo4j, and Milvus co
 
 from __future__ import annotations
 
+# PostgreSQL DDL bootstrap used by DataDistributor._ensure_postgres_schema().
 POSTGRES_DDL = """
 -- Stock quotes table (OHLCV data)
 CREATE TABLE IF NOT EXISTS stock_ohlcv (
@@ -162,6 +163,7 @@ CREATE TABLE IF NOT EXISTS fund_flows (
 );
 """
 
+# Parameterized UPSERT SQL templates keyed by logical table name.
 POSTGRES_UPSERT_TEMPLATES = {
     "stock_ohlcv": """
         INSERT INTO stock_ohlcv (symbol, trade_date, open, high, low, close, volume, collected_at)
@@ -257,6 +259,7 @@ POSTGRES_UPSERT_TEMPLATES = {
     """,
 }
 
+# Neo4j Cypher templates for node upsert and relationship linking.
 NEO4J_CYPHER_TEMPLATES = {
     "merge_company": """
         MERGE (c:Company {symbol: $symbol})

@@ -13,6 +13,7 @@ from typing import Callable
 
 def _days_ago(as_of_date: str, days: int) -> str:
     """Return date string N days before as_of_date."""
+    # Parse anchor date first, then subtract rolling window days.
     dt = datetime.strptime(as_of_date, "%Y-%m-%d")
     return (dt - timedelta(days=days)).strftime("%Y-%m-%d")
 
@@ -29,6 +30,7 @@ class CollectionTask:
 
 
 COLLECTION_TASKS: list[CollectionTask] = [
+    # Price history window (1 year) for trend and return calculations.
     CollectionTask(
         task_type="stock_data",
         tool_name="market_tool.get_stock_data",
@@ -107,6 +109,7 @@ GLOBAL_NEWS_TASK = CollectionTask(
 
 def get_task_by_type(task_type: str) -> CollectionTask | None:
     """Return the CollectionTask for a given task_type, or None if not found."""
+    # Linear scan is fine here because task registry is intentionally small.
     for task in COLLECTION_TASKS:
         if task.task_type == task_type:
             return task

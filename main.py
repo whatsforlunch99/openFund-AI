@@ -119,8 +119,8 @@ def main() -> None:
 
     Modes:
     - --e2e-once: run one end-to-end conversation and exit 0.
-    - --serve: run FastAPI via uvicorn.
-    - default: load config/situation memory and log readiness only.
+    - --serve: run FastAPI via uvicorn (same as default).
+    - --no-serve: load config/situation memory only and exit.
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -140,14 +140,24 @@ def main() -> None:
         logger.info("Situation memory unavailable: %s", e)
     logger.info("OpenFund-AI ready (config loaded)")
 
-    if "--serve" in sys.argv:
+    serve = ("--serve" in sys.argv) or ("--no-serve" not in sys.argv)
+    port = 8000
+    if "--port" in sys.argv:
+        i = sys.argv.index("--port")
+        if i + 1 < len(sys.argv):
+            try:
+                port = int(sys.argv[i + 1])
+            except ValueError:
+                port = 8000
+
+    if serve:
         import uvicorn
 
         uvicorn.run(
             "api.rest:create_app",
             factory=True,
             host="0.0.0.0",
-            port=8000,
+            port=port,
         )
 
 

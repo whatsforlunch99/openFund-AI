@@ -23,7 +23,7 @@ def read_file(path: str) -> dict:
     """
     base_dir = os.getenv("MCP_FILE_BASE_DIR")
     if base_dir:
-        # Restrict path to under base_dir to prevent path traversal
+        # Safety gate: resolve and constrain target path under configured base directory.
         base_dir = os.path.abspath(base_dir)
         try:
             abs_path = os.path.abspath(path)

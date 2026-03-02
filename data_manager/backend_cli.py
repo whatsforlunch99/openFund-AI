@@ -16,6 +16,7 @@ def run_populate() -> int:
     # Ensure .env is loaded regardless of current working directory.
     load_config()
 
+    # Execute each backend seeder independently; each returns (ok, message).
     results = [
         sql_tool.populate_demo(),
         kg_tool.populate_demo(),
@@ -51,6 +52,7 @@ def cmd_sql(args: argparse.Namespace) -> int:
         )
         return 1
 
+    # Parse optional key=value CLI params into dict for SQL placeholders.
     params = None
     if args.params:
         params = {}
@@ -82,6 +84,7 @@ def cmd_neo4j(args: argparse.Namespace) -> int:
         )
         return 1
 
+    # Parse optional key=value CLI params into dict for Cypher placeholders.
     params = None
     if args.params:
         params = {}
@@ -108,6 +111,7 @@ def cmd_milvus_index(args: argparse.Namespace) -> int:
         )
         return 1
 
+    # Accept either one document object or an array of documents.
     with open(args.file, "r", encoding="utf-8") as f:
         docs = json.load(f)
     if not isinstance(docs, list):

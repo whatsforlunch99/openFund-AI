@@ -21,6 +21,7 @@ class ClassificationResult:
 class DataClassifier:
     """Classify data to target databases based on type and content characteristics."""
 
+    # One-to-one routing: these task types always map to a single database target.
     STATIC_ROUTING: dict[str, str] = {
         "stock_data": "postgres",
         "balance_sheet": "postgres",
@@ -33,6 +34,7 @@ class DataClassifier:
         "fund_flows": "postgres",
     }
 
+    # Multi-target routing: one task can materialize into multiple storage backends.
     MULTI_TARGET: dict[str, list[str]] = {
         "fundamentals": ["postgres", "neo4j"],
         "info": ["postgres", "neo4j", "milvus"],
@@ -43,6 +45,7 @@ class DataClassifier:
         "fund_sectors": ["postgres", "neo4j"],
     }
 
+    # Optional finer-grained routing hints used by downstream transformers.
     SUB_TYPE_ROUTING: dict[str, dict[str, list[str]]] = {
         "fundamentals": {
             "metrics": ["postgres"],
@@ -68,6 +71,7 @@ class DataClassifier:
         Returns:
             ClassificationResult with targets and sub_types.
         """
+        # Compute target set from static or multi-target routing tables.
         if task_type in self.MULTI_TARGET:
             targets = self.MULTI_TARGET[task_type]
             sub_types = self.SUB_TYPE_ROUTING.get(task_type, {})
@@ -86,6 +90,7 @@ class DataClassifier:
 
     def get_postgres_tasks(self) -> list[str]:
         """Return all task types that write to PostgreSQL."""
+        # Start with static postgres-only tasks, then append multi-target entries.
         tasks = [k for k, v in self.STATIC_ROUTING.items() if v == "postgres"]
         for k, targets in self.MULTI_TARGET.items():
             if "postgres" in targets and k not in tasks:
@@ -94,6 +99,7 @@ class DataClassifier:
 
     def get_neo4j_tasks(self) -> list[str]:
         """Return all task types that write to Neo4j."""
+        # Neo4j currently appears only in multi-target routes.
         tasks = []
         for k, targets in self.MULTI_TARGET.items():
             if "neo4j" in targets:
@@ -102,6 +108,7 @@ class DataClassifier:
 
     def get_milvus_tasks(self) -> list[str]:
         """Return all task types that write to Milvus."""
+        # Milvus currently appears only in multi-target routes.
         tasks = []
         for k, targets in self.MULTI_TARGET.items():
             if "milvus" in targets:

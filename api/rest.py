@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
 import logging
+import os
 import threading
+import binascii
+import re
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
@@ -65,9 +73,16 @@ class ChatRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    """POST /register body: optional display name for new user."""
+    """POST /register body: create a user with password."""
 
+    username: str = ""
     display_name: str = ""
+    password: str = ""
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, v: Any) -> str:
+        return str(v or "").strip()
 
     @field_validator("display_name")
     @classmethod
@@ -75,6 +90,124 @@ class RegisterRequest(BaseModel):
         if v is None:
             return ""
         return str(v).strip() or "Guest"
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: Any) -> str:
+        s = str(v or "").strip()
+        if len(s) < 8:
+            raise ValueError("password must be at least 8 characters")
+        return s
+
+
+class LoginRequest(BaseModel):
+    """POST /login body: login existing user and preload memory."""
+
+    username: str = ""
+    user_id: str = ""
+    password: str
+
+    @field_validator("username")
+    @classmethod
+    def normalize_login_username(cls, v: Any) -> str:
+        return str(v or "").strip()
+
+    @field_validator("user_id")
+    @classmethod
+    def normalize_login_user_id(cls, v: Any) -> str:
+        return str(v or "").strip()
+
+    @field_validator("password")
+    @classmethod
+    def normalize_login_password(cls, v: Any) -> str:
+        s = str(v or "")
+        if not s:
+            raise ValueError("password is required")
+        return s
+
+
+_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{2,31}$")
+
+
+def _canonical_username(raw: Any) -> str:
+    """Normalize username for storage and lookups."""
+    return str(raw or "").strip().lower()
+
+
+def _validate_new_username(raw: Any) -> str | None:
+    """Validate username format for registration."""
+    name = str(raw or "").strip()
+    if not name:
+        return None
+    if not _USERNAME_RE.fullmatch(name):
+        return None
+    return name.lower()
+
+
+def _resolve_user_key(users: dict[str, dict[str, Any]], raw_login: Any) -> str | None:
+    """Resolve a login input to stored user key (supports legacy random ids and display_name)."""
+    login_raw = str(raw_login or "").strip()
+    if not login_raw:
+        return None
+    canon = _canonical_username(login_raw)
+    if canon in users:
+        return canon
+    for key, record in users.items():
+        if _canonical_username(key) == canon:
+            return key
+        if _canonical_username(record.get("display_name")) == canon:
+            return key
+    return None
+
+
+def _users_store_path() -> str:
+    root = os.environ.get("MEMORY_STORE_PATH", "memory").rstrip("/")
+    os.makedirs(root, exist_ok=True)
+    return os.path.join(root, "users.json")
+
+
+def _load_users() -> dict[str, dict[str, Any]]:
+    path = _users_store_path()
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+
+
+def _save_users(users: dict[str, dict[str, Any]]) -> None:
+    path = _users_store_path()
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(users, f, indent=2)
+
+
+def _hash_password(password: str, salt: bytes | None = None, rounds: int = 200_000) -> str:
+    if salt is None:
+        salt = os.urandom(16)
+    pwd = password.encode("utf-8")
+    digest = hashlib.pbkdf2_hmac("sha256", pwd, salt, rounds)
+    b64_salt = base64.b64encode(salt).decode("ascii")
+    b64_digest = base64.b64encode(digest).decode("ascii")
+    return f"pbkdf2_sha256${rounds}${b64_salt}${b64_digest}"
+
+
+def _verify_password(password: str, encoded_hash: str) -> bool:
+    try:
+        algo, rounds_raw, b64_salt, b64_digest = encoded_hash.split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        rounds = int(rounds_raw)
+        salt = base64.b64decode(b64_salt.encode("ascii"))
+        expected = base64.b64decode(b64_digest.encode("ascii"))
+    except (ValueError, TypeError, binascii.Error):
+        return False
+    actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, rounds)
+    return hmac.compare_digest(actual, expected)
 
 
 def create_app(
@@ -196,34 +329,88 @@ def create_app(
     app.state.safety_gateway = safety_gateway
     app.state.e2e_timeout_seconds = effective_timeout
 
-    @app.get("/demo")
-    def get_demo_mode() -> JSONResponse:
-        """Return demo flag (always false; endpoint kept for chat client compatibility)."""
-        return JSONResponse(status_code=200, content={"demo": False})
-
     @app.post("/register")
     def post_register_endpoint(body: RegisterRequest) -> JSONResponse:
-        """POST /register: create a new user id and return a welcome message."""
-        import uuid
+        """POST /register: create a username account with password and return welcome message."""
+        requested = body.username or body.display_name
+        user_id = _validate_new_username(requested)
+        if not user_id:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": (
+                        "username must match ^[A-Za-z][A-Za-z0-9_.-]{2,31}$ "
+                        "(3-32 chars, start with a letter)"
+                    )
+                },
+            )
 
-        name = body.display_name or "Guest"
-        user_id = "user_" + uuid.uuid4().hex[:8]
+        users = _load_users()
+        # Enforce uniqueness across usernames and legacy display_name values.
+        if _resolve_user_key(users, user_id) is not None:
+            return JSONResponse(
+                status_code=409,
+                content={"detail": f"username '{user_id}' is already registered"},
+            )
+        users[user_id] = {
+            "display_name": user_id,
+            "username": user_id,
+            "password_hash": _hash_password(body.password),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _save_users(users)
         return JSONResponse(
             status_code=200,
             content={
                 "user_id": user_id,
-                "message": f"New user created. Welcome, {name}! Use this user_id when sending queries.",
+                "username": user_id,
+                "message": f"New user created. Welcome, {user_id}!",
+            },
+        )
+
+    @app.post("/login")
+    def post_login_endpoint(body: LoginRequest) -> JSONResponse:
+        """POST /login: verify password by username/user_id and preload memory."""
+        # Read credential store first, then validate password hash.
+        users = _load_users()
+        login_name = body.username or body.user_id
+        user_key = _resolve_user_key(users, login_name)
+        record = users.get(user_key or "")
+        if not record or not _verify_password(body.password, str(record.get("password_hash") or "")):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid username/user_id or password"},
+            )
+        loaded = manager.load_user_conversations(user_key or "")
+        # Compute compact memory context for planner priming on the next query.
+        memory_context = manager.get_user_memory_context(
+            user_key or "", max_conversations=3, max_chars=1000
+        )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "user_id": user_key,
+                "username": user_key,
+                "message": f"Welcome back, {record.get('display_name') or user_key}.",
+                "loaded_conversations": loaded,
+                "has_memory_context": bool(memory_context),
             },
         )
 
     @app.post("/chat")
     def post_chat_endpoint(body: ChatRequest) -> JSONResponse:
         """POST /chat: validate, safety, create/get conversation, send to planner, wait, return."""
+        # Normalize request fields into local variables for flow orchestration.
         query = body.query
         user_profile = body.user_profile
         user_id = body.user_id
         conversation_id = body.conversation_id
         path = body.path
+        user_memory = ""
+        if user_id:
+            # Load persisted history and derive planner memory context before dispatch.
+            manager.load_user_conversations(user_id)
+            user_memory = manager.get_user_memory_context(user_id)
 
         trace(
             1,
@@ -253,9 +440,13 @@ def create_app(
             next_="create or get conversation",
         )
 
-        # 2. Create new conversation or load existing by conversation_id
+        # 2. Create a new conversation or restore an existing one by conversation_id.
         if conversation_id:
             state = manager.get_conversation(conversation_id)
+            if state is None and user_id:
+                # Retry after persistence reload in case conversation was not in memory yet.
+                manager.load_user_conversations(user_id)
+                state = manager.get_conversation(conversation_id)
             if state is None:
                 trace(
                     4,
@@ -303,12 +494,14 @@ def create_app(
                 },
             )
 
-        # 3. Send REQUEST to planner; planner will send to librarian, websearcher, analyst
+        # 3. Build planner payload and dispatch REQUEST into the A2A message bus.
         content = {
             "query": query,
             "conversation_id": conversation_id,
             "user_profile": user_profile,
         }
+        if user_memory:
+            content["user_memory"] = user_memory
         if path is not None:
             content["path"] = path
         bus.send(
@@ -340,7 +533,7 @@ def create_app(
             },
         )
 
-        # 4. Block until responder sets final_response and completion_event, or timeout
+        # 4. Wait for responder completion signal (or timeout) before returning to client.
         timeout = app.state.e2e_timeout_seconds
         signaled = state.completion_event.wait(timeout=timeout)
         if not signaled:

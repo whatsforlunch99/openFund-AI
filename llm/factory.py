@@ -26,6 +26,7 @@ def get_llm_client(config: Config) -> LLMClient:
         ValueError: If LLM_API_KEY is not set or empty.
     """
     if not (config.llm_api_key and config.llm_api_key.strip()):
+        # Startup hard requirement: planner/specialists depend on live model calls.
         raise ValueError(
             "LLM_API_KEY is required. Set it in .env (see .env.example and README)."
         )
@@ -35,7 +36,7 @@ def get_llm_client(config: Config) -> LLMClient:
         raise ImportError(
             "LLM extra is required. Install with: pip install openfund-ai[llm]"
         ) from e
-    # Use configured model and base URL (e.g. DeepSeek) or defaults
+    # Resolve runtime model routing configuration (default model + optional base_url).
     model = (config.llm_model or "gpt-4o-mini").strip() or "gpt-4o-mini"
     base_url = (config.llm_base_url or "").strip() or None
     return LiveLLMClient(

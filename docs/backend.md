@@ -19,6 +19,18 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 
 ### REST
 
+- **POST /register**  
+  - **Request body:** `username` (required; unique), `password` (required, min 8 chars).  
+  - **Success (200):** `{ "user_id", "username", "message" }`.  
+  - **Failure (409):** username already exists.  
+  - **Persistence:** stores password hash in `MEMORY_STORE_PATH/users.json`.
+
+- **POST /login**  
+  - **Request body:** `username` (preferred) or legacy `user_id`, `password` (required).  
+  - **Success (200):** `{ "user_id", "username", "message", "loaded_conversations", "has_memory_context" }`.  
+  - **Failure (401):** invalid credentials.  
+  - **Behavior:** loads persisted user conversations from `memory/<user_id>/conversations.json` into ConversationManager.
+
 - **POST /chat**  
   - **Request body:** `query` (required), `user_profile` (beginner | long_term | analyst), `user_id` (optional, default `""`), `conversation_id` (optional), `path` (optional, for file_tool).  
   - **Flow:** Validate body → safety (process_user_input) → create or get conversation → send to Planner → block on completion.  
@@ -33,7 +45,11 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 ### WebSocket
 
 - **/ws** — Same logical flow as POST /chat.  
-- **Events:** `{"event": "status", "agent": "<name>", "message": "working"}` (per agent); `{"event": "response", "conversation_id": "...", "response": "..."}` (once when complete).
+- **Input JSON:** `query` (required), optional `user_profile`, `user_id`, `conversation_id`, `path`.  
+- **Events:** multiple `flow` events while running, then exactly one terminal event:
+  - `{"event": "response", "conversation_id", "status", "response", "flow"}` on success
+  - `{"event": "timeout", "conversation_id", "response": null, "flow"}` on timeout
+  - `{"event": "error", "detail": "..."}` on validation/safety/not-found failures.
 
 ---
 
@@ -42,6 +58,7 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 - **Conversation state:** id (UUID), user_id, initial_query, messages (append-only log), status ("active" | "complete" | "error"), final_response (set when response is delivered), created_at, completion_event (for blocking wait).
 - **Message (ACL):** performative, sender, receiver, content, conversation_id, reply_to, in_reply_to, timestamp. Performatives: REQUEST, INFORM, STOP, FAILURE, ACK, REFUSE, CANCEL. Performative type is `(str, Enum)` for Python 3.9 compatibility (StrEnum is 3.11+).
 - **Task step (orchestration):** agent ("librarian" | "websearcher" | "analyst"), action, params. Params include the **decomposed query** for that agent (and any tool-relevant hints). When sufficient information is gathered, Planner sends consolidated data to Responder.
+- **Planner memory context:** when `user_id` is provided, recent completed Q/A pairs from that user's persisted history are loaded and passed to Planner as `user_memory` context for decomposition.
 
 ---
 
@@ -50,7 +67,7 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 - **Create vs get:** No conversation_id → create new conversation; conversation_id present → get existing (404 if missing).
 - **Sufficiency:** The **Planner** (orchestrator) decides when gathered information is sufficient. Sufficiency is determined by an **LLM call** (no numeric threshold in code). When the LLM answers SUFFICIENT, the Planner sends consolidated data to the Responder.
 - **Confidence:** The **Analyst** may request more data when its analysis confidence is below `ANALYST_CONFIDENCE_THRESHOLD`. The **Responder** does not evaluate confidence; it only formats the final answer. Only the Planner evaluates sufficiency (via LLM). `RESPONDER_CONFIDENCE_THRESHOLD` is reserved for future use.
-- **Persistence:** One JSON file per user at `memory/<user_id>/conversations.json`; anonymous at `memory/anonymous/conversations.json`. Written on create and on register_reply. Root dir: `MEMORY_STORE_PATH` (default `memory/`). **Situation memory:** A single BM25-backed store of (situation, recommendation) pairs is persisted at `{MEMORY_STORE_PATH}/situation_memory.json`; optional—loaded on startup via `get_situation_memory(memory_store_path)` when the `memory` module (and `rank_bm25`) is available; otherwise startup continues without it.
+- **Persistence:** One JSON file per user at `memory/<user_id>/conversations.json`; anonymous at `memory/anonymous/conversations.json`. Written on create and on register_reply. Root dir: `MEMORY_STORE_PATH` (default `memory/`). User credentials are stored as password hashes in `memory/users.json`. **Situation memory:** A single BM25-backed store of (situation, recommendation) pairs is persisted at `{MEMORY_STORE_PATH}/situation_memory.json`; optional—loaded on startup via `get_situation_memory(memory_store_path)` when the `memory` module (and `rank_bm25`) is available; otherwise startup continues without it.
 
 ---
 
@@ -96,8 +113,8 @@ Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). Al
 - **Persistence:** MEMORY_STORE_PATH (default `memory/`). Situation memory file: `{MEMORY_STORE_PATH}/situation_memory.json`.
 - **Timeouts:** E2E_TIMEOUT_SECONDS (default 30).
 - **Thresholds:** PLANNER_SUFFICIENCY_THRESHOLD (default 0.6, reserved—sufficiency is LLM-decided), ANALYST_CONFIDENCE_THRESHOLD (default 0.6), RESPONDER_CONFIDENCE_THRESHOLD (default 0.75, reserved for future use). **Research rounds:** MAX_RESEARCH_ROUNDS (default 2) caps refinement rounds. **Round-2 refined steps:** The Planner uses fixed actions per agent (librarian → read_file, websearcher → fetch_market, analyst → analyze) unless the LLM is extended to return actions. **Fallback decomposition:** When the LLM is unavailable, the Planner uses a small heuristic to infer a fund/symbol from the query (e.g. nvidia→NVDA, apple→AAPL); full decomposition including symbol hints requires the LLM otherwise.
-- **LLM (Stage 10.2):** Optional. When LLM_API_KEY is not set, a static mock client is used (same three steps: librarian, websearcher, analyst). When LLM_API_KEY is set, a live OpenAI client is used for task decomposition if the optional dependency is installed: `pip install openfund-ai[llm]`. LLM_MODEL (default gpt-4o-mini) selects the model.
-- **Demo:** The demo runs the **full stack** with real MCP tools and real LLM from `.env` (no `OPENFUND_DEMO`). Run `python -m demo`; use `--ensure-data` to load `datasets/combined_funds.json` (or JSON files in `datasets/`) into backends before starting. See [demo.md](demo.md).
+- **LLM:** Required for app startup. `get_llm_client()` requires `LLM_API_KEY`; otherwise startup fails with a clear error. Install optional dependency: `pip install openfund-ai[llm]`. `LLM_MODEL` (default `gpt-4o-mini`) and optional `LLM_BASE_URL` control provider/model routing.
+- **Runtime entrypoint:** Use `./scripts/run.sh` as the single operational command to start the live system.
 - **MCP/backends:** MILVUS_URI, MILVUS_COLLECTION; NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD; TAVILY_API_KEY, YAHOO_BASE_URL; ANALYST_API_URL, ANALYST_API_KEY; DATABASE_URL; EMBEDDING_MODEL, EMBEDDING_DIM. **Vendor selection (market/analyst):** MCP_MARKET_VENDOR (default alpha_vantage; or finnhub); MCP_INDICATOR_VENDOR (default alpha_vantage). Optional: MCP_DATA_CACHE_DIR (cache dir for OHLCV); ALPHA_VANTAGE_API_KEY (required when using alpha_vantage vendor). **Path safety (file_tool):** Optional MCP_FILE_BASE_DIR; when set, read_file only allows paths under this directory (avoids path traversal). When unset, path is used as-is (trusted caller only).
 
 **MCP market/indicator vendor switching:** Set `MCP_MARKET_VENDOR=alpha_vantage` to use Alpha Vantage for market tools (stock data, fundamentals, news, insider transactions). Set `MCP_INDICATOR_VENDOR=alpha_vantage` for technical indicators. Default for both is `alpha_vantage`. Invalid or unset values fall back to `alpha_vantage`. Finnhub is supported for market data when `MCP_MARKET_VENDOR=finnhub` and FINNHUB_API_KEY is set.

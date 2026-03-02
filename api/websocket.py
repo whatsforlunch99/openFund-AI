@@ -47,7 +47,7 @@ async def handle_websocket(
         await websocket.close()
         return
 
-    # Require non-empty query and valid user_profile
+    # Validation phase: declare required fields and reject malformed input early.
     query = body.get("query")
     if query is None or (isinstance(query, str) and not query.strip()):
         await websocket.send_json(
@@ -77,8 +77,13 @@ async def handle_websocket(
     if conversation_id is not None:
         conversation_id = str(conversation_id).strip() or None
     path = body.get("path")
+    user_memory = ""
+    if user_id:
+        # Load persisted user history and compute planner memory context.
+        manager.load_user_conversations(user_id)
+        user_memory = manager.get_user_memory_context(user_id)
 
-    # Run safety; then create or get conversation
+    # Safety gate phase: input must pass guardrails before any agent dispatch.
     try:
         safety_gateway.process_user_input(query)
     except SafetyError as e:
@@ -88,6 +93,9 @@ async def handle_websocket(
 
     if conversation_id:
         state = manager.get_conversation(conversation_id)
+        if state is None and user_id:
+            manager.load_user_conversations(user_id)
+            state = manager.get_conversation(conversation_id)
         if state is None:
             await websocket.send_json(
                 {"event": "error", "detail": "Conversation not found"}
@@ -116,12 +124,14 @@ async def handle_websocket(
             },
         )
 
-    # Build REQUEST content and send to planner
+    # Dispatch phase: compose planner payload and send REQUEST via message bus.
     content = {
         "query": query,
         "conversation_id": conversation_id,
         "user_profile": user_profile,
     }
+    if user_memory:
+        content["user_memory"] = user_memory
     if path is not None:
         content["path"] = path
 
@@ -143,19 +153,19 @@ async def handle_websocket(
         },
     )
 
-    # Stream flow events one-by-one, then send response or timeout
+    # Streaming phase: emit incremental flow events while waiting for completion.
     loop = asyncio.get_running_loop()
     sent_count = 0
     start = time.monotonic()
     signaled = False
     # Poll completion_event in executor so async loop stays responsive; stream flow as it arrives
     while (time.monotonic() - start) < timeout_seconds:
-        # Send any new flow events
+        # Compute delta flow slice and stream only unseen events.
         flow = manager.get_flow_events(conversation_id)
         for i in range(sent_count, len(flow)):
             await websocket.send_json({"event": "flow", **flow[i]})
         sent_count = len(flow)
-        # Check completion with short wait
+        # Poll completion_event using a short blocking window in executor.
         remaining = timeout_seconds - (time.monotonic() - start)
         if remaining <= 0:
             break
@@ -168,7 +178,7 @@ async def handle_websocket(
             break
         await asyncio.sleep(FLOW_POLL_INTERVAL)
 
-    # Send any final flow events that arrived
+    # Flush final flow events before terminal response/timeout event.
     flow = manager.get_flow_events(conversation_id)
     for i in range(sent_count, len(flow)):
         await websocket.send_json({"event": "flow", **flow[i]})

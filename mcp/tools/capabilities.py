@@ -16,9 +16,11 @@ def get_capabilities(tool_names: list[str]) -> dict:
         Dict with "neo4j", "postgres", "milvus" (bool per env), and "tools" (sorted list
         including "get_capabilities").
     """
+    # Read backend env flags to report which integrations are configured.
     neo4j = bool(os.environ.get("NEO4J_URI"))
     postgres = bool(os.environ.get("DATABASE_URL"))
     milvus = bool(os.environ.get("MILVUS_URI"))
+    # Include this introspection tool itself in the published tool list.
     tools = sorted(set(tool_names) | {"get_capabilities"})
     return {
         "neo4j": neo4j,

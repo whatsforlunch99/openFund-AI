@@ -60,8 +60,10 @@ class DataCollector:
             mcp_client: Optional MCP client; when omitted, uses default local MCP server registry.
         """
         self.data_dir = data_dir
+        # Snapshot allowed tool names from task registry to enforce API consistency.
         self._active_tool_names = get_active_tool_names()
         if mcp_client is None:
+            # Default wiring: create local MCP server/client pair for CLI execution.
             server = MCPServer()
             server.register_default_tools()
             mcp_client = MCPClient(server)
@@ -85,6 +87,7 @@ class DataCollector:
         Returns:
             Tool response dict (contains "content" or "error").
         """
+        # Guardrail: only allow tools explicitly referenced by collection tasks.
         if tool_name not in self._active_tool_names:
             return {
                 "error": (
@@ -95,6 +98,7 @@ class DataCollector:
         try:
             return self.mcp_client.call_tool(tool_name, payload)
         except Exception as e:
+            # Bubble up tool/runtime errors as structured collector failure.
             logger.exception("MCP call failed for %s", tool_name)
             return {"error": str(e)}
 
@@ -129,6 +133,7 @@ class DataCollector:
         os.makedirs(symbol_dir, exist_ok=True)
         filepath = os.path.join(symbol_dir, filename)
 
+        # Persist metadata + raw content so downstream distribution can route correctly.
         data = {
             "metadata": {
                 "symbol": symbol,
@@ -161,6 +166,7 @@ class DataCollector:
             Tuple of (success, filepath, error_message).
         """
         payload = task.payload_builder(symbol, as_of_date)
+        # Step 1: compute payload from task config; Step 2: call tool; Step 3: persist output.
         logger.debug(
             "Collecting %s for %s: %s(%s)",
             task.task_type,
@@ -216,6 +222,7 @@ class DataCollector:
         result = CollectionResult(symbol=symbol, as_of_date=as_of_date)
 
         if task_types:
+            # User requested explicit subset; validate each requested task_type.
             tasks = []
             for task_type in task_types:
                 task = get_task_by_type(task_type)
@@ -225,6 +232,7 @@ class DataCollector:
                     continue
                 tasks.append(task)
         else:
+            # Default mode: run all enabled tasks from the registry.
             tasks = get_enabled_tasks()
 
         for task in tasks:
@@ -269,6 +277,7 @@ class DataCollector:
         batch = BatchResult(as_of_date=as_of_date)
 
         for symbol in symbols:
+            # Execute symbol collections independently so one symbol failure does not block others.
             result = self.collect_symbol(symbol, as_of_date, task_types)
             batch.results[symbol] = result
             batch.total_success += len(result.success)
@@ -324,6 +333,7 @@ class DataCollector:
         if symbol:
             search_dirs = [self._get_symbol_dir(symbol)]
         else:
+            # No symbol filter: scan all symbol subdirectories under data_dir.
             search_dirs = []
             for entry in os.listdir(self.data_dir):
                 entry_path = os.path.join(self.data_dir, entry)

@@ -12,6 +12,7 @@ from data_manager.classifier import DataClassifier, ClassificationResult
 from data_manager.transformer import DataTransformer
 from data_manager.distributor import DataDistributor, DistributionResult, BatchDistributionResult
 
+# Curated exports make the package convenient for scripts/tests without deep imports.
 __all__ = [
     "DataCollector",
     "CollectionResult",

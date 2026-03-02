@@ -73,6 +73,7 @@ def load_config() -> Config:
     """
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
+        # Load project-root .env first so CLI/tools work regardless of current cwd.
         from dotenv import load_dotenv
 
         load_dotenv(os.path.join(project_root, ".env"))
@@ -100,7 +101,7 @@ def load_config() -> Config:
             return default
         return v in ("1", "true", "yes", "on")
 
-    # Read all env vars and build Config (thresholds use _int/_float for safe parsing)
+    # Read env vars, parse numeric thresholds safely, then build typed Config object.
     return Config(
         milvus_uri=os.getenv("MILVUS_URI", ""),
         milvus_collection=os.getenv("MILVUS_COLLECTION", ""),

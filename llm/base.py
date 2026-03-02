@@ -12,7 +12,9 @@ class LLMClient(Protocol):
     use a live client (e.g. OpenAI) if the optional dependency is installed.
     """
 
-    def decompose_to_steps(self, query: str) -> list[dict[str, Any]]:
+    def decompose_to_steps(
+        self, query: str, memory_context: str = ""
+    ) -> list[dict[str, Any]]:
         """Turn a user query into a list of task steps.
 
         Each step is a dict with keys: agent (str), action (str), params (dict).
@@ -20,10 +22,12 @@ class LLMClient(Protocol):
 
         Args:
             query: Raw user investment query.
+            memory_context: Optional user memory context from prior conversations.
 
         Returns:
             List of step dicts, e.g. [{"agent": "librarian", "action": "read_file", "params": {"query": "..."}}].
         """
+        # Contract method: implementations must return planner-compatible step dicts.
         ...
 
     def complete(self, system_prompt: str, user_content: str) -> str:
@@ -39,6 +43,7 @@ class LLMClient(Protocol):
         Returns:
             Model response text, or passthrough of user_content for static mock.
         """
+        # Contract method: implementations decide whether to call live model or mock behavior.
         ...
 
     def select_tools(
@@ -60,4 +65,5 @@ class LLMClient(Protocol):
         Returns:
             List of dicts with "tool" (str) and "payload" (dict). Empty list on failure or when no tools.
         """
+        # Contract method: specialists rely on this shape before tool-name filtering.
         ...

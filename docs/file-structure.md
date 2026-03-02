@@ -15,8 +15,7 @@ OpenFund-AI/
 │   ├── librarian_agent.py
 │   ├── websearch_agent.py
 │   ├── analyst_agent.py
-│   ├── responder_agent.py
-│   └── data_manager_agent.py  # Background data collection/distribution agent
+│   └── responder_agent.py
 ├── a2a/
 │   ├── __init__.py
 │   ├── acl_message.py
@@ -26,13 +25,6 @@ OpenFund-AI/
 │   ├── __init__.py
 │   ├── rest.py
 │   └── websocket.py
-├── demo/
-│   ├── __init__.py
-│   ├── __main__.py       # python -m demo: start API + chat
-│   ├── run.sh           # Single entry: setup + start backends + populate + python -m demo
-│   ├── demo_data.py      # Static MCP responses (NVDA/Nvidia)
-│   ├── demo_client.py    # DemoMCPClient: real sql/kg/vector when env set; file/market/analyst static
-│   └── demo_chat.py      # Interactive CLI chat (python -m demo.demo_chat)
 ├── data_manager/              # Agent-based data collection/distribution (see data-manager-agent.md)
 │   ├── __init__.py
 │   ├── __main__.py            # Entry point for python -m data_manager
@@ -45,11 +37,7 @@ OpenFund-AI/
 ├── datasets/                     # Fund dataset files
 │   └── combined_funds.json       # Canonical combined fund dataset used by distribute-funds
 ├── scripts/
-│   ├── install_backends.sh   # Install Homebrew, Postgres, Neo4j, .env, pip [backends]
-│   ├── start_services.sh     # Start Postgres, Neo4j, Milvus (loads .env)
-│   ├── start_milvus.sh       # Start Milvus container (e.g. for data milvus / vector_tool)
-│   ├── start_backends.py     # Check/start backends (python scripts/start_backends.py)
-│   └── load-env.sh          # Load .env (optional)
+│   └── run.sh                # Single entrypoint: start live system with optional backend/data flags
 ├── safety/
 │   ├── __init__.py
 │   └── safety_gateway.py
@@ -103,7 +91,6 @@ OpenFund-AI/
     ├── test_plan.md
     ├── progress.md
     ├── project-status.md
-    ├── demo.md                   # How to run demo and troubleshoot
     └── use-case-trace-beginner.md   # Step-by-step function trace for one beginner request
 ```
 
@@ -843,11 +830,11 @@ bus.send(refinement_msg)
 
 ---
 
-## Function: `create_app(*, bus=None, manager=None, safety_gateway=None, mcp_client=None, agents=None, timeout_seconds=None) -> FastAPI`
+## Function: `create_app(*, bus=None, manager=None, safety_gateway=None, mcp_client=None, agents=None, timeout_seconds=None, llm_client=None) -> FastAPI`
 
-**Purpose:** Build and return the FastAPI application with POST /chat, GET /conversations/{id}, GET /demo, POST /register, and WebSocket /ws. Shared state on app.state: bus, manager, safety_gateway, e2e_timeout_seconds, demo_mode. mcp_client and agents are created at startup but not stored on app.state. If not provided, state is created at startup (same wiring as main._run_e2e_once). Optional args allow dependency injection for tests.
+**Purpose:** Build and return the FastAPI application with `POST /register`, `POST /login`, `POST /chat`, `GET /conversations/{id}`, and WebSocket `/ws`. Shared state on `app.state`: `bus`, `manager`, `safety_gateway`, `e2e_timeout_seconds`. `mcp_client` and agents are created at startup but not stored on `app.state`. If not provided, state is created at startup (same wiring as `main._run_e2e_once`). Optional args allow dependency injection for tests.
 
-**Docstring:** `Build and return a FastAPI app with POST /chat and GET /conversations/{id}. Shared state is stored on app.state. If not provided, created at startup. Optional dependency injection for testing. Args: bus, manager, safety_gateway, mcp_client, agents, timeout_seconds. Returns: FastAPI app instance.`
+**Docstring:** `Build and return a FastAPI app with POST /chat and GET /conversations/{id}. Shared state is stored on app.state. If not provided, created at startup. Optional dependency injection for testing. Args: bus, manager, safety_gateway, mcp_client, agents, timeout_seconds, llm_client. Returns: FastAPI app instance.`
 
 **Example usage:**
 ```python
@@ -886,59 +873,36 @@ state = get_conversation("uuid-here")
 
 # api/websocket.py
 
-**Purpose:** Layer 1 — WebSocket handler. Same flow as POST /chat; one event (response, timeout, or error) then close.
+**Purpose:** Layer 1 — WebSocket handler. Same flow as POST /chat; streams `flow` events while processing, then sends one terminal event (`response` or `timeout`) and closes.
 
 ---
 
 ## Function: `handle_websocket(websocket, bus, manager, safety_gateway, timeout_seconds) -> None` (async)
 
-**Purpose:** Handle WebSocket /ws: receive one JSON message (query required; optional conversation_id, user_profile, user_id, path), validate, run SafetyGateway.process_user_input, create or get conversation, send REQUEST to planner, wait on completion_event (via run_in_executor), send one event (response | timeout | error) and close.
+**Purpose:** Handle WebSocket /ws: receive one JSON message (query required; optional conversation_id, user_profile, user_id, path), validate, run SafetyGateway.process_user_input, create or get conversation, send REQUEST to planner, stream `flow` events while waiting, then send terminal `response` or `timeout` and close (or `error` for early failures).
 
-**Docstring:** `Handle WebSocket /ws connection. Same flow as POST /chat: receive one JSON message (query required; optional conversation_id, user_profile, user_id, path), validate, run SafetyGateway.process_user_input, create or get conversation, send REQUEST to planner, wait on completion_event, then send one event (response, timeout, or error) and close. Args: websocket: WebSocket connection (accept() called by route); bus, manager, safety_gateway, timeout_seconds: from app.state.`
+**Docstring:** `Handle WebSocket /ws connection. Same flow as POST /chat: receive one JSON message (query required; optional conversation_id, user_profile, user_id, path), validate, run SafetyGateway.process_user_input, create or get conversation, send REQUEST to planner, wait on completion_event, then send response/timeout and close. Args: websocket: WebSocket connection (accept() called by route); bus, manager, safety_gateway, timeout_seconds: from app.state.`
 
 **Example usage:** Called by FastAPI @app.websocket("/ws") after accept().
 
 ---
 
-# demo/
+# scripts/
 
-**Purpose:** Demo package: recommended entry `./demo/run.sh` (from project root) for first-time setup and run; or `python -m demo` for chat when backends are already running. Backends (PostgreSQL, Neo4j, Milvus) and static LLM (no API key). When backends are configured and seeded with `python -m data_manager populate`, SQL/KG/vector tools use real backends; file, market, and analyst tools use static data.
-
----
-
-## demo/run.sh
-
-**Purpose:** Single script to run the demo from project root. If `.env` is missing, creates it from `.env.example` and runs `./scripts/install_backends.sh`, then prompts to edit `.env` and re-run. Otherwise starts services (`./scripts/start_services.sh`), creates DB (`./scripts/create_db.sh`), seeds data (`python -m data_manager populate`), then runs `python -m demo`. Use project venv if present.
+**Purpose:** Operational entrypoint package. `scripts/run.sh` is the single command to start the live system with optional flags for local backends, seed data, and fund loading.
 
 ---
 
-## demo/__main__.py
+## scripts/run.sh
 
-**Purpose:** Single-command entry for `python -m demo`: starts the API server in demo mode in the background, waits for readiness (GET /demo), then runs the interactive chat client; on quit/exit the server is stopped. This is the only documented entry point for running the demo (backends + static LLM).
+**Purpose:** Single entrypoint for live runtime. Handles `.env` bootstrap, optional dependency install, optional local backend start (PostgreSQL/Neo4j/Milvus when configured), optional `python -m data_manager populate`, optional fund distribution load mode (`existing`, `fresh-symbols`, `fresh-all`, `skip`), then starts `python main.py --serve`.
 
----
-
-## demo/demo_data.py
-
-**Purpose:** Static response dicts for MCP tools (file_tool.read_file, vector_tool.search, kg_tool.get_relations, market_tool.*, analyst_tool.*, sql_tool.run_query). Single timestamp and NVDA/Nvidia content for consistency. Used by DemoMCPClient.
-
-**Constants:** `DEMO_TIMESTAMP`, `FILE_READ_RESPONSE`, `VECTOR_SEARCH_RESPONSE`, `KG_GET_RELATIONS_RESPONSE`, market/analyst/sql responses, `DEMO_RESPONSES` (tool_name → response dict).
-
----
-
-## demo/demo_client.py
-
-**Purpose:** Demo MCP client: hybrid backends + static external APIs. When demo mode is on, SQL/KG/vector tools call real PostgreSQL, Neo4j, and Milvus when the corresponding env vars are set (e.g. after `python -m data_manager populate`); file_tool, market_tool, and analyst_tool always return static data from DEMO_RESPONSES. No live LLM or external API calls.
-
-**Class:** `DemoMCPClient` — `call_tool(self, tool_name, payload)` delegates to real mcp.tools when env is set for sql_tool.run_query, kg_tool.get_relations, kg_tool.query_graph, vector_tool.search; otherwise returns DEMO_RESPONSES[tool_name] or a safe stub with timestamp.
-
----
-
-## demo/demo_chat.py
-
-**Purpose:** Interactive CLI: prompt for name, POST /register, then chat loop (POST /chat) with flow and response display. Run with `python -m demo.demo_chat` or `python -m demo.demo_chat --base-url http://localhost:8000`.
-
-**Functions:** `check_demo_mode(base_url)`, `register(base_url, display_name)`, `chat(base_url, query, user_id, conversation_id)`, `main()`.
+**Example usage:**
+```bash
+./scripts/run.sh
+./scripts/run.sh --help
+./scripts/run.sh --port 8010 --funds fresh-symbols
+```
 
 ---
 
@@ -970,6 +934,8 @@ state = get_conversation("uuid-here")
 - `distribute_file(filepath: str) -> DistributionResult` — Distribute a single file
 - `distribute_symbol(symbol: str, as_of_date: str) -> BatchResult` — Distribute all files for a symbol
 - `distribute_pending() -> BatchResult` — Distribute all pending files
+- `distribute_fund_file(filepath: str, load_mode: str, fresh_scope: str) -> BatchResult` — Distribute combined fund JSON with `existing` or `fresh` load behavior
+- `_purge_fund_data(symbols: list[str], scope: str)` — Purge old fund rows before fresh loads (`symbols` or `all`)
 - `_write_to_postgres(table: str, rows: list[dict]) -> int` — Write via sql_tool
 - `_write_to_neo4j(nodes: list, edges: list) -> int` — Write via kg_tool
 - `_write_to_milvus(docs: list[dict]) -> int` — Write via vector_tool
@@ -1029,34 +995,10 @@ state = get_conversation("uuid-here")
 python -m data_manager collect --symbols NVDA,AAPL --date 2024-01-15
 python -m data_manager distribute --symbol NVDA
 python -m data_manager distribute --all
+python -m data_manager distribute-funds --file datasets/combined_funds.json --load-mode existing
+python -m data_manager distribute-funds --file datasets/combined_funds.json --load-mode fresh --fresh-scope symbols
 python -m data_manager status --symbol NVDA
 ```
-
----
-
-# agents/data_manager_agent.py
-
-**Purpose:** Agent wrapper for DataCollector and DataDistributor. Handles A2A messages for data collection, distribution, and status queries. Background agent, not part of real-time user query flow.
-
----
-
-## Class: `DataManagerAgent(BaseAgent)`
-
-**Purpose:** Handles A2A REQUEST/INFORM for collect, distribute, status. See [data-manager-agent.md](data-manager-agent.md) for design.
-
-**Docstring:** `Data Manager Agent. Handles data collection requests (collect from MCP tools and store locally), data distribution requests (distribute from local files to databases), and data status queries. Message types: REQUEST (action=collect|distribute|status), INFORM (return results).`
-
----
-
-## Method: `DataManagerAgent.handle_message(self, message: ACLMessage) -> None`
-
-**Purpose:** Handle incoming messages. Dispatch to collector or distributor based on action in content.
-
-**Content format:**
-- `{"action": "collect", "symbols": [...], "as_of_date": "...", "tasks": [...]}` — Collect data
-- `{"action": "distribute", "symbols": [...], "as_of_date": "..."}` — Distribute data
-- `{"action": "distribute_pending"}` — Distribute all pending files
-- `{"action": "status", "symbol": "..."}` — Query status
 
 ---
 
@@ -1218,7 +1160,7 @@ cfg = load_config()
 
 ## Class: `LLMClient` (Protocol)
 
-**Purpose:** Protocol for LLM clients used by Planner for task decomposition and optionally by Responder for format_response. When no API key is set, use StaticLLMClient (mock). When LLM_API_KEY is set, use a live client (e.g. OpenAI) if the optional dependency is installed.
+**Purpose:** Protocol for LLM clients used by Planner/specialists and Responder. Runtime app wiring uses a live client via `llm.factory.get_llm_client()` and requires `LLM_API_KEY`.
 
 **Method: `decompose_to_steps(self, query: str) -> list[dict[str, Any]]`**
 
@@ -1264,7 +1206,7 @@ cfg = load_config()
 
 # llm/static_client.py
 
-**Purpose:** Static mock LLM client: returns a fixed task decomposition (no API key). Use when LLM_API_KEY is not set so E2E and API run without an API key.
+**Purpose:** Static mock LLM client: returns a fixed task decomposition. Useful for tests or local mocking; not used by default API startup path in current code.
 
 ---
 
@@ -1398,26 +1340,29 @@ cfg = load_config()
 
 # main.py
 
-**Purpose:** Entry point. If `--e2e-once` in sys.argv: run one E2E conversation via _run_e2e_once() (api → planner → librarian + websearcher + analyst → responder) and exit 0. Otherwise load config, optionally initialize situation memory via get_situation_memory(memory_store_path), and log readiness (FastAPI/agent wiring is in create_app when running the API).
+**Purpose:** Entry point. If `--e2e-once` in sys.argv: run one E2E conversation via _run_e2e_once() (api → planner → librarian + websearcher + analyst → responder) and exit 0. Otherwise load config, optionally initialize situation memory via get_situation_memory(memory_store_path), then start FastAPI/uvicorn by default. `--no-serve` disables server start.
 
 ---
 
 ## Function: `_run_e2e_once() -> None`
 
-**Purpose:** Run one E2E conversation (Slice 5): wire InMemoryMessageBus, ConversationManager, MCPServer (register_default_tools), MCPClient, get_llm_client(cfg), all five agents (PlannerAgent, LibrarianAgent, WebSearcherAgent, AnalystAgent, ResponderAgent) each with the same llm_client when not demo; ResponderAgent also has OutputRail; start agent threads; create temp file, send REQUEST to planner with path; block on completion_event; print final response and exit 0.
+**Purpose:** Run one E2E conversation (Slice 5): wire InMemoryMessageBus, ConversationManager, MCPServer (register_default_tools), MCPClient, get_llm_client(cfg), all five agents (PlannerAgent, LibrarianAgent, WebSearcherAgent, AnalystAgent, ResponderAgent) with shared llm_client; ResponderAgent also has OutputRail; start agent threads; create temp file, send REQUEST to planner with path; block on completion_event; print final response and exit 0.
 
 ---
 
 ## Function: `main() -> None`
 
-**Purpose:** If --e2e-once: call _run_e2e_once() and return. Otherwise load config, optionally load situation memory, log "OpenFund-AI ready (config loaded)". REST/WebSocket and full agent stack are wired in api/rest.create_app() when the API is run (e.g. uvicorn).
+**Purpose:** If --e2e-once: call _run_e2e_once() and return. Otherwise load config, optionally load situation memory, then run uvicorn (`--serve` explicit or default behavior). Supports `--port` override and `--no-serve` for config-only startup.
 
-**Docstring:** `Initialize and start the OpenFund-AI stack. If --e2e-once in sys.argv, runs one E2E conversation and exits. Otherwise loads config, optionally get_situation_memory(memory_store_path), prints "OpenFund-AI ready (config loaded)". Full wiring (MessageBus, agents, REST, WebSocket) in later slices.`
+**Docstring:** `Initialize and start the OpenFund-AI stack. If --e2e-once in sys.argv, runs one E2E conversation and exits. Otherwise loads config, optionally get_situation_memory(memory_store_path), and runs uvicorn unless --no-serve is provided.`
 
 **Example usage:**
 ```bash
 PYTHONPATH=. python main.py
-# Prints: OpenFund-AI ready (config loaded)
+# Starts live API server on port 8000 by default
+
+PYTHONPATH=. python main.py --serve --port 8010
+# Starts live API server on custom port
 
 PYTHONPATH=. python main.py --e2e-once
 # Runs one conversation (planner → librarian → responder), prints E2E complete: <content>, exit 0
@@ -1537,7 +1482,7 @@ paths = list_files("docs/")
 
 # mcp/tools/vector_tool.py
 
-**Purpose:** MCP tool for semantic search and indexing over Milvus. Config: MILVUS_URI, MILVUS_COLLECTION. Demo seeding: `populate_demo()` deletes by source=="demo", indexes two NVDA docs (caller loads .env).
+**Purpose:** MCP tool for semantic search and indexing over Milvus. Config: MILVUS_URI, MILVUS_COLLECTION. Seed helper: `populate_demo()` deletes by source=="demo", indexes two NVDA docs (caller loads .env).
 
 ---
 
@@ -1587,13 +1532,13 @@ result = index_documents([{"content": "Fund X ...", "fund_id": "X"}])
 
 ## Function: `populate_demo() -> tuple[bool, str]`
 
-**Purpose:** Delete by source=="demo", index two demo documents. Uses MILVUS_URI. Returns (success, message). Keeps connection-error hint (start_milvus.sh). Caller should load .env first.
+**Purpose:** Seed baseline vector documents (source=="demo"). Uses MILVUS_URI. Returns (success, message). Caller should load .env first.
 
 ---
 
 # mcp/tools/kg_tool.py
 
-**Purpose:** MCP tool for Cypher and relation queries against Neo4j. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD. Demo seeding: `populate_demo()` MERGEs Company NVDA, Sector Technology, IN_SECTOR (caller loads .env).
+**Purpose:** MCP tool for Cypher and relation queries against Neo4j. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD. Seed helper: `populate_demo()` MERGEs Company NVDA, Sector Technology, IN_SECTOR (caller loads .env).
 
 ---
 
@@ -1718,7 +1663,7 @@ result = get_indicators("AAPL", "close_50_sma", "2024-01-15", 10)
 
 # mcp/tools/sql_tool.py
 
-**Purpose:** MCP tool for executing SQL queries with optional parameters. Returns rows and optional schema. Demo seeding: `populate_demo()` creates funds table and inserts NVDA (uses DATABASE_URL; caller loads .env).
+**Purpose:** MCP tool for executing SQL queries with optional parameters. Returns rows and optional schema. Seed helper: `populate_demo()` creates funds table and inserts NVDA (uses DATABASE_URL; caller loads .env).
 
 ---
 

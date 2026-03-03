@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from a2a.acl_message import ACLMessage
+from util import interaction_log
 
 
 class MessageBus(ABC):
@@ -85,6 +86,18 @@ class InMemoryMessageBus(MessageBus):
         Args:
             message: ACL message. No-op if receiver not registered.
         """
+        cid = getattr(message, "conversation_id", None) or (
+            (message.content or {}).get("conversation_id")
+        )
+        interaction_log.log_call(
+            "a2a.message_bus.InMemoryMessageBus.send",
+            params={
+                "sender": message.sender,
+                "receiver": message.receiver,
+                "conversation_id": cid or "",
+            },
+            result=None,
+        )
         # Declare receiver once, then enqueue only to that target queue.
         receiver = message.receiver
         if receiver in self._queues:

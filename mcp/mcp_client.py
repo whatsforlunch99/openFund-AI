@@ -1,6 +1,9 @@
 """MCP client: invoke tools on the MCP server."""
 
+import time
 from typing import TYPE_CHECKING
+
+from util import interaction_log
 
 if TYPE_CHECKING:
     from mcp.mcp_server import MCPServer
@@ -32,5 +35,26 @@ class MCPClient:
         Returns:
             Tool response dict. Structure depends on the tool.
         """
-        # Thin pass-through wrapper so agents do not depend on server internals.
-        return self._server.dispatch(tool_name, payload)
+        start = time.perf_counter()
+        result = self._server.dispatch(tool_name, payload)
+        duration_ms = (time.perf_counter() - start) * 1000.0
+        # Build result summary for logging (keys, size, error if present)
+        result_summary: dict = {}
+        if isinstance(result, dict):
+            result_summary["result_keys"] = list(result.keys())
+            if "error" in result:
+                result_summary["error"] = str(result.get("error", ""))[:200]
+            for k in ("documents", "rows", "content"):
+                if k in result and result[k] is not None:
+                    val = result[k]
+                    result_summary[f"{k}_size"] = len(val) if isinstance(val, (list, str)) else 1
+                    break
+        else:
+            result_summary["result_type"] = type(result).__name__
+        interaction_log.log_call(
+            "mcp.mcp_client.MCPClient.call_tool",
+            params={"tool_name": tool_name, "payload": payload},
+            result=result_summary or result,
+            duration_ms=round(duration_ms, 2),
+        )
+        return result

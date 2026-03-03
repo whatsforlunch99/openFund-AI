@@ -25,6 +25,7 @@ from a2a.message_bus import InMemoryMessageBus, MessageBus
 from api.websocket import handle_websocket as ws_handle_websocket
 from safety.safety_gateway import SafetyError, SafetyGateway
 from util.trace_log import trace
+from util import interaction_log
 
 logger = logging.getLogger(__name__)
 VALID_USER_PROFILES = ("beginner", "long_term", "analyst")
@@ -242,6 +243,9 @@ def create_app(
     from config.config import load_config
 
     cfg = load_config()
+    from util import interaction_log as il
+
+    il.set_enabled(cfg.interaction_log_enabled)
     effective_timeout = (
         timeout_seconds if timeout_seconds is not None else cfg.e2e_timeout_seconds
     )
@@ -412,6 +416,15 @@ def create_app(
             manager.load_user_conversations(user_id)
             user_memory = manager.get_user_memory_context(user_id)
 
+        interaction_log.log_call(
+            "api.rest.post_chat_endpoint",
+            params={
+                "query_len": len(query),
+                "user_profile": user_profile,
+                "conversation_id": conversation_id or "(new)",
+            },
+        )
+
         trace(
             1,
             "request_validated",
@@ -430,6 +443,10 @@ def create_app(
             safety_gateway.process_user_input(query)
         except SafetyError as e:
             trace(2, "safety_failed", out=f"reason={e.reason}", next_="return 400")
+            interaction_log.log_call(
+                "api.rest.post_chat_endpoint",
+                result={"status_code": 400, "error": e.reason},
+            )
             return JSONResponse(status_code=400, content={"detail": e.reason})
 
         trace(
@@ -455,10 +472,16 @@ def create_app(
                     out="not_found",
                     next_="return 404",
                 )
+                interaction_log.set_conversation_id(conversation_id)
+                interaction_log.log_call(
+                    "api.rest.post_chat_endpoint",
+                    result={"status_code": 404, "error": "Conversation not found"},
+                )
                 return JSONResponse(
                     status_code=404,
                     content={"detail": "Conversation not found"},
                 )
+            interaction_log.set_conversation_id(conversation_id)
             trace(
                 4,
                 "get_conversation",
@@ -470,10 +493,16 @@ def create_app(
             conversation_id = manager.create_conversation(user_id, query)
             state = manager.get_conversation(conversation_id)
             if state is None:
+                interaction_log.set_conversation_id(conversation_id)
+                interaction_log.log_call(
+                    "api.rest.post_chat_endpoint",
+                    result={"status_code": 500, "error": "Failed to create conversation"},
+                )
                 return JSONResponse(
                     status_code=500,
                     content={"detail": "Failed to create conversation"},
                 )
+            interaction_log.set_conversation_id(conversation_id)
             trace(
                 3,
                 "conversation_created",
@@ -544,6 +573,10 @@ def create_app(
                 out="no final_response",
                 next_="return 408",
             )
+            interaction_log.log_call(
+                "api.rest.post_chat_endpoint",
+                result={"status_code": 408, "status": "timeout", "response_len": None},
+            )
             return JSONResponse(
                 status_code=408,
                 content={
@@ -560,8 +593,15 @@ def create_app(
             out=f"status={state.status} response_len={len(state.final_response or '')}",
             next_="return 200",
         )
-        # Flow events for UI: planner/agent step messages (see docs/use-case-trace-beginner.md).
         flow = manager.get_flow_events(conversation_id)
+        interaction_log.log_call(
+            "api.rest.post_chat_endpoint",
+            result={
+                "status_code": 200,
+                "status": state.status,
+                "response_len": len(state.final_response or ""),
+            },
+        )
         return JSONResponse(
             status_code=200,
             content={

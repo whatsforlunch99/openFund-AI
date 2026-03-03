@@ -9,6 +9,7 @@ from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
+from util import interaction_log
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
@@ -77,6 +78,18 @@ class AnalystAgent(BaseAgent):
         """
         content = message.content or {}
         conversation_id = getattr(message, "conversation_id", "") or ""
+        if not isinstance(conversation_id, str):
+            conversation_id = str(conversation_id) if conversation_id else ""
+        interaction_log.set_conversation_id(conversation_id)
+        interaction_log.log_call(
+            "agents.analyst_agent.AnalystAgent.handle_message",
+            params={
+                "performative": getattr(message.performative, "value", str(message.performative)),
+                "sender": message.sender,
+                "content_keys": list(content.keys()) if content else [],
+                "conversation_id": conversation_id,
+            },
+        )
         query = content.get("query") or ""
 
         # When LLM is available, try tool selection first; fall back to content-based if empty/fail
@@ -119,6 +132,10 @@ class AnalystAgent(BaseAgent):
                         else:
                             result = {"analysis": result, "summary": summary}
                     self._send_inform_analyst(message, result, conversation_id)
+                    interaction_log.log_call(
+                        "agents.analyst_agent.AnalystAgent.handle_message",
+                        result={"INFORM": "sent to planner", "via": "LLM tool selection"},
+                    )
                     return
         # Fallback: content-based (structured_data, market_data from message)
         structured_data = (
@@ -179,6 +196,10 @@ class AnalystAgent(BaseAgent):
             reply_to=message.sender,
         )
         self.bus.send(reply)
+        interaction_log.log_call(
+            "agents.analyst_agent.AnalystAgent.handle_message",
+            result={"INFORM": "sent to planner"},
+        )
         trace(
             11,
             "analyst_inform_sent",
@@ -226,6 +247,10 @@ class AnalystAgent(BaseAgent):
             reply_to=message.sender,
         )
         self.bus.send(reply)
+        interaction_log.log_call(
+            "agents.analyst_agent.AnalystAgent.handle_message",
+            result={"INFORM": "sent to planner"},
+        )
         trace(11, "analyst_inform_sent", in_={"conversation_id": conversation_id}, out="sent", next_="planner receives")
         if self.conversation_manager and conversation_id:
             conf = result.get("confidence")

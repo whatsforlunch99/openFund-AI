@@ -7,6 +7,7 @@ from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
+from util import interaction_log
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
@@ -62,6 +63,18 @@ class ResponderAgent(BaseAgent):
         final_response = content.get("final_response")
         if not conversation_id or final_response is None:
             return
+        if not isinstance(conversation_id, str):
+            conversation_id = str(conversation_id)
+        interaction_log.set_conversation_id(conversation_id)
+        interaction_log.log_call(
+            "agents.responder_agent.ResponderAgent.handle_message",
+            params={
+                "performative": getattr(message.performative, "value", str(message.performative)),
+                "sender": message.sender,
+                "content_keys": list(content.keys()) if content else [],
+                "conversation_id": conversation_id,
+            },
+        )
         # When planner marks insufficient after max rounds, force this exact message
         if content.get("insufficient"):
             final_response = "Insufficient information."
@@ -162,6 +175,10 @@ class ResponderAgent(BaseAgent):
             )
             self.conversation_manager.register_reply(conversation_id, reply_msg)
             self.conversation_manager.broadcast_stop(conversation_id)
+            interaction_log.log_call(
+                "agents.responder_agent.ResponderAgent.handle_message",
+                result={"reply_registered": True, "broadcast_stop": True},
+            )
 
     def evaluate_confidence(self, _analysis: dict) -> float:
         """Compute confidence score for the analysis output.

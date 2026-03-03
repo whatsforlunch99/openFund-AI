@@ -39,8 +39,8 @@ Backed by Milvus (`MILVUS_URI`). When `MILVUS_URI` is unset, all calls return mo
 #### vector_tool.search
 
 - **Description:** Semantic search over the vector database. Returns the top-k most relevant documents for a query.
-- **Payload:** `query` (required, string), `top_k` (optional, int, default 5), `filter` (optional, string expression).
-- **Returns:** `{"documents": [{"id": ..., "text": ..., "score": ...}, ...]}`
+- **Payload:** `query` (required, string), `top_k` (optional, int, default 5), `filter` (optional, dict — e.g. `fund_id`, `source` for metadata filtering).
+- **Returns:** `{"documents": [{"id": ..., "content": ..., "score": ...}, ...]}`
 - **Sample call:**
   ```json
   { "query": "NVDA fund performance 2024", "top_k": 5 }
@@ -50,7 +50,7 @@ Backed by Milvus (`MILVUS_URI`). When `MILVUS_URI` is unset, all calls return mo
 
 - **Description:** Retrieve documents by their IDs from the vector collection.
 - **Payload:** `ids` (required, list of strings), `collection_name` (optional, string).
-- **Returns:** `{"documents": [...]}` or `{"error": str}`.
+- **Returns:** `{"entities": [...]}` (each entity has `id`, `content`, `fund_id`, `source`, etc.) or `{"error": str}`.
 - **Sample call:**
   ```json
   { "ids": ["doc_001", "doc_002"] }
@@ -59,18 +59,18 @@ Backed by Milvus (`MILVUS_URI`). When `MILVUS_URI` is unset, all calls return mo
 #### vector_tool.upsert_documents
 
 - **Description:** Insert or update documents in the vector collection (embeddings are computed automatically).
-- **Payload:** `docs` (required, list of dicts; each dict should have at minimum `"text"` and optionally `"id"` and metadata fields).
+- **Payload:** `docs` (required, list of dicts; each dict must have `"id"` and `"content"`; optional metadata: `fund_id`, `source`).
 - **Returns:** `{"upserted": int}` or `{"error": str}`.
 - **Sample call:**
   ```json
-  { "docs": [{"id": "doc_003", "text": "NVDA Q4 2024 earnings summary."}] }
+  { "docs": [{"id": "doc_003", "content": "NVDA Q4 2024 earnings summary."}] }
   ```
 
 #### vector_tool.health_check
 
 - **Description:** Check connectivity and status of the Milvus backend.
 - **Payload:** _(empty)_
-- **Returns:** `{"status": "ok"}` or `{"status": "unavailable", "error": str}`.
+- **Returns:** `{"ok": true}` or `{"ok": false, "error": str}`.
 - **Sample call:**
   ```json
   {}
@@ -80,7 +80,7 @@ Backed by Milvus (`MILVUS_URI`). When `MILVUS_URI` is unset, all calls return mo
 
 - **Description:** Create a new Milvus collection from explicit configuration (name, dimension, key field, scalar fields, index params).
 - **Payload:** `name` (required, string), `dimension` (optional, int, default 384), `primary_key_field` (optional, string, default `"id"`), `scalar_fields` (optional, list), `index_params` (optional, dict).
-- **Returns:** `{"created": true, "name": str}` or `{"error": str}`.
+- **Returns:** `{"ok": true, "name": str}` or `{"error": str}`.
 - **Sample call:**
   ```json
   { "name": "fund_docs_v2", "dimension": 768, "primary_key_field": "id" }
@@ -96,7 +96,7 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 - **Description:** Run a raw Cypher query against Neo4j and return the results.
 - **Payload:** `cypher` (required, string), `params` (optional, dict of Cypher parameters).
-- **Returns:** `{"rows": [...], "columns": [...]}` or `{"error": str}`.
+- **Returns:** `{"rows": [...], "params": {...}}` (row keys are the column names) or `{"error": str}`.
 - **Sample call:**
   ```json
   { "cypher": "MATCH (f:Fund {symbol: $sym}) RETURN f", "params": {"sym": "NVDA"} }
@@ -126,7 +126,7 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 - **Description:** Get immediate neighbors of a node, with optional direction and relationship-type filters.
 - **Payload:** `node_id` (required, string), `id_key` (optional, string, default `"id"`), `direction` (optional: `"in"` | `"out"` | `"both"`, default `"both"`), `relationship_type` (optional, string), `limit` (optional, int, default 100).
-- **Returns:** `{"neighbors": [...]}` or `{"error": str}`.
+- **Returns:** `{"nodes": [...], "relationships": [...]}` or `{"error": str}`.
 - **Sample call:**
   ```json
   { "node_id": "NVDA", "id_key": "symbol", "direction": "out", "relationship_type": "IN_SECTOR", "limit": 20 }
@@ -136,7 +136,7 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 - **Description:** List all node labels and relationship types present in the graph.
 - **Payload:** _(empty)_
-- **Returns:** `{"labels": [...], "relationship_types": [...]}`.
+- **Returns:** `{"node_labels": [...], "relationship_types": [...]}`.
 - **Sample call:**
   ```json
   {}
@@ -146,7 +146,7 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 - **Description:** Find the shortest path between two nodes by their ID property values.
 - **Payload:** `start_id` (required, string), `end_id` (required, string), `id_key` (optional, string, default `"id"`), `relationship_type` (optional, string), `max_depth` (optional, int, default 15).
-- **Returns:** `{"path": [...], "length": int}` or `{"path": null}` if none found.
+- **Returns:** `{"paths": [{"nodes": [...], "relationships": [...]}, ...]}` or `{"paths": []}` if none found.
 - **Sample call:**
   ```json
   { "start_id": "NVDA", "end_id": "AAPL", "id_key": "symbol", "max_depth": 5 }
@@ -156,7 +156,7 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 - **Description:** Find nodes similar to a given node by shared 1-hop neighbors (structural similarity).
 - **Payload:** `node_id` (required, string), `id_key` (optional, string, default `"id"`), `limit` (optional, int, default 10).
-- **Returns:** `{"similar_nodes": [...]}`.
+- **Returns:** `{"nodes": [{"id": ..., "score": ...}, ...]}`.
 - **Sample call:**
   ```json
   { "node_id": "NVDA", "id_key": "symbol", "limit": 5 }
@@ -166,7 +166,7 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 - **Description:** Query nodes via a Neo4j full-text index (`db.index.fulltext.queryNodes`). Requires a pre-existing index.
 - **Payload:** `index_name` (required, string), `query_string` (required, string), `limit` (optional, int, default 50).
-- **Returns:** `{"nodes": [...], "scores": [...]}` or `{"error": str}`.
+- **Returns:** `{"nodes": [...]}` or `{"error": str}`.
 - **Sample call:**
   ```json
   { "index_name": "fund_fulltext", "query_string": "semiconductor AI chips", "limit": 10 }
@@ -176,7 +176,7 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 - **Description:** Run a read-only Cypher query and return results as JSON or CSV. Only `MATCH` / `CALL` queries are allowed; write operations are rejected.
 - **Payload:** `cypher` (required, string — must be read-only), `params` (optional, dict), `format` (optional: `"json"` | `"csv"`, default `"json"`), `row_limit` (optional, int, default 1000).
-- **Returns:** `{"rows": [...], "format": "json"}` or `{"csv": "...", "format": "csv"}` or `{"error": str}`.
+- **Returns:** `{"data": <list of dicts for format "json", CSV string for format "csv">, "format": "json"|"csv"}` or `{"error": str}`.
 - **Sample call:**
   ```json
   { "cypher": "MATCH (f:Fund) RETURN f.symbol, f.name LIMIT 100", "format": "json" }
@@ -186,7 +186,7 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 - **Description:** Create or merge multiple nodes in the graph from a list of dicts (uses `MERGE` to avoid duplicates).
 - **Payload:** `nodes` (required, list of dicts), `label` (optional, string — Neo4j node label, default `"Node"`), `id_key` (optional, string, default `"id"`).
-- **Returns:** `{"created": int, "merged": int}` or `{"error": str}`.
+- **Returns:** `{"created": int}` or `{"error": str}`.
 - **Sample call:**
   ```json
   { "nodes": [{"id": "TSMC", "name": "Taiwan Semiconductor"}], "label": "Company", "id_key": "id" }
@@ -212,7 +212,7 @@ Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls retur
 
 - **Description:** Return the query plan for a SQL statement (uses `EXPLAIN` or `EXPLAIN ANALYZE`).
 - **Payload:** `query` (required, string), `params` (optional), `analyze` (optional, bool, default false — if true uses `EXPLAIN ANALYZE`).
-- **Returns:** `{"plan": [...]}` or `{"error": str}`.
+- **Returns:** `{"plan": [...], "schema": [...], "params": {...}}` or `{"error": str}`.
 - **Sample call:**
   ```json
   { "query": "SELECT * FROM funds WHERE aum > 1000000", "analyze": false }
@@ -222,7 +222,7 @@ Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls retur
 
 - **Description:** Run a SQL query and return results as JSON or CSV, with an optional row limit.
 - **Payload:** `query` (required, string), `params` (optional), `format` (optional: `"json"` | `"csv"`, default `"json"`), `row_limit` (optional, int, default 1000).
-- **Returns:** `{"rows": [...], "format": "json"}` or `{"csv": "...", "format": "csv"}` or `{"error": str}`.
+- **Returns:** `{"data": ...}` (list of dicts for JSON, CSV string for CSV), `"schema": [...]`, `"row_count": int`; or `{"error": str}`.
 - **Sample call:**
   ```json
   { "query": "SELECT symbol, name, aum FROM funds ORDER BY aum DESC", "format": "csv", "row_limit": 500 }
@@ -232,7 +232,7 @@ Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls retur
 
 - **Description:** Test connectivity to the PostgreSQL backend.
 - **Payload:** _(empty)_
-- **Returns:** `{"status": "ok"}` or `{"status": "unavailable", "error": str}`.
+- **Returns:** `{"ok": true}` or `{"ok": false, "error": str}`.
 - **Sample call:**
   ```json
   {}
@@ -354,7 +354,7 @@ Each agent uses `mcp_client.call_tool(...)` to access MCP tools. **Planner** and
 | Agent | Tools available |
 |---|---|
 | **Librarian** | `file_tool.read_file` · `vector_tool.search` · `vector_tool.get_by_ids` · `vector_tool.upsert_documents` · `vector_tool.health_check` · `vector_tool.create_collection_from_config` · `kg_tool.query_graph` · `kg_tool.get_relations` · `kg_tool.get_node_by_id` · `kg_tool.get_neighbors` · `kg_tool.get_graph_schema` · `kg_tool.shortest_path` · `kg_tool.get_similar_nodes` · `kg_tool.fulltext_search` · `kg_tool.bulk_export` · `kg_tool.bulk_create_nodes` · `sql_tool.run_query` · `sql_tool.explain_query` · `sql_tool.export_results` · `sql_tool.connection_health_check` · `get_capabilities` |
-| **WebSearcher** | `market_tool.get_stock_data` · `market_tool.get_balance_sheet` · `market_tool.get_cashflow` · `market_tool.get_income_statement` · `market_tool.get_insider_transactions` · `market_tool.get_news` · `market_tool.get_global_news` · `get_capabilities` |
+| **WebSearcher** | `market_tool.get_fundamentals` · `market_tool.get_stock_data` · `market_tool.get_balance_sheet` · `market_tool.get_cashflow` · `market_tool.get_income_statement` · `market_tool.get_insider_transactions` · `market_tool.get_news` · `market_tool.get_global_news` · `get_capabilities` |
 | **Analyst** | `analyst_tool.get_indicators` · `get_capabilities` |
 | **Planner** | _(none — orchestrates specialists and sends decomposed queries via ACL)_ |
 | **Responder** | _(none — formats the final answer)_ |
@@ -376,6 +376,7 @@ Each agent uses `mcp_client.call_tool(...)` to access MCP tools. **Planner** and
 
 | Content need | Tool to call |
 |---|---|
+| Company / fund overview (fundamentals) | `market_tool.get_fundamentals` |
 | Recent news / sentiment | `market_tool.get_news` |
 | Global macro / regulatory news | `market_tool.get_global_news` |
 | Historical price data | `market_tool.get_stock_data` |

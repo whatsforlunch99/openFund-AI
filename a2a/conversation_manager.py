@@ -13,6 +13,7 @@ from typing import Any, Optional
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from util.trace_log import trace
+from util import interaction_log
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +241,10 @@ class ConversationManager:
         Returns:
             New conversation_id (UUID string).
         """
+        interaction_log.log_call(
+            "a2a.conversation_manager.ConversationManager.create_conversation",
+            params={"user_id": user_id, "initial_query_len": len(initial_query)},
+        )
         self.load_user_conversations(user_id)
         cid = str(uuid.uuid4())
         state = ConversationState(
@@ -252,6 +257,10 @@ class ConversationManager:
         )
         self._conversations[cid] = state
         self._save_user(user_id)
+        interaction_log.log_call(
+            "a2a.conversation_manager.ConversationManager.create_conversation",
+            result={"conversation_id": cid, "status": "created"},
+        )
         trace(
             3,
             "create_conversation",
@@ -287,7 +296,19 @@ class ConversationManager:
         Returns:
             ConversationState if found, else None.
         """
-        return self._conversations.get(conversation_id)
+        interaction_log.log_call(
+            "a2a.conversation_manager.ConversationManager.get_conversation",
+            params={"conversation_id": conversation_id},
+        )
+        state = self._conversations.get(conversation_id)
+        interaction_log.log_call(
+            "a2a.conversation_manager.ConversationManager.get_conversation",
+            result={
+                "found": state is not None,
+                "status": getattr(state, "status", None) if state else None,
+            },
+        )
+        return state
 
     def register_reply(self, conversation_id: str, message: ACLMessage) -> None:
         """Record a reply message for a conversation.
@@ -300,8 +321,16 @@ class ConversationManager:
             conversation_id: Conversation to update.
             message: The reply ACL message.
         """
+        interaction_log.log_call(
+            "a2a.conversation_manager.ConversationManager.register_reply",
+            params={"conversation_id": conversation_id},
+        )
         state = self._conversations.get(conversation_id)
         if not state:
+            interaction_log.log_call(
+                "a2a.conversation_manager.ConversationManager.register_reply",
+                result={"skipped": True, "reason": "state not found"},
+            )
             return
         state.messages.append(message.to_dict())
         content = message.content or {}
@@ -310,12 +339,24 @@ class ConversationManager:
             state.final_response = content["final_response"]
             state.status = "complete"
             state.completion_event.set()  # Unblock POST /chat or --e2e-once waiting on event.wait()
+            interaction_log.log_call(
+                "a2a.conversation_manager.ConversationManager.register_reply",
+                result={
+                    "status": "complete",
+                    "response_len": len(state.final_response or ""),
+                },
+            )
             trace(
                 13,
                 "register_reply",
                 in_={"conversation_id": conversation_id},
                 out=f"status=complete response_len={len(state.final_response or '')}",
                 next_="save_user, then API unblocks",
+            )
+        else:
+            interaction_log.log_call(
+                "a2a.conversation_manager.ConversationManager.register_reply",
+                result={"appended": True},
             )
         self._save_user(state.user_id)
 
@@ -327,6 +368,10 @@ class ConversationManager:
         Args:
             conversation_id: Conversation to terminate.
         """
+        interaction_log.log_call(
+            "a2a.conversation_manager.ConversationManager.broadcast_stop",
+            params={"conversation_id": conversation_id},
+        )
         msg = ACLMessage(
             performative=Performative.STOP,
             sender="conversation_manager",
@@ -334,6 +379,10 @@ class ConversationManager:
             content={"conversation_id": conversation_id},
         )
         self._bus.broadcast(msg)
+        interaction_log.log_call(
+            "a2a.conversation_manager.ConversationManager.broadcast_stop",
+            result={"sent": True},
+        )
         trace(
             13,
             "broadcast_stop",

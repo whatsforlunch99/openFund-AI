@@ -11,6 +11,7 @@ from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
+from util import interaction_log
 
 logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
@@ -87,6 +88,16 @@ class PlannerAgent(BaseAgent):
         conversation_id = (
             content.get("conversation_id") or message.conversation_id or ""
         )
+        interaction_log.set_conversation_id(conversation_id)
+        interaction_log.log_call(
+            "agents.planner_agent.PlannerAgent.handle_message",
+            params={
+                "performative": getattr(message.performative, "value", str(message.performative)),
+                "sender": message.sender,
+                "content_keys": list(content.keys()) if content else [],
+                "conversation_id": conversation_id,
+            },
+        )
 
         # Specialist replied: store content, mark agent done, forward when all three received
         if message.performative == Performative.INFORM and message.sender in (
@@ -96,6 +107,10 @@ class PlannerAgent(BaseAgent):
         ):
             # Aggregation phase: store specialist payload and track pending agents.
             if conversation_id not in self._collected:
+                interaction_log.log_call(
+                    "agents.planner_agent.PlannerAgent.handle_message",
+                    result={"skipped": True, "reason": "conversation_id not in _collected"},
+                )
                 return
             self._collected[conversation_id][message.sender] = content
             self._round_pending[conversation_id].discard(message.sender)
@@ -195,6 +210,13 @@ class PlannerAgent(BaseAgent):
                                         },
                                     )
                             send_to_responder = False
+                            interaction_log.log_call(
+                                "agents.planner_agent.PlannerAgent.handle_message",
+                                result={
+                                    "refined_REQUEST": "sent to specialists",
+                                    "agents": [s.agent for s in refined_steps],
+                                },
+                            )
                         else:
                             insufficient = True
                     else:
@@ -238,6 +260,10 @@ class PlannerAgent(BaseAgent):
                             conversation_id=conversation_id,
                         )
                     )
+                    interaction_log.log_call(
+                        "agents.planner_agent.PlannerAgent.handle_message",
+                        result={"INFORM": "sent to responder"},
+                    )
                     trace(
                         12,
                         "planner_sent_to_responder",
@@ -278,6 +304,10 @@ class PlannerAgent(BaseAgent):
             user_memory = ""
         steps = self.decompose_task(query, user_memory=user_memory)
         if not steps:
+            interaction_log.log_call(
+                "agents.planner_agent.PlannerAgent.handle_message",
+                result={"skipped": True, "reason": "no steps"},
+            )
             return
         # Flow: one summary message with actual decomposed steps and full sub-queries
         query_short = query[:80] + ("..." if len(query) > 80 else "")
@@ -342,6 +372,10 @@ class PlannerAgent(BaseAgent):
             req.conversation_id = conversation_id
             req.reply_to = self.name
             self.bus.send(req)
+        interaction_log.log_call(
+            "agents.planner_agent.PlannerAgent.handle_message",
+            result={"REQUEST": "sent to specialists", "agents": [s.agent for s in steps]},
+        )
         trace(
             7,
             "planner_sent_requests",

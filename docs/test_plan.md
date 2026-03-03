@@ -30,7 +30,7 @@ For per-stage deliverables and slice context, see [progress.md](progress.md).
 
 Use this checklist whenever docs are updated:
 
-1. **Cross-file links resolve** (no references to missing docs).
+1. **Cross-file links resolve** (no references to missing docs; remove references to deleted docs e.g. backend-tools-design.md).
 2. **Status vocabulary remains consistent** with `project-status.md` (`Not Started`, `In Progress`, `Live`, `Deprecated`).
 3. **Scope boundaries are respected**:
    - `prd.md`: what/why requirements only.
@@ -38,6 +38,8 @@ Use this checklist whenever docs are updated:
    - `file-structure.md`: module and function responsibilities.
    - `progress.md`: implementation slices + changelog.
 4. **Document inventory stays accurate** (files listed in `file-structure.md` match real files under `docs/`).
+
+**Generated doc:** `api-test-results.md` is produced by `scripts/test_third_party_apis.py`; do not edit by hand.
 
 ### Suggested commands
 

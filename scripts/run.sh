@@ -12,6 +12,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Prefer python3 so script works when python is not in PATH (e.g. macOS)
+PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
+[[ -n "$PYTHON" ]] || PYTHON=python3
+
 PORT=8000
 START_BACKENDS=1
 SEED_DEMO=1
@@ -176,18 +180,18 @@ fi
 
 if [[ $SEED_DEMO -eq 1 ]]; then
   echo "==> Seeding backend demo baseline"
-  python -m data_manager populate || true
+  "$PYTHON" -m data_manager populate || true
 fi
 
 if [[ "$LOAD_FUNDS" != "skip" ]] && [[ -f "$ROOT/datasets/combined_funds.json" ]]; then
   echo "==> Loading fund dataset (${LOAD_FUNDS})"
   case "$LOAD_FUNDS" in
     existing)
-      python -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode existing || true ;;
+      "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode existing || true ;;
     fresh-symbols)
-      python -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode fresh --fresh-scope symbols || true ;;
+      "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode fresh --fresh-scope symbols || true ;;
     fresh-all)
-      python -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode fresh --fresh-scope all || true ;;
+      "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode fresh --fresh-scope all || true ;;
     *)
       echo "Unknown --funds mode: $LOAD_FUNDS" >&2
       exit 1 ;;
@@ -195,4 +199,4 @@ if [[ "$LOAD_FUNDS" != "skip" ]] && [[ -f "$ROOT/datasets/combined_funds.json" ]
 fi
 
 echo "==> Starting live API on port ${PORT}"
-exec python main.py --serve --port "$PORT"
+exec "$PYTHON" main.py --serve --port "$PORT"

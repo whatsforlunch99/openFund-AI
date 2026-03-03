@@ -10,6 +10,7 @@ from a2a.acl_message import ACLMessage, Performative
 from a2a.conversation_manager import ConversationManager
 from a2a.message_bus import MessageBus
 from safety.safety_gateway import SafetyError, SafetyGateway
+from util import interaction_log
 
 VALID_USER_PROFILES = ("beginner", "long_term", "analyst")
 FLOW_POLL_INTERVAL = 0.2
@@ -83,10 +84,23 @@ async def handle_websocket(
         manager.load_user_conversations(user_id)
         user_memory = manager.get_user_memory_context(user_id)
 
+    interaction_log.log_call(
+        "api.websocket.handle_websocket",
+        params={
+            "query_len": len(query or ""),
+            "user_profile": user_profile,
+            "conversation_id": conversation_id or "(new)",
+        },
+    )
+
     # Safety gate phase: input must pass guardrails before any agent dispatch.
     try:
         safety_gateway.process_user_input(query)
     except SafetyError as e:
+        interaction_log.log_call(
+            "api.websocket.handle_websocket",
+            result={"event": "error", "error": e.reason},
+        )
         await websocket.send_json({"event": "error", "detail": e.reason})
         await websocket.close()
         return
@@ -97,20 +111,32 @@ async def handle_websocket(
             manager.load_user_conversations(user_id)
             state = manager.get_conversation(conversation_id)
         if state is None:
+            interaction_log.set_conversation_id(conversation_id)
+            interaction_log.log_call(
+                "api.websocket.handle_websocket",
+                result={"event": "error", "error": "Conversation not found"},
+            )
             await websocket.send_json(
                 {"event": "error", "detail": "Conversation not found"}
             )
             await websocket.close()
             return
+        interaction_log.set_conversation_id(conversation_id)
     else:
         conversation_id = manager.create_conversation(user_id, query)
         state = manager.get_conversation(conversation_id)
         if state is None:
+            interaction_log.set_conversation_id(conversation_id)
+            interaction_log.log_call(
+                "api.websocket.handle_websocket",
+                result={"event": "error", "error": "Failed to create conversation"},
+            )
             await websocket.send_json(
                 {"event": "error", "detail": "Failed to create conversation"}
             )
             await websocket.close()
             return
+        interaction_log.set_conversation_id(conversation_id)
         display = f" (welcome, user {user_id})" if user_id else ""
         manager.append_flow(
             conversation_id,
@@ -184,6 +210,15 @@ async def handle_websocket(
         await websocket.send_json({"event": "flow", **flow[i]})
 
     if signaled:
+        interaction_log.log_call(
+            "api.websocket.handle_websocket",
+            result={
+                "event": "response",
+                "conversation_id": conversation_id,
+                "status": state.status,
+                "response_len": len(state.final_response or ""),
+            },
+        )
         await websocket.send_json(
             {
                 "event": "response",
@@ -194,6 +229,10 @@ async def handle_websocket(
             }
         )
     else:
+        interaction_log.log_call(
+            "api.websocket.handle_websocket",
+            result={"event": "timeout", "conversation_id": conversation_id},
+        )
         await websocket.send_json(
             {
                 "event": "timeout",

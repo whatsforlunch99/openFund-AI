@@ -7,6 +7,7 @@ from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
+from util import interaction_log
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
@@ -59,6 +60,18 @@ class LibrarianAgent(BaseAgent):
             return
         content = message.content or {}
         conversation_id = getattr(message, "conversation_id", "") or ""
+        if not isinstance(conversation_id, str):
+            conversation_id = str(conversation_id) if conversation_id else ""
+        interaction_log.set_conversation_id(conversation_id)
+        interaction_log.log_call(
+            "agents.librarian_agent.LibrarianAgent.handle_message",
+            params={
+                "performative": getattr(message.performative, "value", str(message.performative)),
+                "sender": message.sender,
+                "content_keys": list(content.keys()) if content else [],
+                "conversation_id": conversation_id,
+            },
+        )
         query = content.get("query") or content.get("path") or ""
 
         # When LLM is available, try tool selection first; fall back to content-key if empty/fail
@@ -90,6 +103,10 @@ class LibrarianAgent(BaseAgent):
                         reply_content = dict(reply_content)
                         reply_content["summary"] = summary
                     self._send_inform(message, reply_content, conversation_id)
+                    interaction_log.log_call(
+                        "agents.librarian_agent.LibrarianAgent.handle_message",
+                        result={"INFORM": "sent to planner", "via": "LLM tool selection"},
+                    )
                     return
         # Fallback: content-key dispatch
         path = content.get("path")
@@ -202,6 +219,10 @@ class LibrarianAgent(BaseAgent):
             reply_to=message.sender,
         )
         self.bus.send(reply)
+        interaction_log.log_call(
+            "agents.librarian_agent.LibrarianAgent.handle_message",
+            result={"INFORM": "sent to planner", "reply_keys": list(reply_content.keys()) if isinstance(reply_content, dict) else []},
+        )
         trace(
             9,
             "librarian_inform_sent",
@@ -291,6 +312,10 @@ class LibrarianAgent(BaseAgent):
             reply_to=message.sender,
         )
         self.bus.send(reply)
+        interaction_log.log_call(
+            "agents.librarian_agent.LibrarianAgent.handle_message",
+            result={"INFORM": "sent to planner"},
+        )
         trace(9, "librarian_inform_sent", in_={"conversation_id": conversation_id}, out="sent", next_="planner receives")
         if self.conversation_manager and conversation_id:
             summary = "documents and graph" if isinstance(reply_content, dict) else "data"

@@ -25,9 +25,10 @@ OpenFund-AI/
 │   ├── __init__.py
 │   ├── rest.py
 │   └── websocket.py
-├── data_manager/              # Agent-based data collection/distribution (see data-manager-agent.md)
+├── data_manager/              # CLI-based data collection/distribution workflows (see data-manager-agent.md)
 │   ├── __init__.py
 │   ├── __main__.py            # Entry point for python -m data_manager
+│   ├── backend_cli.py         # Backend maintenance subcommands: populate, sql, neo4j, milvus
 │   ├── collector.py           # DataCollector: fetch from market_tool/analyst_tool, save to files
 │   ├── distributor.py         # DataDistributor: read files, write to sql/kg/vector_tool
 │   ├── classifier.py          # DataClassifier: route data to appropriate database
@@ -71,7 +72,8 @@ OpenFund-AI/
 │   └── situation_memory.py
 ├── util/
 │   ├── __init__.py
-│   └── trace_log.py
+│   ├── trace_log.py
+│   └── interaction_log.py
 ├── main.py
 ├── CHANGELOG.md
 ├── README.md
@@ -87,6 +89,7 @@ OpenFund-AI/
     ├── file-structure.md
     ├── agent-tools-reference.md   # MCP tool payloads and per-agent tool lists
     ├── data-manager-agent.md     # Data Manager Agent design: data collection + distribution to DBs
+    ├── demo.md                   # How to run full stack; no separate demo mode
     ├── fund-data-schema.md       # Fund data schema: JSON field definitions and DB mapping
     ├── test_plan.md
     ├── progress.md
@@ -168,6 +171,22 @@ print(msg.conversation_id)  # UUID string
 ## Function: `trace(step: int, stage: str, *, in_=None, out=None, next_="") -> None`
 
 **Purpose:** Log one trace step in a readable block. No return value; logs via logger.info.
+
+---
+
+# util/interaction_log.py
+
+**Purpose:** Systematic interaction call logging: every significant function visited during a user interaction (POST /chat or WebSocket /ws), with function name, sanitized params, and result in one JSON object per line. Used for debugging and auditing; filterable by conversation_id. See [use-case-trace-beginner.md](use-case-trace-beginner.md) for the logical flow that is logged.
+
+**Context:** `set_conversation_id(cid)` sets the current conversation id in a contextvar so API, agents, and MCP client can attach logs without passing the id. `get_conversation_id()` returns the current value.
+
+**Functions:**
+- `set_conversation_id(conversation_id: str) -> None` — Set conversation id for this context (thread/task).
+- `get_conversation_id() -> str` — Return current conversation id or empty string.
+- `set_enabled(enabled: bool) -> None` — Override enabled state (e.g. from Config); called at app startup.
+- `log_call(function_name: str, params=None, result=None, duration_ms=None) -> None` — Emit one JSON line: ts, conversation_id, function, params, result, duration_ms, sequence. No-op if disabled (INTERACTION_LOG env or config). Params and result are sanitized (truncated strings, JSON-serializable).
+
+**Format:** Each log line is a single JSON object with keys: ts, conversation_id, function, params, result, duration_ms, sequence. Logger name: openfund.interaction. Enable via INTERACTION_LOG=1 or config.interaction_log_enabled.
 
 ---
 
@@ -461,7 +480,7 @@ mgr.broadcast_stop(cid)
 
 # agents/planner_agent.py
 
-**Purpose:** Orchestrate research: decide which agents to call (one or more of Librarian, WebSearcher, Analyst), decompose the user query into agent-specific sub-queries for each chosen agent, and when information is sufficient send consolidated data to Responder; otherwise request more from agents with refined queries.
+**Purpose:** Orchestrate research: decide which agents to call (one or more of Librarian, WebSearcher, Analyst), decompose the user query into agent-specific sub-queries for each chosen agent, run a planner sufficiency check after specialist replies, and either send consolidated data to Responder or start refined planner round(s).
 
 ---
 
@@ -487,9 +506,9 @@ step = TaskStep(agent="librarian", action="retrieve_fund_facts", params={"fund":
 
 ## Class: `PlannerAgent(BaseAgent)`
 
-**Purpose:** Decompose queries into agent-specific sub-queries, create research requests, and route to one or more of Librarian/WebSearcher/Analyst; aggregate their INFORMs and send to Responder when sufficient. Uses optional llm_client for decompose_to_steps (Stage 10.2).
+**Purpose:** Decompose queries into agent-specific sub-queries, create research requests, and route to one or more of Librarian/WebSearcher/Analyst; aggregate INFORMs and apply the planner sufficiency check to decide responder handoff vs refined planner round(s). Uses optional llm_client for decompose_to_steps (Stage 10.2).
 
-**Docstring:** `Decides which agents to call (one or more of librarian, websearcher, analyst) and decomposes the user query into agent-specific sub-queries. Creates research requests whose content includes the decomposed query per agent; aggregates INFORMs then forwards to Responder when information is sufficient.`
+**Docstring:** `Decides which agents to call (one or more of librarian, websearcher, analyst) and decomposes the user query into agent-specific sub-queries. Creates research requests whose content includes the decomposed query per agent; aggregates INFORMs, runs planner sufficiency check, and forwards to Responder when the planner sufficiency check passes.`
 
 ---
 
@@ -501,7 +520,7 @@ step = TaskStep(agent="librarian", action="retrieve_fund_facts", params={"fund":
 
 ## Method: `PlannerAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Slice 5: On STOP, return. On INFORM from librarian/websearcher/analyst, aggregate in _collected; when all three have replied, _format_final and send INFORM to responder with final_response and user_profile. On REQUEST from api, validate user_profile, call decompose_task (uses llm_client when set), send REQUEST to all three agents (one round); merge path from content for E2E.
+**Purpose:** On STOP, return. On INFORM from librarian/websearcher/analyst, aggregate in _collected; when all expected specialist replies are in, run planner sufficiency check and either start refined planner round(s) or send INFORM to responder with final_response and user_profile. On REQUEST from api, validate user_profile, call decompose_task (uses llm_client when set), and dispatch the initial planner round; merge path from content for E2E.
 
 **Docstring:** `Handle incoming messages directed to the Planner. Handles STOP (ignore), INFORM from specialist agents (aggregate then forward to Responder), and REQUEST from API (send to all three agents). Args: message: The received ACL message (REQUEST from api, or INFORM from librarian/websearcher/analyst).`
 
@@ -511,7 +530,7 @@ step = TaskStep(agent="librarian", action="retrieve_fund_facts", params={"fund":
 
 ## Method: `PlannerAgent.decompose_task(self, query: str) -> List[TaskStep]`
 
-**Purpose:** Produce a task chain from the user query. Returns an ordered list of TaskSteps; each step targets one agent and includes a **decomposed query** (and optional params) for that agent. May call one, two, or three agents depending on the query. Uses llm_client.decompose_to_steps when available (Stage 10.2); otherwise returns a fixed one-round chain (librarian, websearcher, analyst).
+**Purpose:** Produce a task chain from the user query. Returns an ordered list of TaskSteps; each step targets one agent and includes a **decomposed query** (and optional params) for that agent. May call one, two, or three agents depending on the query. Uses llm_client.decompose_to_steps when available (Stage 10.2); otherwise returns a fixed initial planner round chain (librarian, websearcher, analyst).
 
 **Docstring:**
 ```text
@@ -635,7 +654,7 @@ combined = agent.combine_results(docs, graph_data)
 
 **Purpose:** Fetches real-time market and regulatory information via MCP. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](agent-tools-reference.md).
 
-**Docstring:** `Fetches real-time market and regulatory information. Uses MCP market_tool (Tavily + Yahoo APIs). All returned data must include a timestamp.`
+**Docstring:** `Fetches real-time market and regulatory information. Uses MCP market_tool (Alpha Vantage / Finnhub; Tavily path is currently stubbed via search_web). All returned data must include a timestamp.`
 
 ---
 
@@ -679,7 +698,7 @@ assert "timestamp" in data
 
 # agents/analyst_agent.py
 
-**Purpose:** Run quantitative analysis (e.g. Sharpe, max drawdown, Monte Carlo) using MCP analyst_tool or local helpers. Tool selection may use LLM (see [backend.md](backend.md)); otherwise uses structured_data and market_data from message. Sends INFORM or refinement request. Tool list: [agent-tools-reference.md](agent-tools-reference.md).
+**Purpose:** Run quantitative analysis (e.g. Sharpe, max drawdown, Monte Carlo) using MCP analyst_tool or local helpers. Tool selection may use LLM (see [backend.md](backend.md)); otherwise uses structured_data and market_data from message. Sends INFORM to Planner. Tool list: [agent-tools-reference.md](agent-tools-reference.md).
 
 ---
 
@@ -693,9 +712,9 @@ assert "timestamp" in data
 
 ## Method: `AnalystAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** Process analysis requests; dispatch via MCP (tool selection may use LLM per [backend.md](backend.md)) or use structured_data/market_data from content; call analyze(); send INFORM or refinement request to Planner.
+**Purpose:** Process analysis requests; dispatch via MCP (tool selection may use LLM per [backend.md](backend.md)) or use structured_data/market_data from content; call analyze(); send INFORM to Planner.
 
-**Docstring:** `Process analysis requests. When LLM is available: uses prompt and tool descriptions to select tools and parameters, executes via call_tool, then analyze(); sends INFORM or refinement request. Otherwise receives structured_data and market_data, calls analyze; if needs_more_data sends refinement request else sends result to Planner (INFORM). Args: message: The received ACL message.`
+**Docstring:** `Process analysis requests. When LLM is available: use prompt/tool descriptions to select tools and parameters, execute via call_tool, then analyze() and send INFORM. When LLM is unavailable: use structured_data/market_data from message content, run analyze(), and send INFORM.`
 
 ---
 
@@ -714,9 +733,9 @@ result = agent.analyze(knowledge_data, market_data)
 
 ## Method: `AnalystAgent.needs_more_data(self, analysis_result: dict) -> bool`
 
-**Purpose:** Decide whether another research cycle is needed.
+**Purpose:** Decide whether another refined planner round is needed.
 
-**Docstring:** `Determine if additional information is required for refinement. Args: analysis_result: Current analysis output. Returns: True if another research cycle is needed.`
+**Docstring:** `Determine if additional information is required for refinement. Args: analysis_result: Current analysis output. Returns: True if another refined planner round is needed.`
 
 ---
 
@@ -751,17 +770,17 @@ sr = agent.sharpe_ratio([0.01, -0.02, 0.015], 0.02)
 
 # agents/responder_agent.py
 
-**Purpose:** Evaluate confidence in the analysis; decide whether to terminate or request refinement; when terminating, format response via OutputRail, check compliance, send final response, and call conversation_manager.broadcast_stop. Only this agent may trigger STOP.
+**Purpose:** Finalize responder output after planner handoff: format response via OutputRail (or responder LLM path), check compliance, persist final response, and call conversation_manager.broadcast_stop. Only this agent may trigger STOP.
 
 ---
 
 ## Class: `ResponderAgent(BaseAgent)`
 
-**Purpose:** Evaluates sufficiency, formats response via OutputRail, enforces compliance; only this agent may trigger STOP. See [backend.md](backend.md).
+**Purpose:** Formats the final response via OutputRail (or responder LLM path), enforces compliance, and terminates the conversation by broadcasting STOP; only this agent may trigger STOP. See [backend.md](backend.md).
 
 **Constructor:** Accepts optional `llm_client` (LLMClient). When set, handle_message uses llm_client.complete(RESPONDER_SYSTEM, user_content) to format the final answer before compliance check; otherwise uses OutputRail.format_for_user.
 
-**Docstring:** `Evaluates sufficiency and terminates or continues the research loop. Uses OutputRail for compliance check and user-profile formatting. Only this agent may trigger STOP.`
+**Docstring:** `Final responder stage after planner sufficiency check: format for user profile, check compliance, register reply, and broadcast STOP.`
 
 **Constructor:** Accepts optional `llm_client` (LLMClient). When set, handle_message uses llm_client.complete(RESPONDER_SYSTEM, user_content) to format the final answer before compliance check; otherwise uses OutputRail.format_for_user.
 
@@ -806,9 +825,9 @@ score = agent.evaluate_confidence(analysis_dict)
 
 ## Method: `ResponderAgent.request_refinement(self, reason: str) -> ACLMessage`
 
-**Purpose:** Build an ACL message back to the Planner to request another research cycle.
+**Purpose:** Build an ACL message back to the Planner for a future refined planner round (stub; not active in current runtime flow).
 
-**Docstring:** `Build message back to Planner for another research cycle. Args: reason: Why refinement is needed. Returns: ACL message addressed to Planner.`
+**Docstring:** `Build message back to Planner for a refined planner round. Args: reason: Why refinement is needed. Returns: ACL message addressed to Planner.`
 
 **Example usage:**
 ```python
@@ -889,7 +908,7 @@ state = get_conversation("uuid-here")
 
 # scripts/
 
-**Purpose:** Operational entrypoint package. `scripts/run.sh` is the single command to start the live system with optional flags for local backends, seed data, and fund loading.
+**Purpose:** Operational entrypoint package. `scripts/run.sh` is the recommended command to start the live system with optional flags for local backends, seed data, and fund loading.
 
 ---
 
@@ -908,7 +927,22 @@ state = get_conversation("uuid-here")
 
 # data_manager/
 
-**Purpose:** Data collection, distribution, and backend CLI entrypoint. Includes both direct backend commands (`populate`, `sql`, `neo4j`, `milvus`) and agent-based collection/distribution commands (`collect`, `distribute`, `distribute-funds`, `status`, `list`, `global-news`). See [data-manager-agent.md](data-manager-agent.md) for full design.
+**Purpose:** Data collection, distribution, and backend CLI entrypoint. Includes both direct backend commands (`populate`, `sql`, `neo4j`, `milvus`) and collection/distribution commands (`collect`, `distribute`, `distribute-funds`, `status`, `list`, `global-news`). See [data-manager-agent.md](data-manager-agent.md) for full design.
+
+---
+
+## data_manager/backend_cli.py
+
+**Purpose:** Backend maintenance subcommands for `python -m data_manager`. Registers populate, sql, neo4j, milvus via `add_backend_subcommands(subparsers)`; __main__.py calls it so these commands appear under the data_manager CLI.
+
+**Functions:**
+- `add_backend_subcommands(subparsers)` — Add subparsers for populate, sql, neo4j, milvus and set their `func` to the corresponding cmd_*.
+- `run_populate()` — Seed PostgreSQL, Neo4j, and Milvus demo data (idempotent); calls load_config(), then sql_tool.populate_demo(), kg_tool.populate_demo(), vector_tool.populate_demo().
+- `cmd_populate(_args)` — Handler for `data_manager populate`.
+- `cmd_sql(args)` — Run a SQL query via sql_tool.run_query; requires DATABASE_URL; prints JSON (rows, schema) or error.
+- `cmd_neo4j(args)` — Run a Cypher query via kg_tool.query_graph; requires NEO4J_URI.
+- `cmd_milvus_index(args)` — Index documents into Milvus (as registered).
+- `cmd_milvus_delete(args)` — Delete by source or filter (as registered).
 
 ---
 
@@ -988,7 +1022,7 @@ state = get_conversation("uuid-here")
 
 ## data_manager/__main__.py
 
-**Purpose:** Entry point for `python -m data_manager`; parses CLI args and calls collector/distributor.
+**Purpose:** Entry point for `python -m data_manager`; parses CLI args, calls `add_backend_subcommands(subparsers)` for backend commands (populate, sql, neo4j, milvus), and implements collect/distribute/status/list/global-news/distribute-funds.
 
 **Usage:**
 ```bash
@@ -1123,7 +1157,7 @@ final = rail.format_for_user(draft, "beginner")
 
 # config/config.py
 
-**Purpose:** Load application configuration from environment variables (MILVUS_*, NEO4J_*, TAVILY_*, YAHOO_*, ANALYST_*, MCP, LLM_*). No .env file required; defaults are empty or None.
+**Purpose:** Load application configuration from environment variables (MILVUS_*, NEO4J_*, TAVILY_*, ANALYST_*, MCP, LLM_*, DATABASE_URL, EMBEDDING_*, thresholds, flags). Automatically loads project-root `.env` when `python-dotenv` is installed; defaults are empty/None or typed defaults when unset.
 
 ---
 
@@ -1131,7 +1165,7 @@ final = rail.format_for_user(draft, "beginner")
 
 **Purpose:** Hold all config fields; used by MCP tools and agents.
 
-**Docstring:** Describes attributes (milvus_uri, milvus_collection, neo4j_*, tavily_api_key, yahoo_*, analyst_api_*, mcp_server_endpoint, llm_*, database_url, embedding_model, embedding_dim, memory_store_path, e2e_timeout_seconds, planner_sufficiency_threshold, analyst_confidence_threshold, responder_confidence_threshold).
+**Docstring:** Describes attributes including milvus_*, neo4j_*, tavily_api_key, yahoo_*, analyst_api_*, mcp_server_endpoint, llm_*, memory_store_path, e2e_timeout_seconds, database_url, embedding_*, planner/analyst/responder thresholds, max_research_rounds, and interaction_log_enabled.
 
 **Example usage:** `cfg = load_config(); print(cfg.milvus_uri)`
 
@@ -1141,7 +1175,7 @@ final = rail.format_for_user(draft, "beginner")
 
 **Purpose:** Read env with os.getenv and return a populated Config instance.
 
-**Docstring:** `Load configuration from environment variables. Reads MILVUS_*, NEO4J_*, TAVILY_API_KEY, YAHOO_*, ANALYST_API_*, MCP server endpoint, DATABASE_URL, EMBEDDING_*, thresholds, and optional LLM/feature flags. Returns: Config instance populated from env.`
+**Docstring:** `Load configuration from environment variables. Reads MILVUS_*, NEO4J_*, TAVILY_API_KEY, ANALYST_API_*, MCP server endpoint, DATABASE_URL, EMBEDDING_*, thresholds, and optional LLM/feature flags; optional YAHOO_* (unused by market_tool). Returns: Config instance populated from env.`
 
 **Example usage:**
 ```python
@@ -1264,15 +1298,15 @@ cfg = load_config()
 
 # llm/factory.py
 
-**Purpose:** Factory: return StaticLLMClient or LiveLLMClient based on config.
+**Purpose:** Factory for runtime LLM client creation. Returns `LiveLLMClient` when configuration is valid; raises a clear error when `LLM_API_KEY` is missing or `llm` extra is not installed.
 
 ---
 
 ## Function: `get_llm_client(config: Config) -> LLMClient`
 
-**Purpose:** Return an LLM client for task decomposition. If config.llm_api_key is set and non-empty, attempts to use a live client (e.g. OpenAI); requires optional dependency: pip install openfund-ai[llm]. Otherwise returns StaticLLMClient (mock) so the app runs without an API key.
+**Purpose:** Return a live LLM client for task decomposition/completion. Requires `LLM_API_KEY` and optional dependency `openfund-ai[llm]`; otherwise raises (`ValueError` for missing key, `ImportError` for missing extra). StaticLLMClient is used only by explicit callers (tests or `main.py --e2e-once` fallback path).
 
-**Returns:** LLMClient implementation (static mock or live when key + deps available).
+**Returns:** `LLMClient` implementation (live client).
 
 ---
 
@@ -1346,7 +1380,7 @@ cfg = load_config()
 
 ## Function: `_run_e2e_once() -> None`
 
-**Purpose:** Run one E2E conversation (Slice 5): wire InMemoryMessageBus, ConversationManager, MCPServer (register_default_tools), MCPClient, get_llm_client(cfg), all five agents (PlannerAgent, LibrarianAgent, WebSearcherAgent, AnalystAgent, ResponderAgent) with shared llm_client; ResponderAgent also has OutputRail; start agent threads; create temp file, send REQUEST to planner with path; block on completion_event; print final response and exit 0.
+**Purpose:** Run one E2E conversation (Slice 5): wire InMemoryMessageBus, ConversationManager, MCPServer (register_default_tools), MCPClient, and all five agents (PlannerAgent, LibrarianAgent, WebSearcherAgent, AnalystAgent, ResponderAgent) with shared llm_client. It first tries `get_llm_client(cfg)` and falls back to `StaticLLMClient` if key/dependency is missing. Starts agent threads, creates a temp file, sends REQUEST to planner with path, blocks on completion_event, and exits 0.
 
 ---
 
@@ -1365,20 +1399,20 @@ PYTHONPATH=. python main.py --serve --port 8010
 # Starts live API server on custom port
 
 PYTHONPATH=. python main.py --e2e-once
-# Runs one conversation (planner → librarian → responder), prints E2E complete: <content>, exit 0
+# Runs one conversation across planner/librarian/websearcher/analyst/responder and exits 0
 ```
 
 ---
 
 # mcp/mcp_client.py
 
-**Purpose:** Client interface to the MCP tool server. All external data (Milvus, Neo4j, Tavily, Yahoo, Analyst API) is accessed via call_tool; agents never call DBs or APIs directly.
+**Purpose:** Client interface to the MCP tool server. All external data (Milvus, Neo4j, market via Alpha Vantage/Finnhub, Analyst API, Tavily when implemented) is accessed via call_tool; agents never call DBs or APIs directly.
 
 ---
 
 ## Class: `MCPClient`
 
-**Docstring:** `Client interface for interacting with the MCP Tool Server. All external data access (Milvus, Neo4j, Tavily, Yahoo, custom Analyst API) goes through this client.`
+**Docstring:** `Client interface for interacting with the MCP Tool Server. All external data access (Milvus, Neo4j, market tools, custom Analyst API) goes through this client.`
 
 ---
 
@@ -1594,7 +1628,7 @@ rels = get_relations("FUND_X")
 
 # mcp/tools/market_tool.py
 
-**Purpose:** MCP tool for market data, web search, company fundamentals, financials, and news. **Vendor config:** get_market_vendor(), get_indicator_vendor(), get_data_cache_dir() (env: MCP_MARKET_VENDOR, MCP_INDICATOR_VENDOR, MCP_DATA_CACHE_DIR). **Alpha Vantage common** (in this file): get_api_key(), format_datetime_for_api(), AlphaVantageRateLimitError, _make_api_request(), _filter_csv_by_date_range(), _now_iso(). analyst_tool imports AlphaVantageRateLimitError, _make_api_request, _now_iso from this module. Stubs: fetch, fetch_bulk, search_web (Tavily). Implemented: Alpha Vantage implementations (_av suffix): get_stock_data_av, get_fundamentals_av, get_balance_sheet_av, get_cashflow_av, get_income_statement_av, get_news_av, get_global_news_av, get_insider_transactions_av; Finnhub (_finnhub suffix) where applicable. **Vendor routing:** _route_* helpers select alpha_vantage or finnhub via MCP_MARKET_VENDOR; no yfinance. **Dify-compatible:** get_ticker_info (raw info JSON), get_stock_analytics (segmented OHLCV stats); _parse_stock_data_content_to_df, _route_ticker_info. All returns include `timestamp`. Config: TAVILY_API_KEY, YAHOO_BASE_URL; optional ALPHA_VANTAGE_API_KEY, FINNHUB_API_KEY.
+**Purpose:** MCP tool for market/company data and news. **Vendor config:** get_market_vendor(), get_indicator_vendor(), get_data_cache_dir() (env: MCP_MARKET_VENDOR, MCP_INDICATOR_VENDOR, MCP_DATA_CACHE_DIR). **Alpha Vantage common** (in this file): get_api_key(), format_datetime_for_api(), AlphaVantageRateLimitError, _make_api_request(), _filter_csv_by_date_range(), _now_iso(). analyst_tool imports AlphaVantageRateLimitError, _make_api_request, _now_iso from this module. `fetch`, `fetch_bulk`, and `search_web` remain stubs. Implemented: Alpha Vantage functions (`*_av`) and Finnhub functions (`*_finnhub`) where applicable, plus vendor-routing `_route_*` helpers (alpha_vantage/finnhub; no yfinance). Config: TAVILY_API_KEY (for future search_web), ALPHA_VANTAGE_API_KEY, FINNHUB_API_KEY.
 
 ---
 
@@ -1602,7 +1636,7 @@ rels = get_relations("FUND_X")
 
 **Purpose:** Fetch market data for a fund or symbol; return must include `timestamp`.
 
-**Docstring:** `Fetch market data for a fund or symbol (Yahoo and/or Tavily). Args: fund_or_symbol: Fund or ticker symbol. Returns: Market data dict; must include 'timestamp'. Config: TAVILY_API_KEY, YAHOO_BASE_URL.`
+**Docstring:** `Fetch market data for a fund or symbol via MCP market_tool (Alpha Vantage or Finnhub). Args: fund_or_symbol: Fund or ticker symbol. Returns: Market data dict; must include 'timestamp'. Config: MCP_MARKET_VENDOR, ALPHA_VANTAGE_API_KEY, FINNHUB_API_KEY.`
 
 **Example usage:**
 ```python
@@ -1725,7 +1759,7 @@ result = run_query("SELECT * FROM funds WHERE id = :id", {"id": "X"})
 ## Design Constraints
 
 - All inter-agent communication uses **ACLMessage** only.
-- All external data (Milvus, Neo4j, Tavily, Yahoo, Analyst API) is accessed **only via MCP** (no direct DB/API access from agents).
+- All external data (Milvus, Neo4j, market tools, Analyst API) is accessed **only via MCP** (no direct DB/API access from agents).
 - **Termination** is decided only by **Responder**; it calls `conversation_manager.broadcast_stop(conversation_id)`.
-- **Planner** decides who to call (Librarian, WebSearcher, Analyst or combination) and whether information is sufficient; when sufficient, sends to Responder; when not, sends refined requests to the appropriate agent(s).
+- **Planner** decides who to call (Librarian, WebSearcher, Analyst or combination), runs the planner sufficiency check, and either sends consolidated data to Responder or starts refined planner round(s).
 - **Tests:** One file `tests/test-stages.py`; tests are functions named `test_stage_X_Y` (see [test_plan.md](test_plan.md)).

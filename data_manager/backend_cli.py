@@ -69,6 +69,7 @@ def cmd_sql(args: argparse.Namespace) -> int:
         json.dumps(
             {"rows": result["rows"], "schema": result.get("schema", [])},
             indent=2,
+            default=str,
         )
     )
     return 0

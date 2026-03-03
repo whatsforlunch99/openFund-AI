@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from util.trace_log import trace
+from util import interaction_log
 
 logger = logging.getLogger(__name__)
 # Max input length enforced so very long payloads are rejected before processing (backend contract).
@@ -152,6 +153,10 @@ class SafetyGateway:
             ProcessedInput with cleaned text and metadata.
             Raises SafetyError if validation or guardrails fail.
         """
+        interaction_log.log_call(
+            "safety.safety_gateway.SafetyGateway.process_user_input",
+            params={"query_len": len(raw_input)},
+        )
         # Validate length and charset; raise if invalid
         vr = self.validate_input(raw_input)
         if not vr.valid:
@@ -161,6 +166,10 @@ class SafetyGateway:
                 in_={"raw_len": len(raw_input)},
                 out=f"invalid reason={vr.reason}",
                 next_="raise SafetyError",
+            )
+            interaction_log.log_call(
+                "safety.safety_gateway.SafetyGateway.process_user_input",
+                result={"error": vr.reason},
             )
             raise SafetyError(vr.reason or "Validation failed")
         trace(
@@ -181,6 +190,10 @@ class SafetyGateway:
                 out=f"blocked reason={gr.reason}",
                 next_="raise SafetyError",
             )
+            interaction_log.log_call(
+                "safety.safety_gateway.SafetyGateway.process_user_input",
+                result={"error": gr.reason},
+            )
             raise SafetyError(gr.reason or "Guardrails blocked input")
         trace(
             2,
@@ -196,6 +209,14 @@ class SafetyGateway:
             text=masked_text,
             raw_length=len(raw_input),
             masked=(masked_text != raw_input),
+        )
+        interaction_log.log_call(
+            "safety.safety_gateway.SafetyGateway.process_user_input",
+            result={
+                "processed_length": len(masked_text),
+                "raw_length": result.raw_length,
+                "masked": result.masked,
+            },
         )
         trace(
             2,

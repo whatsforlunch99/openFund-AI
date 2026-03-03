@@ -1075,4 +1075,4 @@ Fund files in `datasets/` have this structure:
 
 - [backend.md](backend.md) — System architecture and MCP tool interfaces
 - [file-structure.md](file-structure.md) — Code structure
-- [backend-tools-design.md](backend-tools-design.md) — MCP tool design
+- [agent-tools-reference.md](agent-tools-reference.md) — MCP tool payloads and per-agent tool lists

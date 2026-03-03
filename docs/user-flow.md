@@ -4,9 +4,9 @@ Application behavioral flow from the user perspective. See [prd.md](prd.md) for 
 
 ---
 
-## Current implementation (Slices 1–9)
+## Current implementation (Slices 1–10.2)
 
-The codebase implements **one round** with REST and WebSocket: `python main.py --e2e-once` runs a single conversation (api → planner → librarian + websearcher + analyst → responder). The planner sends REQUEST to all three specialists; each replies with INFORM; the planner aggregates and forwards to the responder with `final_response`; the responder formats via OutputRail, checks compliance, calls register_reply and broadcast_stop. **POST /chat** and **GET /conversations/{id}** are implemented (Slice 7). **SafetyGateway** runs on all input (Slice 6). **WebSocket /ws** (Slice 9) follows the same flow as POST /chat. The flow below applies to both REST and WebSocket.
+The codebase implements REST and WebSocket with planner-driven orchestration: `python main.py --e2e-once` runs a single conversation (api → planner → librarian + websearcher + analyst → responder). The planner sends the initial planner round REQUESTs to specialists, aggregates INFORMs, and uses the planner sufficiency check (LLM-based) to decide whether to run refined planner round(s) (capped by `MAX_RESEARCH_ROUNDS`) or forward to responder. The responder formats via OutputRail, checks compliance, calls register_reply, and broadcasts STOP. **POST /register**, **POST /login**, **POST /chat**, and **GET /conversations/{id}** are implemented. **SafetyGateway** runs on all chat input. **WebSocket /ws** follows the same core flow as POST /chat. The flow below applies to both REST and WebSocket chat paths.
 
 ---
 
@@ -37,7 +37,7 @@ Invalid or unknown `user_profile` is rejected before processing.
 3. **If valid, no conversation ID** → New conversation created; request enters processing.
 4. **If valid, with conversation ID** → Existing conversation looked up; if not found, user receives not-found error.
 5. **Request in processing** → Orchestrator gathers information from internal specialists (one or more rounds as needed).
-6. **When information is sufficient** → Response is formatted for the user’s profile, checked for compliance, and finalized.
+6. **When the planner sufficiency check passes** → Response is formatted for the user’s profile, checked for compliance, and finalized.
 7. **User receives** → Success: conversation ID, status, and response. Session for that request is complete.
 8. **Timeout** → User receives timeout status and conversation ID; no response body.
 
@@ -47,8 +47,8 @@ Invalid or unknown `user_profile` is rejected before processing.
 
 - **Validation:** Accept vs reject input (e.g. blocked phrases, invalid profile).
 - **Conversation:** Create new vs continue existing (by presence of conversation ID).
-- **Orchestration:** One round vs multiple rounds of specialist calls depending on sufficiency of information.
-- **Termination:** Responder either finalizes the answer (conversation complete) or requests more work from the orchestrator.
+- **Orchestration:** One round vs refined additional rounds depending on planner sufficiency (LLM) and round cap.
+- **Termination:** Responder finalizes the answer and signals STOP; refinement decisions are planner-owned.
 
 ---
 
@@ -60,7 +60,7 @@ Invalid or unknown `user_profile` is rejected before processing.
 
 ## Error states
 
-- **Validation / safety failure:** Request rejected; user gets error (e.g. HTTP 400).
+- **Validation / safety failure:** Request rejected; safety failures return HTTP 400 and body/schema validation failures return HTTP 422.
 - **Unknown conversation ID:** User gets not-found (e.g. HTTP 404).
 - **Timeout:** Processing exceeds limit; user gets timeout status (e.g. HTTP 408), no response body.
 
@@ -87,9 +87,9 @@ All three audiences use the same pipeline; only the **request body** (notably `u
 
 1. **Layer 1 (API):** Request body → safety → conversation create/get → send to Planner → block on completion.
 2. **Layer 2 (Safety):** Validate, guardrails, PII mask.
-3. **A2A (Planner rounds):** Planner chooses **one or more** of LibrarianAgent, WebSearcherAgent, and AnalystAgent in **each round**. It sends REQUEST(s) to the chosen agent(s); each replies with INFORM to Planner. If the collected information is **not sufficient**, Planner starts a **new round** using **new queries generated from all current information** at hand, and may again choose one or more agents. When sufficient, Planner sends REQUEST to Responder with consolidated data.
+3. **A2A (Planner rounds):** Planner chooses one or more of LibrarianAgent, WebSearcherAgent, and AnalystAgent in each round. It sends REQUEST(s) to the chosen agent(s); each replies with INFORM to Planner. If the collected information is not sufficient, Planner starts a new refined round (up to `MAX_RESEARCH_ROUNDS`). When sufficient (or refinement exhausted), Planner sends INFORM to Responder with consolidated data.
 4. **Research execution:** Librarian (vector + graph + sql), WebSearcher (market + sentiment + regulatory), Analyst (run_analysis / local metrics)—each only when chosen that round.
-5. **Layer 6 (Output):** Responder evaluates confidence, formats via OutputRail using **user_profile**, checks compliance, registers final response, broadcasts STOP.
+5. **Layer 6 (Output):** Responder formats via OutputRail using **user_profile**, checks compliance, registers final response, broadcasts STOP.
 6. **API** unblocks and returns JSON.
 
 For a step-by-step function trace of one beginner request, see [use-case-trace-beginner.md](use-case-trace-beginner.md).
@@ -124,7 +124,7 @@ The **function call sequence is the same** as in §1 (steps 1–11). Only the fo
 
 - **Sample input:** `query` = e.g. `"How does fund X behave in drawdowns and over a 10-year horizon?"`, `user_profile` = `"long_term"`, `user_id` = e.g. `"user_456"`.
 - **Step 4:** `content["user_profile"]` = `"long_term"`.
-- **Step 10:** `ResponderAgent.format_response(analysis, "long_term")` → `OutputRail.format_for_user(text, "long_term")` adapts tone and content for long-term holders (industry trend, drawdown, horizon).
+- **Step 10:** Responder uses `OutputRail.format_for_user(text, "long_term")` to adapt tone and content for long-term holders (industry trend, drawdown, horizon).
 - **Step 11:** Response JSON contains the long-term–oriented formatted answer.
 
 ---
@@ -137,7 +137,7 @@ The **function call sequence is the same** as in §1 (steps 1–11). Only the fo
 
 - **Sample input:** `query` = e.g. `"Give me Sharpe, max drawdown, and a Monte Carlo distribution for fund X."`, `user_profile` = `"analyst"`, `user_id` = e.g. `"analyst_99"`.
 - **Step 4:** `content["user_profile"]` = `"analyst"`.
-- **Step 10:** `ResponderAgent.format_response(analysis, "analyst")` → `OutputRail.format_for_user(text, "analyst")` preserves or highlights full workflow, raw API-style metrics, and confidence intervals.
+- **Step 10:** Responder uses `OutputRail.format_for_user(text, "analyst")` to preserve or highlight full workflow, raw API-style metrics, and confidence intervals.
 - **Step 11:** Response JSON contains the analyst-oriented answer (full metrics, assumptions, intervals).
 
 (When Analyst agent is chosen in a round, it may return richer structure from `analyze` / `analyst_tool.run_analysis`; the flow and step count are unchanged.)
@@ -153,7 +153,6 @@ The **function call sequence is the same** as in §1 (steps 1–11). Only the fo
 | 3 | a2a | create_conversation or get_conversation | ✓ | ✓ | ✓ |
 | 4 | a2a | MessageBus.send(REQUEST → planner) | user_profile=beginner | user_profile=long_term | user_profile=analyst |
 | 5 | api/rest | completion_event.wait(timeout) | ✓ | ✓ | ✓ |
-| 6–9 | agents | **Planner rounds:** choose one or more of Librarian, WebSearcher, Analyst; send REQUEST(s); collect INFORM(s); if insufficient, new round with new queries from all current info; when sufficient → Responder | ✓ | ✓ | ✓ |
-| 10 | agents + output | Responder.evaluate_confidence, should_terminate; format_response → **OutputRail.format_for_user(_, user_profile)**; check_compliance; register_reply; broadcast_stop | beginner wording | long_term wording | analyst wording |
+| 6–9 | agents | **Planner rounds:** choose one or more of Librarian, WebSearcher, Analyst; send REQUEST(s); collect INFORM(s); if insufficient, run refined planner round(s) up to MAX_RESEARCH_ROUNDS; when planner sufficiency check passes (or rounds are exhausted) → Responder | ✓ | ✓ | ✓ |
+| 10 | agents + output | Responder handles planner INFORM; **OutputRail.format_for_user(_, user_profile)**; check_compliance; register_reply; broadcast_stop | beginner wording | long_term wording | analyst wording |
 | 11 | api/rest | Return { conversation_id, status, response, flow } | ✓ | ✓ | ✓ |
-

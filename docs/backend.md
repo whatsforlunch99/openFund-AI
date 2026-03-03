@@ -8,10 +8,10 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 
 - **A2A:** FIPA-ACL messages over a message bus (in-memory or pluggable). Agents communicate via performatives (REQUEST, INFORM, STOP, etc.).
 - **Layers:** User Interaction (API), Safety, Orchestration (Planner), Research Execution (Librarian, WebSearcher, Analyst), Tool/Data (MCP), Output Review (OutputRail).
-- **Orchestration:** The Planner (orchestrator) decides **which** agents to call (one or more of Librarian, WebSearcher, Analyst) and **decomposes** the user query into **agent-specific sub-queries**. Each REQUEST to a specialist carries that agent's decomposed query (and any shared context). When information is sufficient, Planner sends consolidated data to Responder.
+- **Orchestration:** The Planner (orchestrator) decides **which** agents to call (one or more of Librarian, WebSearcher, Analyst) and **decomposes** the user query into **agent-specific sub-queries**. Each REQUEST to a specialist carries that agent's decomposed query (and any shared context). After the planner sufficiency check passes, Planner sends consolidated data to Responder.
 - **Termination:** Only the Responder may signal conversation complete (broadcast STOP); all agent threads exit on STOP.
-- **Hub-and-spoke:** Planner is the sole orchestrator; specialists reply only to Planner. Planner sends consolidated data to Responder when information is sufficient.
-- **Background data management:** DataManagerAgent handles data collection (from market_tool/analyst_tool) and distribution (to PostgreSQL/Neo4j/Milvus). Not part of real-time query flow; triggered via CLI, scheduler, or on-demand REQUEST from Planner when data is stale. See [data-manager-agent.md](data-manager-agent.md).
+- **Hub-and-spoke:** Planner is the sole orchestrator; specialists reply only to Planner. Planner sends consolidated data to Responder when the planner sufficiency check passes.
+- **Background data management:** Data-manager workflows handle data collection (from market_tool/analyst_tool) and distribution (to PostgreSQL/Neo4j/Milvus). This is not part of real-time query flow; primarily triggered via CLI/scheduler. See [data-manager-agent.md](data-manager-agent.md).
 
 ---
 
@@ -20,7 +20,7 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 ### REST
 
 - **POST /register**  
-  - **Request body:** `username` (required; unique), `password` (required, min 8 chars).  
+  - **Request body:** `username` (preferred) or legacy `display_name`; resolved username must match `^[A-Za-z][A-Za-z0-9_.-]{2,31}$` and be unique. `password` is required (min 8 chars).  
   - **Success (200):** `{ "user_id", "username", "message" }`.  
   - **Failure (409):** username already exists.  
   - **Persistence:** stores password hash in `MEMORY_STORE_PATH/users.json`.
@@ -65,8 +65,8 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 ## Business rules
 
 - **Create vs get:** No conversation_id → create new conversation; conversation_id present → get existing (404 if missing).
-- **Sufficiency:** The **Planner** (orchestrator) decides when gathered information is sufficient. Sufficiency is determined by an **LLM call** (no numeric threshold in code). When the LLM answers SUFFICIENT, the Planner sends consolidated data to the Responder.
-- **Confidence:** The **Analyst** may request more data when its analysis confidence is below `ANALYST_CONFIDENCE_THRESHOLD`. The **Responder** does not evaluate confidence; it only formats the final answer. Only the Planner evaluates sufficiency (via LLM). `RESPONDER_CONFIDENCE_THRESHOLD` is reserved for future use.
+- **Sufficiency:** The **Planner** (orchestrator) owns the **planner sufficiency check**. Sufficiency is determined by an **LLM call** (no numeric threshold in code). When the LLM answers SUFFICIENT, the Planner sends consolidated data to the Responder.
+- **Confidence:** The **Analyst** computes confidence and exposes `needs_more_data(...)` against `ANALYST_CONFIDENCE_THRESHOLD`, but the current loop refinement decision is driven by the Planner's LLM-based sufficiency check (and `MAX_RESEARCH_ROUNDS`). The **Responder** does not evaluate confidence; it formats the final answer. `RESPONDER_CONFIDENCE_THRESHOLD` is reserved for future use.
 - **Persistence:** One JSON file per user at `memory/<user_id>/conversations.json`; anonymous at `memory/anonymous/conversations.json`. Written on create and on register_reply. Root dir: `MEMORY_STORE_PATH` (default `memory/`). User credentials are stored as password hashes in `memory/users.json`. **Situation memory:** A single BM25-backed store of (situation, recommendation) pairs is persisted at `{MEMORY_STORE_PATH}/situation_memory.json`; optional—loaded on startup via `get_situation_memory(memory_store_path)` when the `memory` module (and `rank_bm25`) is available; otherwise startup continues without it.
 
 ---
@@ -97,7 +97,7 @@ All external data via MCP tools only:
 |----------------|-------------|----------------|
 | Vector DB      | Milvus      | vector_tool — MILVUS_URI, MILVUS_COLLECTION |
 | Knowledge graph| Neo4j       | kg_tool — NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD |
-| Web / market   | Tavily, Yahoo, Alpha Vantage | market_tool — TAVILY_API_KEY, YAHOO_BASE_URL; optional ALPHA_VANTAGE_API_KEY, MCP_MARKET_VENDOR |
+| Web / market   | Tavily, Alpha Vantage, Finnhub | market_tool — TAVILY_API_KEY (for search_web when implemented); ALPHA_VANTAGE_API_KEY, FINNHUB_API_KEY; MCP_MARKET_VENDOR (alpha_vantage \| finnhub) |
 | Analyst        | Custom API, Alpha Vantage | analyst_tool — ANALYST_API_URL, ANALYST_API_KEY; optional MCP_INDICATOR_VENDOR |
 | SQL            | PostgreSQL  | sql_tool — DATABASE_URL |
 | Files          | —           | file_tool (read_file) |
@@ -112,11 +112,13 @@ Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). Al
 
 - **Persistence:** MEMORY_STORE_PATH (default `memory/`). Situation memory file: `{MEMORY_STORE_PATH}/situation_memory.json`.
 - **Timeouts:** E2E_TIMEOUT_SECONDS (default 30).
-- **Thresholds:** PLANNER_SUFFICIENCY_THRESHOLD (default 0.6, reserved—sufficiency is LLM-decided), ANALYST_CONFIDENCE_THRESHOLD (default 0.6), RESPONDER_CONFIDENCE_THRESHOLD (default 0.75, reserved for future use). **Research rounds:** MAX_RESEARCH_ROUNDS (default 2) caps refinement rounds. **Round-2 refined steps:** The Planner uses fixed actions per agent (librarian → read_file, websearcher → fetch_market, analyst → analyze) unless the LLM is extended to return actions. **Fallback decomposition:** When the LLM is unavailable, the Planner uses a small heuristic to infer a fund/symbol from the query (e.g. nvidia→NVDA, apple→AAPL); full decomposition including symbol hints requires the LLM otherwise.
+- **Thresholds:** PLANNER_SUFFICIENCY_THRESHOLD (default 0.6, reserved—sufficiency is LLM-decided), ANALYST_CONFIDENCE_THRESHOLD (default 0.6), RESPONDER_CONFIDENCE_THRESHOLD (default 0.75, reserved for future use). **Planner rounds:** MAX_RESEARCH_ROUNDS (default 2) caps refined planner round(s). **Refined planner round steps:** The Planner uses fixed actions per agent (librarian → read_file, websearcher → fetch_market, analyst → analyze) unless the LLM is extended to return actions. **Fallback decomposition:** When the LLM is unavailable, the Planner uses a small heuristic to infer a fund/symbol from the query (e.g. nvidia→NVDA, apple→AAPL); full decomposition including symbol hints requires the LLM otherwise.
 - **LLM:** Required for app startup. `get_llm_client()` requires `LLM_API_KEY`; otherwise startup fails with a clear error. Install optional dependency: `pip install openfund-ai[llm]`. `LLM_MODEL` (default `gpt-4o-mini`) and optional `LLM_BASE_URL` control provider/model routing.
 - **Runtime entrypoint:** Use `./scripts/run.sh` as the single operational command to start the live system.
-- **MCP/backends:** MILVUS_URI, MILVUS_COLLECTION; NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD; TAVILY_API_KEY, YAHOO_BASE_URL; ANALYST_API_URL, ANALYST_API_KEY; DATABASE_URL; EMBEDDING_MODEL, EMBEDDING_DIM. **Vendor selection (market/analyst):** MCP_MARKET_VENDOR (default alpha_vantage; or finnhub); MCP_INDICATOR_VENDOR (default alpha_vantage). Optional: MCP_DATA_CACHE_DIR (cache dir for OHLCV); ALPHA_VANTAGE_API_KEY (required when using alpha_vantage vendor). **Path safety (file_tool):** Optional MCP_FILE_BASE_DIR; when set, read_file only allows paths under this directory (avoids path traversal). When unset, path is used as-is (trusted caller only).
+- **MCP/backends:** MILVUS_URI, MILVUS_COLLECTION; NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD; TAVILY_API_KEY; ANALYST_API_URL, ANALYST_API_KEY; DATABASE_URL; EMBEDDING_MODEL, EMBEDDING_DIM. **Vendor selection (market/analyst):** MCP_MARKET_VENDOR (default alpha_vantage; or finnhub); MCP_INDICATOR_VENDOR (default alpha_vantage). No yfinance; market data uses Alpha Vantage or Finnhub only. Optional: MCP_DATA_CACHE_DIR (cache dir for OHLCV); ALPHA_VANTAGE_API_KEY (required when using alpha_vantage vendor); FINNHUB_API_KEY (required when MCP_MARKET_VENDOR=finnhub). **Path safety (file_tool):** Optional MCP_FILE_BASE_DIR; when set, read_file only allows paths under this directory (avoids path traversal). When unset, path is used as-is (trusted caller only).
 
 **MCP market/indicator vendor switching:** Set `MCP_MARKET_VENDOR=alpha_vantage` to use Alpha Vantage for market tools (stock data, fundamentals, news, insider transactions). Set `MCP_INDICATOR_VENDOR=alpha_vantage` for technical indicators. Default for both is `alpha_vantage`. Invalid or unset values fall back to `alpha_vantage`. Finnhub is supported for market data when `MCP_MARKET_VENDOR=finnhub` and FINNHUB_API_KEY is set.
+
+**Interaction log:** INTERACTION_LOG (env, default true) or config.interaction_log_enabled enables systematic function-call logging during user interactions (POST /chat, /ws). Each log line is one JSON object: ts, conversation_id, function, params, result, duration_ms, sequence. Logger name: openfund.interaction. Logical flow logged matches [use-case-trace-beginner.md](use-case-trace-beginner.md); see [file-structure.md](file-structure.md) (util/interaction_log.py) for API.
 
 Work breakdown and runnable checkpoints: [progress.md](progress.md).

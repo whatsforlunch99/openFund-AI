@@ -33,6 +33,7 @@ class Config:
         analyst_confidence_threshold: Analyst confidence threshold (default 0.6).
         responder_confidence_threshold: Responder confidence threshold (default 0.75); reserved for future use.
         max_research_rounds: Max refinement rounds (default 2); env MAX_RESEARCH_ROUNDS.
+        interaction_log_enabled: If True, log every significant function call during user interaction (default True); env INTERACTION_LOG.
     """
 
     milvus_uri: str = ""
@@ -58,6 +59,7 @@ class Config:
     analyst_confidence_threshold: float = 0.6
     responder_confidence_threshold: float = 0.75
     max_research_rounds: int = 2
+    interaction_log_enabled: bool = True
 
 
 def load_config() -> Config:
@@ -126,4 +128,5 @@ def load_config() -> Config:
         analyst_confidence_threshold=_float("ANALYST_CONFIDENCE_THRESHOLD", 0.6),
         responder_confidence_threshold=_float("RESPONDER_CONFIDENCE_THRESHOLD", 0.75),
         max_research_rounds=_int("MAX_RESEARCH_ROUNDS", 2),
+        interaction_log_enabled=_bool("INTERACTION_LOG", True),
     )

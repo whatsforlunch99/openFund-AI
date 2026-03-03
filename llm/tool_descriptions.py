@@ -17,9 +17,9 @@ TOOL_DESCRIPTIONS_BY_NAME: dict[str, str] = {
     # file_tool
     "file_tool.read_file": "Read file content. Payload: path (string).",
     # vector_tool
-    "vector_tool.search": "Semantic search over documents. Payload: query (string), top_k (optional int, default 5), filter (optional).",
-    "vector_tool.get_by_ids": "Retrieve documents by IDs. Payload: ids (list of strings), collection_name (optional).",
-    "vector_tool.upsert_documents": "Insert or update documents in vector collection. Payload: docs (list of dicts with 'text' and optional 'id').",
+    "vector_tool.search": "Semantic search over documents. Payload: query (string), top_k (optional int, default 5), filter (optional dict, e.g. fund_id, source).",
+    "vector_tool.get_by_ids": "Retrieve entities by IDs. Payload: ids (list of strings), collection_name (optional). Returns entities.",
+    "vector_tool.upsert_documents": "Insert or update documents in vector collection. Payload: docs (list of dicts with 'id' and 'content').",
     "vector_tool.health_check": "Check Milvus connectivity. Payload: {}.",
     "vector_tool.create_collection_from_config": "Create a new Milvus collection. Payload: name (string), dimension (optional int), primary_key_field (optional), scalar_fields (optional), index_params (optional).",
     # kg_tool

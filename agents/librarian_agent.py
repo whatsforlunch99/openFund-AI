@@ -8,6 +8,7 @@ from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
 from util import interaction_log
+from util.log_format import log_agent_section, struct_log
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
@@ -72,6 +73,9 @@ class LibrarianAgent(BaseAgent):
                 "conversation_id": conversation_id,
             },
         )
+        if message.performative == Performative.REQUEST:
+            log_agent_section(logger, "librarian")
+            struct_log(logger, logging.INFO, "agent.librarian.start")
         query = content.get("query") or content.get("path") or ""
 
         # When LLM is available, try tool selection first; fall back to content-key if empty/fail
@@ -84,13 +88,23 @@ class LibrarianAgent(BaseAgent):
                 normalize_tool_calls,
             )
 
-            tool_descriptions = get_librarian_tool_descriptions()
+            registered = (
+                set(self.mcp_client.get_registered_tool_names())
+                if self.mcp_client
+                else None
+            )
+            allowed = (
+                frozenset(LIBRARIAN_ALLOWED_TOOL_NAMES & registered)
+                if registered is not None
+                else LIBRARIAN_ALLOWED_TOOL_NAMES
+            )
+            tool_descriptions = get_librarian_tool_descriptions(registered)
             user_content = f"Sub-query from planner: {query}"
             tool_calls = self._llm_client.select_tools(
                 LIBRARIAN_TOOL_SELECTION, user_content, tool_descriptions
             )
-            # Discard any tool the LLM returned that is not in this agent's allowed pool
-            tool_calls = filter_tool_calls_to_allowed(tool_calls, LIBRARIAN_ALLOWED_TOOL_NAMES)
+            # Discard any tool the LLM returned that is not in allowed (and registered)
+            tool_calls = filter_tool_calls_to_allowed(tool_calls, allowed)
             tool_calls = normalize_tool_calls(tool_calls)
             if tool_calls:
                 parts = self._execute_tool_calls(tool_calls)
@@ -102,6 +116,7 @@ class LibrarianAgent(BaseAgent):
                         summary = self._llm_client.complete(LIBRARIAN_SYSTEM, user_content_summary)
                         reply_content = dict(reply_content)
                         reply_content["summary"] = summary
+                    struct_log(logger, logging.INFO, "agent.librarian.done", status="success")
                     self._send_inform(message, reply_content, conversation_id)
                     interaction_log.log_call(
                         "agents.librarian_agent.LibrarianAgent.handle_message",
@@ -209,6 +224,8 @@ class LibrarianAgent(BaseAgent):
             reply_content = dict(reply_content)
             reply_content["summary"] = summary
 
+        status = "limited_data" if (isinstance(reply_content, dict) and reply_content.get("error")) else "success"
+        struct_log(logger, logging.INFO, "agent.librarian.done", status=status)
         reply_to = getattr(message, "reply_to", None) or message.sender
         reply = ACLMessage(
             performative=Performative.INFORM,

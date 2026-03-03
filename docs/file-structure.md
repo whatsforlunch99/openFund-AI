@@ -38,7 +38,8 @@ OpenFund-AI/
 ├── datasets/                     # Fund dataset files
 │   └── combined_funds.json       # Canonical combined fund dataset used by distribute-funds
 ├── scripts/
-│   └── run.sh                # Single entrypoint: start live system with optional backend/data flags
+│   ├── run.sh                # Single entrypoint: backends, seed, API, and interactive chat (use --no-chat for API only)
+│   └── chat_cli.py            # Interactive terminal client: POST /chat in a loop; --port, --profile
 ├── safety/
 │   ├── __init__.py
 │   └── safety_gateway.py
@@ -330,13 +331,13 @@ state = ConversationState(conversation_id="abc", user_id="u1", initial_query="..
 
 **Docstring:** `Tracks conversations and sends STOP broadcasts via the message bus. Responsibilities: create conversation, get state, register replies, broadcast STOP.`
 
-**Persistence:** Conversation state is written to `MEMORY_STORE_PATH/<user_id>/conversations.json` (see [backend.md](backend.md)) on create and on register_reply. Anonymous user_id maps to `anonymous/`. ConversationManager maintains _memory_root and uses _user_dir, _save_user internally.
+**Persistence:** Conversation state is written to `MEMORY_STORE_PATH/<user_id>/conversations.json` (see [backend.md](backend.md)) on create and on register_reply. Anonymous user_id maps to `anonymous/`. ConversationManager maintains _memory_root and uses _user_dir, _save_user internally. Only a subset of state is persisted: id, user_id, initial_query, messages, status, final_response, created_at. **flow_events are in-memory only**; they are returned in the API response (`flow`) for the current request but are not written to conversations.json.
 
 ---
 
 ## Method: `ConversationManager.append_flow(self, conversation_id: str, event: dict[str, Any]) -> None`
 
-**Purpose:** Append a flow step for a conversation (for UI). No-op if conversation not found or state has no append_flow.
+**Purpose:** Append a flow step for a conversation (for UI). No-op if conversation not found or state has no append_flow. The planner calls this with steps that include per-agent query in `detail`; the accumulated flow is returned to the client in the API response as `flow`. Nothing is printed to the console by the conversation manager.
 
 ---
 
@@ -486,20 +487,19 @@ mgr.broadcast_stop(cid)
 
 ## Class: `TaskStep`
 
-**Purpose:** One step in a decomposed task chain (agent target, action, and optional params).
+**Purpose:** One step in a decomposed task chain (agent target and params, including the decomposed query).
 
 **Docstring:**
 ```text
 Single step in a decomposed task chain.
 Attributes:
     agent: Target agent: "librarian" | "websearcher" | "analyst".
-    action: Step type (e.g. retrieve_fund_facts, answer_question).
-    params: Optional parameters for the step (forwarded as ACLMessage content extras).
+    params: Parameters for the step (including "query"); forwarded as ACLMessage content.
 ```
 
 **Example usage:**
 ```python
-step = TaskStep(agent="librarian", action="retrieve_fund_facts", params={"fund": "X"})
+step = TaskStep(agent="librarian", params={"query": "fund X facts", "fund": "X"})
 ```
 
 ---
@@ -530,7 +530,7 @@ step = TaskStep(agent="librarian", action="retrieve_fund_facts", params={"fund":
 
 ## Method: `PlannerAgent.decompose_task(self, query: str) -> List[TaskStep]`
 
-**Purpose:** Produce a task chain from the user query. Returns an ordered list of TaskSteps; each step targets one agent and includes a **decomposed query** (and optional params) for that agent. May call one, two, or three agents depending on the query. Uses llm_client.decompose_to_steps when available (Stage 10.2); otherwise returns a fixed initial planner round chain (librarian, websearcher, analyst).
+**Purpose:** Produce a task chain from the user query. Decomposition is **LLM-driven**: the LLM selects which agents to call and what query to pass to each; the planner parses the response into a list of steps (TaskSteps) and dispatches REQUESTs only for those steps. Returns an ordered list of TaskSteps; each step targets one agent and includes a **decomposed query** (and optional params) for that agent. May call one, two, or three agents depending on the LLM output. Uses llm_client.decompose_to_steps when available (Stage 10.2); when the LLM returns an empty list, returns a single analyst step; when the LLM is absent or parse fails, returns a fixed three-step chain (librarian, websearcher, analyst).
 
 **Docstring:**
 ```text
@@ -551,7 +551,7 @@ steps = planner.decompose_task("Should I buy fund X?")
 
 ## Method: `PlannerAgent.create_research_request(self, query: str, step: TaskStep, context: Optional[Dict[str, Any]] = None) -> ACLMessage`
 
-**Purpose:** Build an ACL REQUEST for Librarian, WebSearcher, or Analyst. Content includes the **decomposed query for that agent** (e.g. from step.params["query"] or equivalent), plus action and any other params, so the specialist can fulfill the sub-task.
+**Purpose:** Build an ACL REQUEST for Librarian, WebSearcher, or Analyst. Content includes the **decomposed query for that agent** (e.g. from step.params["query"] or equivalent) and any other params, so the specialist can fulfill the sub-task.
 
 **Docstring:**
 ```text
@@ -908,20 +908,33 @@ state = get_conversation("uuid-here")
 
 # scripts/
 
-**Purpose:** Operational entrypoint package. `scripts/run.sh` is the recommended command to start the live system with optional flags for local backends, seed data, and fund loading.
+**Purpose:** Operational entrypoints. `scripts/run.sh` is the recommended command: it starts local backends (when configured), seeds data, loads funds, starts the API, and by default launches the interactive chat client (`scripts/chat_cli.py`). Use `--no-chat` to start the API only.
 
 ---
 
 ## scripts/run.sh
 
-**Purpose:** Single entrypoint for live runtime. Handles `.env` bootstrap, optional dependency install, optional local backend start (PostgreSQL/Neo4j/Milvus when configured), optional `python -m data_manager populate`, optional fund distribution load mode (`existing`, `fresh-symbols`, `fresh-all`, `skip`), then starts `python main.py --serve`.
+**Purpose:** Single entrypoint for live runtime. Handles `.env` bootstrap, optional dependency install, optional local backend start (PostgreSQL/Neo4j/Milvus when configured), optional `python -m data_manager populate`, optional fund distribution load mode (`existing`, `fresh-symbols`, `fresh-all`, `skip`). By default starts the API in the background, waits for it to be ready, runs `scripts/chat_cli.py` in the foreground, and on chat exit kills the server. With `--no-chat`, execs `python main.py --serve` (API only).
 
 **Example usage:**
 ```bash
 ./scripts/run.sh
 ./scripts/run.sh --help
 ./scripts/run.sh --port 8010 --funds fresh-symbols
+./scripts/run.sh --no-chat
 ```
+
+---
+
+## scripts/chat_cli.py
+
+**Purpose:** Interactive terminal chat client. Prompts "You: ", POSTs the line to `http://127.0.0.1:{port}/chat` with `query` and `user_profile`, prints "Assistant: <response>". Handles 200 (success), 408 (timeout), 400/422/404/500 (errors) and connection failures. Exits on empty input, "quit"/"exit"/"q", or EOF. Intended to be run after the API is started (e.g. by run.sh). Args: `--port` (default 8000), `--profile` (beginner | long_term | analyst, default beginner).
+
+---
+
+## scripts/test_librarian.py
+
+**Purpose:** Single script to test all Librarian agent functions and MCP tools it uses. Runs: `combine_results`, `retrieve_documents` (vector_tool.search), `retrieve_knowledge_graph` (kg_tool.get_relations), and `handle_message` with path (file_tool), vector_query (vector_tool), fund (kg_tool), sql_query (sql_tool with schema-aligned query). Uses real backends when DATABASE_URL, NEO4J_URI, MILVUS_URI are set; otherwise tools return mock/empty. Run from project root: `python3 scripts/test_librarian.py`. Optional: `--skip-file`, `--skip-vector`, `--skip-kg`, `--skip-sql`.
 
 ---
 
@@ -1198,11 +1211,11 @@ cfg = load_config()
 
 **Method: `decompose_to_steps(self, query: str) -> list[dict[str, Any]]`**
 
-**Purpose:** Turn a user query into a list of task steps. Each step is a dict with keys: agent (str), action (str), params (dict). Allowed agents: "librarian", "websearcher", "analyst".
+**Purpose:** Turn a user query into a list of task steps. Each step is a dict with keys: agent (str), params (dict). Allowed agents: "librarian", "websearcher", "analyst".
 
 **Args:** query — Raw user investment query.
 
-**Returns:** List of step dicts, e.g. [{"agent": "librarian", "action": "read_file", "params": {"query": "..."}}].
+**Returns:** List of step dicts, e.g. [{"agent": "librarian", "params": {"query": "..."}}].
 
 **Method: `complete(self, system_prompt: str, user_content: str) -> str`**
 
@@ -1284,7 +1297,7 @@ cfg = load_config()
 
 **Method: `decompose_to_steps(self, query: str) -> list[dict[str, Any]]`**
 
-**Purpose:** Call the LLM to decompose the query into steps; parse and validate. Uses PLANNER_DECOMPOSE as system message. On failure or parse error, falls back to DEFAULT_STATIC_STEPS with query injected.
+**Purpose:** Call the LLM to decompose the query into steps; parse and validate. Uses PLANNER_DECOMPOSE as system message. Returns the parsed list (which may be empty). On exception or parse failure (_parse_steps returns None), falls back to DEFAULT_STATIC_STEPS with query injected. When the client returns an empty list, the planner uses a single analyst step.
 
 **Method: `complete(self, system_prompt: str, user_content: str) -> str`**
 
@@ -1292,7 +1305,7 @@ cfg = load_config()
 
 **Method: `_parse_steps(self, text: str, query: str) -> list[dict[str, Any]]`**
 
-**Purpose:** Extract JSON array from LLM response (strip markdown code fence if present), validate agent names (librarian, websearcher, analyst), and return list of step dicts.
+**Purpose:** Extract JSON array from LLM response (strip markdown code fence if present), validate agent names (librarian, websearcher, analyst), and return list of step dicts. Per-step query is taken from params.query or top-level "query"; the user query is used only when the step has neither. Returns None on parse failure; returns [] when the LLM returned a valid empty array.
 
 ---
 

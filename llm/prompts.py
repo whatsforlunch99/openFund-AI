@@ -6,42 +6,25 @@ from typing import Any
 # --- Planner: task decomposition ---
 
 PLANNER_DECOMPOSE = """You are the Planner for a multi-agent investment research system.
-Your only task is to decompose one user request into specialist sub-queries.
+Your task is to decide which specialist agents to call and what query to pass to each.
 
-Return a JSON array. Each element must be:
+Return a JSON array where each element is one action = "call this agent with this query. Each element must be:
 {
   "agent": "librarian" | "websearcher" | "analyst",
-  "action": "<short_action_name>",
   "params": {"query": "<agent_specific_query>"}
 }
 
 Rules:
-1) Choose only agents that add value for this specific request.
-2) Keep each params.query concrete and tool-oriented:
-   - librarian: docs, holdings, sectors, entities, database/knowledge retrieval context.
-   - websearcher: price action, market/news events, macro or regulatory updates.
-   - analyst: risk/return interpretation, metric comparison, scenario reasoning.
-3) Keep queries concise (prefer <= 25 words each).
-4) Do not output markdown, prose, or code fences.
-5) Do not include any keys other than agent/action/params.
+1) You decide which agents to use: one or more from librarian, websearcher, analyst. Choose only agents that add value for this specific request. Prefer at least one agent when the user query is answerable.
+2) Rewrite the query into a dedicated query for that agent to find appropriate data according to the agent's role.
+3) Keep each query concrete and tool-oriented:
+   - librarian: search for historicaldocuments, holdings, sectors, entities, database/knowledge retrieval context from knowledge graph and vector database.
+   - websearcher: search online for latest price action, market/news events, macro or regulatory updates.
+   - analyst: perform quantitative analysis, risk/return interpretation, metric comparison, scenario reasoning based on the data from the librarian and websearcher if user did not supply the relevant data.
+4) Keep queries concise (prefer <= 25 words each).
+5) Output only the JSON array. No markdown, prose, or code fences. No keys other than agent name and specified query for the agent.
 
-If the user query is ambiguous, still produce best-effort steps and encode assumptions inside params.query text."""
-
-
-# --- Planner: role-specific query rewrite (single call for all three) ---
-
-PLANNER_REWRITE_QUERIES = """You are the Planner. Rewrite one user query into three role-specific queries.
-
-User query: {user_query}
-
-Return a JSON object with exactly three keys: "librarian", "websearcher", "analyst".
-Each value must be one focused sentence and must preserve the original intent.
-
-Constraints:
-- librarian: retrieval-oriented wording (fund/company identifiers, documents, holdings, sectors).
-- websearcher: time-aware wording (latest market/news/regulatory context).
-- analyst: quantitative wording (risk, return, comparison, assumptions).
-- Output JSON only; no markdown or explanation."""
+If the user query is ambiguous, produce best-effort intepretation and encode assumptions in the per-agent query text. You may return an empty array only if the request clearly needs no specialist research."""
 
 
 # --- Planner: sufficiency check (after collecting a round) ---
@@ -79,13 +62,14 @@ Return a JSON object with one or more keys from:
 Only include agents that can close remaining information gaps.
 Each value must be a specific follow-up query that references what is still missing.
 
-Output JSON only; no markdown or prose."""
+Return a JSON array where each element is one action = "call this agent with this query. Each element must be:
+{
+  "agent": "librarian" | "websearcher" | "analyst",
+  "action": "<short_action_name>",
+  "params": {"query": "<agent_specific_query>"}
+}
+"""
 
-
-def get_planner_rewrite_user_content(user_query: str) -> str:
-    """Build user content for planner query-rewrite (role-specific queries)."""
-    # Clamp user query length so prompt tokens remain bounded.
-    return PLANNER_REWRITE_QUERIES.format(user_query=user_query[:500])
 
 
 def get_planner_sufficiency_user_content(user_query: str, aggregated: str) -> str:
@@ -108,6 +92,29 @@ def get_planner_refined_user_content(user_query: str, aggregated: str) -> str:
 
 # --- Librarian: retrieve and combine (vector, graph, SQL, files) ---
 # Used when/if Librarian uses LLM to summarize combined docs+graph+sql into a brief for the planner.
+# PostgreSQL schema for sql_tool: must match docs/fund-data-schema.md and data_manager/schemas.py.
+POSTGRES_SCHEMA_FOR_SQL_TOOL = """
+PostgreSQL schema (use ONLY these tables and columns when calling sql_tool.run_query or sql_tool.export_results):
+
+Fund tables:
+- fund_info: id, symbol, name, category, index_tracked, investment_style, total_assets_billion, expense_ratio, dividend_yield, holdings_count, as_of_date, collected_at
+- fund_performance: id, symbol, as_of_date, ytd_return, return_1yr, return_3yr, return_5yr, return_10yr, collected_at
+- fund_risk_metrics: id, symbol, as_of_date, beta, standard_deviation, sharpe_ratio, max_drawdown, collected_at
+- fund_holdings: id, fund_symbol, holding_symbol, holding_name, weight, sector, as_of_date, collected_at  (join on fund_symbol, not fund_id)
+- fund_sector_allocation: id, symbol, sector, weight, as_of_date, collected_at
+- fund_flows: id, symbol, period, inflow_billion, outflow_billion, net_flow_billion, pct_of_aum, as_of_date, collected_at
+
+Stock/company tables:
+- stock_ohlcv: id, symbol, trade_date, open, high, low, close, volume, collected_at
+- company_fundamentals: id, symbol, as_of_date, name, sector, industry, market_cap, pe_ratio, forward_pe, dividend_yield, beta, etc.
+- financial_statements: id, symbol, statement_type, report_date, fiscal_period, line_item, value, collected_at
+- insider_transactions: id, symbol, insider_name, relation, transaction_type, shares, value, transaction_date, collected_at
+- technical_indicators: id, symbol, indicator_name, indicator_date, value, collected_at
+
+Demo table (minimal): funds(symbol, name). Prefer fund_info for full fund data.
+
+Do NOT use: financials, revenue_segments, fund_returns, fund_sector_exposures (invalid). Use fund_symbol in fund_holdings (no fund_id). Use fund_sector_allocation not fund_sector_exposures. Use fund_performance not fund_returns.
+"""
 
 LIBRARIAN_SYSTEM = """You are the Librarian specialist.
 You synthesize retrieval outputs (documents, SQL rows, graph relations, file snippets) into a planner-ready factual brief.
@@ -130,7 +137,7 @@ You may ONLY call tools from the list below. Do not use any other tool names.
 
 Allowed tools (call via mcp_client.call_tool(tool_name, payload)):
 {tool_descriptions}
-
+""" + POSTGRES_SCHEMA_FOR_SQL_TOOL + """
 Output a JSON array of tool calls. Each element must have:
 - "tool" or "tool_name": exact tool name from the list above (e.g. "file_tool.read_file")
 - "payload": object with the required parameters for that tool
@@ -139,6 +146,7 @@ Guidelines:
 - Prefer 1-3 calls unless query clearly needs more.
 - Use concrete identifiers in payload (symbol/entity/path/query).
 - Do not include unknown payload keys.
+- When using sql_tool.run_query or sql_tool.export_results, write SQL only against the PostgreSQL schema listed above (correct table and column names).
 
 Output only the JSON array, no markdown or explanation. If no tools are needed, output []."""
 

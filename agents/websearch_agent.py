@@ -10,6 +10,7 @@ from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
 from util import interaction_log
+from util.log_format import log_agent_section, struct_log
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
@@ -90,6 +91,9 @@ class WebSearcherAgent(BaseAgent):
                 "conversation_id": conversation_id,
             },
         )
+        if message.performative == Performative.REQUEST:
+            log_agent_section(logger, "websearcher")
+            struct_log(logger, logging.INFO, "agent.websearcher.start")
         query = content.get("query") or fund
 
         # When LLM is available, try tool selection first; fall back to content-based dispatch if empty/fail
@@ -102,13 +106,23 @@ class WebSearcherAgent(BaseAgent):
                 normalize_tool_calls,
             )
 
-            tool_descriptions = get_websearcher_tool_descriptions()
+            registered = (
+                set(self.mcp_client.get_registered_tool_names())
+                if self.mcp_client
+                else None
+            )
+            allowed = (
+                frozenset(WEBSEARCHER_ALLOWED_TOOL_NAMES & registered)
+                if registered is not None
+                else WEBSEARCHER_ALLOWED_TOOL_NAMES
+            )
+            tool_descriptions = get_websearcher_tool_descriptions(registered)
             user_content = f"Sub-query from planner: {query}"
             tool_calls = self._llm_client.select_tools(
                 WEBSEARCHER_TOOL_SELECTION, user_content, tool_descriptions
             )
-            # Discard any tool the LLM returned that is not in this agent's allowed pool
-            tool_calls = filter_tool_calls_to_allowed(tool_calls, WEBSEARCHER_ALLOWED_TOOL_NAMES)
+            # Discard any tool the LLM returned that is not in allowed (and registered)
+            tool_calls = filter_tool_calls_to_allowed(tool_calls, allowed)
             tool_calls = normalize_tool_calls(tool_calls)
             if tool_calls:
                 reply_content = self._execute_tool_calls_web(tool_calls)
@@ -120,6 +134,7 @@ class WebSearcherAgent(BaseAgent):
                         reply_content = dict(reply_content)
                         reply_content["summary"] = summary
                     self._ensure_timestamp(reply_content)
+                    struct_log(logger, logging.INFO, "agent.websearcher.done", status="success")
                     self._send_inform_web(message, reply_content, conversation_id)
                     interaction_log.log_call(
                         "agents.websearch_agent.WebSearcherAgent.handle_message",
@@ -160,6 +175,13 @@ class WebSearcherAgent(BaseAgent):
             summary = self._llm_client.complete(WEBSEARCHER_SYSTEM, user_content)
             reply_content = dict(reply_content)
             reply_content["summary"] = summary
+        has_errors = any(
+            isinstance(reply_content.get(k), dict) and reply_content.get(k).get("error")
+            for k in ("market_data", "sentiment", "regulatory")
+            if reply_content.get(k)
+        )
+        status = "limited_data" if has_errors else "success"
+        struct_log(logger, logging.INFO, "agent.websearcher.done", status=status)
         reply_to = getattr(message, "reply_to", None) or message.sender
         reply = ACLMessage(
             performative=Performative.INFORM,

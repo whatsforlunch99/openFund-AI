@@ -198,14 +198,16 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls return mock data.
 
+**Schema:** Use only the tables and columns defined in [fund-data-schema.md](fund-data-schema.md). Key tables: `fund_info`, `fund_performance`, `fund_risk_metrics`, `fund_holdings` (use `fund_symbol`, not `fund_id`), `fund_sector_allocation`, `fund_flows`; for stocks: `stock_ohlcv`, `company_fundamentals`, `financial_statements`. Do not use: `financials`, `revenue_segments`, `fund_returns`, `fund_sector_exposures`, or column `fund_id` in `fund_holdings`.
+
 #### sql_tool.run_query
 
-- **Description:** Execute a SQL query with optional parameterized values. Returns rows as a list of dicts.
+- **Description:** Execute a SQL query with optional parameterized values. Returns rows as a list of dicts. Use only tables/columns from the documented schema (see fund-data-schema.md).
 - **Payload:** `query` (required, string — use `%s` or `%(name)s` for psycopg2 parameters), `params` (optional, dict or tuple).
 - **Returns:** `{"rows": [...], "schema": [...], "params": {...}}` or `{"error": str}`.
 - **Sample call:**
   ```json
-  { "query": "SELECT * FROM funds WHERE symbol = %s", "params": ["NVDA"] }
+  { "query": "SELECT symbol, name, total_assets_billion FROM fund_info WHERE symbol = %s", "params": ["VOO"] }
   ```
 
 #### sql_tool.explain_query
@@ -215,17 +217,17 @@ Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls retur
 - **Returns:** `{"plan": [...], "schema": [...], "params": {...}}` or `{"error": str}`.
 - **Sample call:**
   ```json
-  { "query": "SELECT * FROM funds WHERE aum > 1000000", "analyze": false }
+  { "query": "SELECT symbol, total_assets_billion FROM fund_info WHERE total_assets_billion > 100", "analyze": false }
   ```
 
 #### sql_tool.export_results
 
-- **Description:** Run a SQL query and return results as JSON or CSV, with an optional row limit.
+- **Description:** Run a SQL query and return results as JSON or CSV, with an optional row limit. Use only schema from fund-data-schema.md.
 - **Payload:** `query` (required, string), `params` (optional), `format` (optional: `"json"` | `"csv"`, default `"json"`), `row_limit` (optional, int, default 1000).
 - **Returns:** `{"data": ...}` (list of dicts for JSON, CSV string for CSV), `"schema": [...]`, `"row_count": int`; or `{"error": str}`.
 - **Sample call:**
   ```json
-  { "query": "SELECT symbol, name, aum FROM funds ORDER BY aum DESC", "format": "csv", "row_limit": 500 }
+  { "query": "SELECT symbol, name, total_assets_billion FROM fund_info ORDER BY total_assets_billion DESC", "format": "csv", "row_limit": 500 }
   ```
 
 #### sql_tool.connection_health_check

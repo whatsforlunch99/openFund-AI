@@ -10,6 +10,7 @@ from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
 from util import interaction_log
+from util.log_format import log_agent_section, struct_log
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
@@ -90,6 +91,9 @@ class AnalystAgent(BaseAgent):
                 "conversation_id": conversation_id,
             },
         )
+        if message.performative == Performative.REQUEST:
+            log_agent_section(logger, "analyst")
+            struct_log(logger, logging.INFO, "agent.analyst.start")
         query = content.get("query") or ""
 
         # When LLM is available, try tool selection first; fall back to content-based if empty/fail
@@ -102,13 +106,23 @@ class AnalystAgent(BaseAgent):
                 normalize_tool_calls,
             )
 
-            tool_descriptions = get_analyst_tool_descriptions()
+            registered = (
+                set(self.mcp_client.get_registered_tool_names())
+                if self.mcp_client
+                else None
+            )
+            allowed = (
+                frozenset(ANALYST_ALLOWED_TOOL_NAMES & registered)
+                if registered is not None
+                else ANALYST_ALLOWED_TOOL_NAMES
+            )
+            tool_descriptions = get_analyst_tool_descriptions(registered)
             user_content = f"Sub-query from planner: {query}"
             tool_calls = self._llm_client.select_tools(
                 ANALYST_TOOL_SELECTION, user_content, tool_descriptions
             )
-            # Discard any tool the LLM returned that is not in this agent's allowed pool
-            tool_calls = filter_tool_calls_to_allowed(tool_calls, ANALYST_ALLOWED_TOOL_NAMES)
+            # Discard any tool the LLM returned that is not in allowed (and registered)
+            tool_calls = filter_tool_calls_to_allowed(tool_calls, allowed)
             tool_calls = normalize_tool_calls(tool_calls)
             if tool_calls:
                 gathered = self._execute_tool_calls_analyst(tool_calls)
@@ -131,6 +145,8 @@ class AnalystAgent(BaseAgent):
                             result["summary"] = summary
                         else:
                             result = {"analysis": result, "summary": summary}
+                    status = "partial" if (isinstance(result, dict) and (result.get("confidence") or 0) < self._analyst_confidence_threshold) else "success"
+                    struct_log(logger, logging.INFO, "agent.analyst.done", status=status)
                     self._send_inform_analyst(message, result, conversation_id)
                     interaction_log.log_call(
                         "agents.analyst_agent.AnalystAgent.handle_message",
@@ -186,6 +202,8 @@ class AnalystAgent(BaseAgent):
             out=f"confidence={confidence} keys={keys}",
             next_="send INFORM to planner",
         )
+        status = "partial" if (confidence or 0) < self._analyst_confidence_threshold else "success"
+        struct_log(logger, logging.INFO, "agent.analyst.done", status=status)
         reply_to = getattr(message, "reply_to", None) or message.sender
         reply = ACLMessage(
             performative=Performative.INFORM,

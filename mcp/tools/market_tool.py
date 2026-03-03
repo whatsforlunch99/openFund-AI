@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from datetime import datetime, timedelta
 from io import StringIO
 from typing import Optional
@@ -16,6 +17,8 @@ from typing import Optional
 import pandas as pd
 import requests
 from dateutil.relativedelta import relativedelta
+
+from util.log_format import struct_log
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,12 @@ def get_data_cache_dir() -> str | None:
 # --- Alpha Vantage common ---
 
 API_BASE_URL = "https://www.alphavantage.co/query"
+_HTTP_TIMEOUT_SECONDS = float(os.getenv("MCP_HTTP_TIMEOUT_SECONDS", "8"))
+_AV_RATE_LIMIT_COOLDOWN_SECONDS = int(
+    os.getenv("ALPHA_VANTAGE_RATE_LIMIT_COOLDOWN_SECONDS", "1800")
+)
+_AV_RATE_LIMITED_UNTIL = 0.0
+_AV_RATE_LIMIT_REASON = ""
 
 
 def get_api_key() -> str:
@@ -98,6 +107,27 @@ class AlphaVantageRateLimitError(Exception):
     """Raised when Alpha Vantage API rate limit is exceeded."""
 
 
+def _mark_av_rate_limited(reason: str) -> None:
+    """Mark Alpha Vantage as rate limited for a cooldown period."""
+    global _AV_RATE_LIMITED_UNTIL, _AV_RATE_LIMIT_REASON
+    _AV_RATE_LIMITED_UNTIL = max(
+        _AV_RATE_LIMITED_UNTIL,
+        time.time() + max(1, _AV_RATE_LIMIT_COOLDOWN_SECONDS),
+    )
+    _AV_RATE_LIMIT_REASON = (reason or "Alpha Vantage rate limit hit").strip()
+
+
+def _av_rate_limit_error(tool_name: str) -> str | None:
+    """Return a skip error when AV is still in cooldown; otherwise None."""
+    if time.time() >= _AV_RATE_LIMITED_UNTIL:
+        return None
+    remaining = int(max(1, _AV_RATE_LIMITED_UNTIL - time.time()))
+    return (
+        f"{tool_name} skipped: Alpha Vantage rate limit cooldown active "
+        f"({remaining}s remaining). Last reason: {_AV_RATE_LIMIT_REASON}"
+    )
+
+
 def _make_api_request(function_name: str, params: dict) -> str:
     """Make API request and return response text. Raises AlphaVantageRateLimitError on rate limit."""
     api_params = params.copy()
@@ -107,7 +137,11 @@ def _make_api_request(function_name: str, params: dict) -> str:
             "apikey": get_api_key(),
         }
     )
-    response = requests.get(API_BASE_URL, params=api_params, timeout=30)
+    response = requests.get(
+        API_BASE_URL,
+        params=api_params,
+        timeout=max(1.0, _HTTP_TIMEOUT_SECONDS),
+    )
     response.raise_for_status()
     response_text = response.text
 
@@ -118,7 +152,10 @@ def _make_api_request(function_name: str, params: dict) -> str:
             if (
                 "rate limit" in info_message.lower()
                 or "api key" in info_message.lower()
+                or "call frequency" in info_message.lower()
+                or "premium" in info_message.lower()
             ):
+                _mark_av_rate_limited(info_message)
                 raise AlphaVantageRateLimitError(
                     f"Alpha Vantage rate limit exceeded: {info_message}"
                 )
@@ -267,13 +304,13 @@ def get_fundamentals_finnhub(symbol: str) -> dict:
         profile_resp = requests.get(
             f"{FINNHUB_BASE}/stock/profile2",
             params={"symbol": symbol, "token": key},
-            timeout=30,
+            timeout=max(1.0, _HTTP_TIMEOUT_SECONDS),
         )
         profile_resp.raise_for_status()
         metric_resp = requests.get(
             f"{FINNHUB_BASE}/stock/metric",
             params={"symbol": symbol, "metric": "all", "token": key},
-            timeout=30,
+            timeout=max(1.0, _HTTP_TIMEOUT_SECONDS),
         )
         metric_resp.raise_for_status()
         payload = {
@@ -314,7 +351,7 @@ def get_stock_data_finnhub(symbol: str, start_date: str, end_date: str) -> dict:
                 "to": to_ts,
                 "token": key,
             },
-            timeout=30,
+            timeout=max(1.0, _HTTP_TIMEOUT_SECONDS),
         )
         if r.status_code == 403:
             return {
@@ -472,10 +509,21 @@ def _route_stock_data(symbol: str, start_date: str, end_date: str) -> dict:
     """Route get_stock_data to configured vendor (alpha_vantage or finnhub)."""
     if get_market_vendor() == "finnhub" and _has_finnhub_key():
         return get_stock_data_finnhub(symbol, start_date, end_date)
+    blocked = _av_rate_limit_error("market_tool.get_stock_data")
+    if blocked:
+        return {"error": blocked}
     try:
         return get_stock_data_av(symbol, start_date, end_date)
     except AlphaVantageRateLimitError as e:
-        logger.warning("API_LIMIT_HIT market_tool.get_stock_data: %s", e)
+        struct_log(
+            logger,
+            logging.WARNING,
+            "agent.websearcher.api",
+            provider="alpha_vantage",
+            error="rate_limit_exceeded",
+            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
+        )
+        _mark_av_rate_limited(str(e))
         return {"error": f"Market data unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage stock data failed: %s", e)
@@ -486,10 +534,21 @@ def _route_fundamentals(symbol: str) -> dict:
     """Route get_fundamentals to configured vendor."""
     if get_market_vendor() == "finnhub" and _has_finnhub_key():
         return get_fundamentals_finnhub(symbol)
+    blocked = _av_rate_limit_error("market_tool.get_fundamentals")
+    if blocked:
+        return {"error": blocked}
     try:
         return get_fundamentals_av(symbol)
     except AlphaVantageRateLimitError as e:
-        logger.warning("API_LIMIT_HIT market_tool.get_fundamentals: %s", e)
+        struct_log(
+            logger,
+            logging.WARNING,
+            "agent.websearcher.api",
+            provider="alpha_vantage",
+            error="rate_limit_exceeded",
+            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
+        )
+        _mark_av_rate_limited(str(e))
         return {"error": f"Fundamentals unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage fundamentals failed: %s", e)
@@ -498,10 +557,21 @@ def _route_fundamentals(symbol: str) -> dict:
 
 def _route_balance_sheet(symbol: str, freq: str) -> dict:
     """Route get_balance_sheet to configured vendor."""
+    blocked = _av_rate_limit_error("market_tool.get_balance_sheet")
+    if blocked:
+        return {"error": blocked}
     try:
         return get_balance_sheet_av(symbol, freq)
     except AlphaVantageRateLimitError as e:
-        logger.warning("API_LIMIT_HIT market_tool.get_balance_sheet: %s", e)
+        struct_log(
+            logger,
+            logging.WARNING,
+            "agent.websearcher.api",
+            provider="alpha_vantage",
+            error="rate_limit_exceeded",
+            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
+        )
+        _mark_av_rate_limited(str(e))
         return {"error": f"Balance sheet unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage balance sheet failed: %s", e)
@@ -510,10 +580,21 @@ def _route_balance_sheet(symbol: str, freq: str) -> dict:
 
 def _route_cashflow(symbol: str, freq: str) -> dict:
     """Route get_cashflow to configured vendor."""
+    blocked = _av_rate_limit_error("market_tool.get_cashflow")
+    if blocked:
+        return {"error": blocked}
     try:
         return get_cashflow_av(symbol, freq)
     except AlphaVantageRateLimitError as e:
-        logger.warning("API_LIMIT_HIT market_tool.get_cashflow: %s", e)
+        struct_log(
+            logger,
+            logging.WARNING,
+            "agent.websearcher.api",
+            provider="alpha_vantage",
+            error="rate_limit_exceeded",
+            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
+        )
+        _mark_av_rate_limited(str(e))
         return {"error": f"Cash flow unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage cashflow failed: %s", e)
@@ -522,10 +603,21 @@ def _route_cashflow(symbol: str, freq: str) -> dict:
 
 def _route_income_statement(symbol: str, freq: str) -> dict:
     """Route get_income_statement to configured vendor."""
+    blocked = _av_rate_limit_error("market_tool.get_income_statement")
+    if blocked:
+        return {"error": blocked}
     try:
         return get_income_statement_av(symbol, freq)
     except AlphaVantageRateLimitError as e:
-        logger.warning("API_LIMIT_HIT market_tool.get_income_statement: %s", e)
+        struct_log(
+            logger,
+            logging.WARNING,
+            "agent.websearcher.api",
+            provider="alpha_vantage",
+            error="rate_limit_exceeded",
+            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
+        )
+        _mark_av_rate_limited(str(e))
         return {"error": f"Income statement unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage income statement failed: %s", e)
@@ -541,10 +633,21 @@ def _route_news(
     """Route get_news to configured vendor. AV uses start/end."""
     if get_market_vendor() != "alpha_vantage" or not start_date or not end_date:
         return {"error": "News requires MCP_MARKET_VENDOR=alpha_vantage and start_date/end_date."}
+    blocked = _av_rate_limit_error("market_tool.get_news")
+    if blocked:
+        return {"error": blocked}
     try:
         return get_news_av(symbol, start_date, end_date)
     except AlphaVantageRateLimitError as e:
-        logger.warning("API_LIMIT_HIT market_tool.get_news: %s", e)
+        struct_log(
+            logger,
+            logging.WARNING,
+            "agent.websearcher.api",
+            provider="alpha_vantage",
+            error="rate_limit_exceeded",
+            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
+        )
+        _mark_av_rate_limited(str(e))
         return {"error": f"News unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage news failed: %s", e)
@@ -553,10 +656,21 @@ def _route_news(
 
 def _route_global_news(as_of_date: str, look_back_days: int, limit: int) -> dict:
     """Route get_global_news to configured vendor."""
+    blocked = _av_rate_limit_error("market_tool.get_global_news")
+    if blocked:
+        return {"error": blocked}
     try:
         return get_global_news_av(as_of_date, look_back_days, limit or 50)
     except AlphaVantageRateLimitError as e:
-        logger.warning("API_LIMIT_HIT market_tool.get_global_news: %s", e)
+        struct_log(
+            logger,
+            logging.WARNING,
+            "agent.websearcher.api",
+            provider="alpha_vantage",
+            error="rate_limit_exceeded",
+            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
+        )
+        _mark_av_rate_limited(str(e))
         return {"error": f"Global news unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage global news failed: %s", e)
@@ -565,10 +679,21 @@ def _route_global_news(as_of_date: str, look_back_days: int, limit: int) -> dict
 
 def _route_insider_transactions(symbol: str) -> dict:
     """Route get_insider_transactions to configured vendor."""
+    blocked = _av_rate_limit_error("market_tool.get_insider_transactions")
+    if blocked:
+        return {"error": blocked}
     try:
         return get_insider_transactions_av(symbol)
     except AlphaVantageRateLimitError as e:
-        logger.warning("API_LIMIT_HIT market_tool.get_insider_transactions: %s", e)
+        struct_log(
+            logger,
+            logging.WARNING,
+            "agent.websearcher.api",
+            provider="alpha_vantage",
+            error="rate_limit_exceeded",
+            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
+        )
+        _mark_av_rate_limited(str(e))
         return {"error": f"Insider transactions unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage insider transactions failed: %s", e)

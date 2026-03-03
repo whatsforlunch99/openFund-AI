@@ -12,6 +12,7 @@ from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util.trace_log import trace
 from util import interaction_log
+from util.log_format import struct_log
 
 logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
@@ -26,18 +27,15 @@ class TaskStep:
 
     Attributes:
         agent: Target agent: "librarian" | "websearcher" | "analyst".
-        action: Step type (e.g. retrieve_fund_facts, answer_question).
-        params: Optional parameters for the step (forwarded as ACLMessage content extras).
+        params: Parameters for the step (including "query"); forwarded as ACLMessage content.
     """
 
     def __init__(
         self,
         agent: str,
-        action: str,
         params: Optional[dict[str, Any]] = None,
     ) -> None:
         self.agent = agent
-        self.action = action
         self.params = params or {}
 
 
@@ -178,7 +176,7 @@ class PlannerAgent(BaseAgent):
                                         "message": "Information insufficient after first round. Starting second round with refined queries.",
                                         "detail": {
                                             "steps": [
-                                                {"agent": s.agent, "action": s.action}
+                                                {"agent": s.agent}
                                                 for s in refined_steps
                                             ],
                                         },
@@ -200,10 +198,9 @@ class PlannerAgent(BaseAgent):
                                         conversation_id,
                                         {
                                             "step": "planner_sent",
-                                            "message": f"Request sent to **{step.agent}** (action: {step.action}, query: \"{q_display}\").",
+                                            "message": f"Request sent to **{step.agent}** (query: \"{q_display}\").",
                                             "detail": {
                                                 "agent": step.agent,
-                                                "action": step.action,
                                                 "query": q,
                                                 "query_preview": q[:100],
                                             },
@@ -309,14 +306,15 @@ class PlannerAgent(BaseAgent):
                 result={"skipped": True, "reason": "no steps"},
             )
             return
+        struct_log(logger, logging.INFO, "planner.decompose", agents=[s.agent for s in steps])
         # Flow: one summary message with actual decomposed steps and full sub-queries
         query_short = query[:80] + ("..." if len(query) > 80 else "")
-        step_parts = [f"{s.agent} ({s.action})" for s in steps]
+        step_parts = [s.agent for s in steps]
         agents_waiting = ", ".join(s.agent for s in steps)
         waiting_set = {s.agent for s in steps}
         if self._conversation_manager:
             steps_detail = [
-                {"agent": s.agent, "action": s.action, "query": s.params.get("query", query)}
+                {"agent": s.agent, "query": s.params.get("query", query)}
                 for s in steps
             ]
             self._conversation_manager.append_flow(
@@ -351,10 +349,9 @@ class PlannerAgent(BaseAgent):
                     conversation_id,
                     {
                         "step": "planner_sent",
-                        "message": f"Request sent to **{s.agent}** (action: {s.action}, query: \"{q_display}\").",
+                        "message": f"Request sent to **{s.agent}** (query: \"{q_display}\").",
                         "detail": {
                             "agent": s.agent,
-                            "action": s.action,
                             "query": q,
                             "query_preview": q[:100],
                         },
@@ -368,6 +365,8 @@ class PlannerAgent(BaseAgent):
                 step.params["path"] = content[
                     "path"
                 ]  # E2E and API can pass file path for file_tool
+            q = step.params.get("query", query)
+            struct_log(logger, logging.INFO, "planner.sent", agent=step.agent, query=q)
             req = self.create_research_request(query, step, context=None)
             req.conversation_id = conversation_id
             req.reply_to = self.name
@@ -524,7 +523,6 @@ class PlannerAgent(BaseAgent):
                     steps.append(
                         TaskStep(
                             agent=agent,
-                            action="read_file" if agent == "librarian" else "fetch_market" if agent == "websearcher" else "analyze",
                             params={"query": q.strip()},
                         )
                     )
@@ -551,11 +549,19 @@ class PlannerAgent(BaseAgent):
                 step_dicts = self._llm_client.decompose_to_steps(
                     query, memory_context=user_memory
                 )
-                if step_dicts:
+
+                if step_dicts is not None:
+                    if not step_dicts:
+                        # LLM returned valid empty list: use single analyst step so pipeline does not stall
+                        return [
+                            TaskStep(
+                                agent="analyst",
+                                params={"query": query},
+                            )
+                        ]
                     return [
                         TaskStep(
                             agent=s.get("agent", "librarian"),
-                            action=s.get("action", "analyze"),
                             params=dict(s.get("params") or {}),
                         )
                         for s in step_dicts
@@ -585,7 +591,6 @@ class PlannerAgent(BaseAgent):
         return [
             TaskStep(
                 agent="librarian",
-                action="read_file",
                 params={
                     "query": query,
                     "path": query,
@@ -594,9 +599,9 @@ class PlannerAgent(BaseAgent):
                 },
             ),
             TaskStep(
-                agent="websearcher", action="fetch_market", params={"query": query}
+                agent="websearcher", params={"query": query}
             ),
-            TaskStep(agent="analyst", action="analyze", params={"query": query}),
+            TaskStep(agent="analyst", params={"query": query}),
         ]
 
     def create_research_request(
@@ -615,9 +620,9 @@ class PlannerAgent(BaseAgent):
         Returns:
             ACL message addressed to the appropriate agent.
         """
-        # Content includes query (role-specific from step.params or fallback), action, and any step.params
+        # Content includes query (role-specific from step.params or fallback) and any step.params
         step_query = step.params.get("query", query)
-        content = {"query": step_query, "action": step.action, **step.params}
+        content = {"query": step_query, **step.params}
         return ACLMessage(
             performative=Performative.REQUEST,
             sender=self.name,

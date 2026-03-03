@@ -6,6 +6,7 @@
 #   ./scripts/run.sh --port 8010 --no-backends
 #   ./scripts/run.sh --funds fresh-all
 #   ./scripts/run.sh --install-deps
+#   ./scripts/run.sh --no-chat   # API only, no interactive chat
 #
 set -euo pipefail
 
@@ -18,6 +19,7 @@ SEED_DEMO=1
 LOAD_FUNDS="existing"   # existing | fresh-symbols | fresh-all | skip
 INSTALL_DEPS=0
 WAIT_SECS=8
+START_CHAT=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -33,6 +35,8 @@ while [[ $# -gt 0 ]]; do
       INSTALL_DEPS=1; shift ;;
     --wait)
       WAIT_SECS="${2:-8}"; shift 2 ;;
+    --no-chat)
+      START_CHAT=0; shift ;;
     -h|--help)
       cat <<'EOF'
 OpenFund-AI single runner
@@ -44,6 +48,7 @@ Options:
   --funds <mode>       existing | fresh-symbols | fresh-all | skip
   --install-deps       Install Python extras [backends,llm]
   --wait <secs>        Wait after backend start before seed (default 8)
+  --no-chat            Start API only; do not launch interactive chat client
 EOF
       exit 0 ;;
     *)
@@ -204,4 +209,35 @@ if [[ "$LOAD_FUNDS" != "skip" ]] && [[ -f "$ROOT/datasets/combined_funds.json" ]
 fi
 
 echo "==> Starting live API on port ${PORT}"
-exec "$PYTHON" main.py --serve --port "$PORT"
+if [[ $START_CHAT -eq 0 ]]; then
+  exec "$PYTHON" main.py --serve --port "$PORT"
+fi
+
+# Start API in background, then run interactive chat client; on exit, kill server.
+API_PID=""
+cleanup() {
+  if [[ -n "$API_PID" ]] && kill -0 "$API_PID" 2>/dev/null; then
+    kill "$API_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+"$PYTHON" main.py --serve --port "$PORT" &
+API_PID=$!
+
+# Wait for server to be ready (FastAPI serves /openapi.json)
+for i in $(seq 1 15); do
+  if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${PORT}/openapi.json" 2>/dev/null | grep -q 200; then
+    break
+  fi
+  if [[ $i -eq 15 ]]; then
+    echo "API did not become ready in time" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+echo "==> Checking API and LLM..."
+"$PYTHON" "$ROOT/scripts/check_health.py" --port "$PORT"
+
+"$PYTHON" "$ROOT/scripts/chat_cli.py" --port "$PORT"

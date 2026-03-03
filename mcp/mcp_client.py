@@ -25,6 +25,10 @@ class MCPClient:
         # Store server reference; dispatch remains centralized server-side.
         self._server = server
 
+    def get_registered_tool_names(self) -> list[str]:
+        """Return sorted list of tool names registered on the server."""
+        return sorted(self._server._handlers.keys())
+
     def call_tool(self, tool_name: str, payload: dict) -> dict:
         """Invoke a tool on the MCP server.
 

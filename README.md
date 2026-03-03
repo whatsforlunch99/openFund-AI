@@ -73,7 +73,7 @@ See [docs/backend.md](docs/backend.md) for API contracts, data models, and confi
 ./scripts/run.sh
 ```
 
-On first run this creates `.env` from `.env.example` (edit `.env` and set `LLM_API_KEY`, then re-run). The script can start local backends (PostgreSQL, Neo4j, Milvus) when configured in `.env`, seed baseline data, load `datasets/combined_funds.json`, and start the live API.
+On first run this creates `.env` from `.env.example` (edit `.env` and set `LLM_API_KEY`, then re-run). The script starts local backends (PostgreSQL, Neo4j, Milvus) when configured in `.env`, seeds baseline data, loads `datasets/combined_funds.json`, starts the live API, and launches an **interactive chat** in the terminal. Use `--no-chat` to start the API only (no chat client). For a **setup checklist** (tools callable, LLM functioning) and troubleshooting, see [docs/demo.md](docs/demo.md).
 
 ## Commands reference
 
@@ -94,6 +94,7 @@ On first run this creates `.env` from `.env.example` (edit `.env` and set `LLM_A
 | `--funds <mode>` | `existing` \| `fresh-symbols` \| `fresh-all` \| `skip` |
 | `--install-deps` | Install Python extras [backends,llm] |
 | `--wait <secs>` | Wait after backend start before seed (default 8) |
+| `--no-chat` | Start API only; do not launch interactive chat client |
 
 Examples:
 
@@ -106,6 +107,7 @@ Examples:
 ./scripts/run.sh --funds fresh-all
 ./scripts/run.sh --funds skip
 ./scripts/run.sh --install-deps
+./scripts/run.sh --no-chat   # API only, no interactive chat
 ```
 
 ### Direct API run

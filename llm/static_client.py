@@ -6,9 +6,9 @@ from typing import Any
 
 # Default one-round steps: same as PlannerAgent.decompose_task() before LLM.
 DEFAULT_STATIC_STEPS = [
-    {"agent": "librarian", "action": "read_file", "params": {"query": ""}},
-    {"agent": "websearcher", "action": "fetch_market", "params": {"query": ""}},
-    {"agent": "analyst", "action": "analyze", "params": {"query": ""}},
+    {"agent": "librarian", "params": {"query": ""}},
+    {"agent": "websearcher", "params": {"query": ""}},
+    {"agent": "analyst", "params": {"query": ""}},
 ]
 
 
@@ -25,7 +25,7 @@ class StaticLLMClient:
         """Initialize with optional custom steps.
 
         Args:
-            steps: Optional list of step dicts (agent, action, params).
+            steps: Optional list of step dicts (agent, params).
                 Defaults to DEFAULT_STATIC_STEPS.
         """
         self._steps = steps if steps is not None else list(DEFAULT_STATIC_STEPS)

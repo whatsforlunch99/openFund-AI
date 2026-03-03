@@ -1,11 +1,34 @@
 """Entry point: wire MessageBus, agents, API, and optional MCP server."""
 
 import logging
+import os
 import sys
+import warnings
 
 from config.config import load_config
+from util.log_format import OpenFundFormatter, struct_log
 
 logger = logging.getLogger(__name__)
+
+UVICORN_LOG_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "openfund": {"()": "util.log_format.OpenFundFormatter"},
+    },
+    "handlers": {
+        "default": {
+            "class": "logging.StreamHandler",
+            "formatter": "openfund",
+            "stream": "ext://sys.stdout",
+        },
+    },
+    "loggers": {
+        "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+        "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+        "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
+    },
+}
 
 
 def _run_e2e_once() -> None:
@@ -122,10 +145,31 @@ def main() -> None:
     - --serve: run FastAPI via uvicorn (same as default).
     - --no-serve: load config/situation memory only and exit.
     """
+    warnings.filterwarnings(
+        "ignore",
+        message=".*urllib3 v2 only supports OpenSSL",
+        category=UserWarning,
+        module="urllib3",
+    )
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+    root = logging.getLogger()
+    for h in root.handlers:
+        h.setFormatter(OpenFundFormatter())
+    if os.environ.get("LOG_LEVEL", "").strip().upper() == "DEBUG":
+        logging.getLogger("openfund.interaction").setLevel(logging.INFO)
+        logging.getLogger("util.trace_log").setLevel(logging.INFO)
+    else:
+        logging.getLogger("openfund.interaction").setLevel(logging.WARNING)
+        logging.getLogger("util.trace_log").setLevel(logging.WARNING)
+    try:
+        import ssl
+        if "LibreSSL" in getattr(ssl, "OPENSSL_VERSION_STRING", ""):
+            struct_log(logger, logging.WARNING, "ssl.environment", message="LibreSSL detected (urllib3 v2 prefers OpenSSL)")
+    except Exception:
+        pass
     if "--e2e-once" in sys.argv:
         _run_e2e_once()
         return
@@ -137,8 +181,7 @@ def main() -> None:
 
         get_situation_memory(cfg.memory_store_path)
     except ImportError as e:
-        logger.info("Situation memory unavailable: %s", e)
-    logger.info("OpenFund-AI ready (config loaded)")
+        struct_log(logger, logging.INFO, "memory.load", status="unavailable", reason=str(e))
 
     serve = ("--serve" in sys.argv) or ("--no-serve" not in sys.argv)
     port = 8000
@@ -149,6 +192,10 @@ def main() -> None:
                 port = int(sys.argv[i + 1])
             except ValueError:
                 port = 8000
+    if serve:
+        struct_log(logger, logging.INFO, "system.startup", port=port, status="ready")
+    else:
+        struct_log(logger, logging.INFO, "system.startup", status="ready")
 
     if serve:
         import uvicorn
@@ -158,6 +205,7 @@ def main() -> None:
             factory=True,
             host="0.0.0.0",
             port=port,
+            log_config=UVICORN_LOG_CONFIG,
         )
 
 

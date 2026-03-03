@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
+
+from util.log_format import struct_log
+
+logger = logging.getLogger(__name__)
 
 
 class MCPServer:
@@ -213,8 +218,8 @@ class MCPServer:
         try:
             from mcp.tools import market_tool as _market_tool
             market_tool = _market_tool
-        except ImportError:
-            pass
+        except ImportError as e:
+            struct_log(logger, logging.INFO, "mcp.tools_skipped", tool="market_tool", reason=str(e))
         # Skip optional tools if deps (e.g. pandas) missing so stage 2.1/2.2 tests pass
         if market_tool is not None:
             # Vendor-routed tools (alpha_vantage or finnhub via config)
@@ -284,8 +289,8 @@ class MCPServer:
         try:
             from mcp.tools import analyst_tool as _analyst_tool
             analyst_tool = _analyst_tool
-        except ImportError:
-            pass
+        except ImportError as e:
+            struct_log(logger, logging.INFO, "mcp.tools_skipped", tool="analyst_tool", reason=str(e))
         # analyst_tool also optional (may pull in pandas etc.)
         if analyst_tool is not None:
             self.register_tool(

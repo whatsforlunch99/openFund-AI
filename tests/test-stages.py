@@ -542,8 +542,7 @@ def test_stage_3_1() -> None:
     step = steps[0]
     assert isinstance(step, TaskStep)
     assert step.agent in ("librarian", "websearcher", "analyst")
-    assert isinstance(step.action, str)
-    assert len(step.action) > 0
+    assert isinstance(step.params, dict)
 
     msg = planner.create_research_request("What is fund X?", step)
     assert isinstance(msg, ACLMessage)
@@ -1332,8 +1331,8 @@ def test_stage_10_2_planner_sends_only_to_chosen_agents_with_decomposed_query() 
 
     # Custom steps: only librarian and websearcher (no analyst). StaticLLMClient injects user query into params.
     custom_steps = [
-        {"agent": "librarian", "action": "read_file", "params": {"query": "Find NVDA fund facts"}},
-        {"agent": "websearcher", "action": "fetch_market", "params": {"query": "NVDA stock price and news"}},
+        {"agent": "librarian", "params": {"query": "Find NVDA fund facts"}},
+        {"agent": "websearcher", "params": {"query": "NVDA stock price and news"}},
     ]
     client = StaticLLMClient(steps=custom_steps)
     bus = InMemoryMessageBus()
@@ -1354,6 +1353,95 @@ def test_stage_10_2_planner_sends_only_to_chosen_agents_with_decomposed_query() 
     msg_ws = planner.create_research_request(user_query, steps[1])
     assert msg_ws.receiver == "websearcher"
     assert msg_ws.content.get("query") == user_query
+
+
+def test_stage_10_2_live_client_parse_steps_per_agent_query() -> None:
+    """LiveLLMClient._parse_steps uses per-step query from params.query or top-level query; only setdefaults user query when step has neither."""
+    pytest.importorskip("openai")
+    from llm.live_client import LiveLLMClient
+
+    client = LiveLLMClient(api_key="test-key", model="gpt-4o-mini")
+    user_query = "Should I invest in AAPL?"
+
+    # Two agents with params.query: each step keeps its own query
+    text1 = '[{"agent":"librarian","action":"read_file","params":{"query":"AAPL fundamentals and holdings"}},{"agent":"analyst","action":"analyze","params":{"query":"Risk and return for AAPL"}}]'
+    steps1 = client._parse_steps(text1, user_query)
+    assert steps1 is not None
+    assert len(steps1) == 2
+    assert steps1[0]["params"]["query"] == "AAPL fundamentals and holdings"
+    assert steps1[1]["params"]["query"] == "Risk and return for AAPL"
+
+    # Top-level "query" per step (no params.query): should be used
+    text2 = '[{"agent":"websearcher","action":"fetch_market","query":"AAPL latest price and news"}]'
+    steps2 = client._parse_steps(text2, user_query)
+    assert steps2 is not None
+    assert len(steps2) == 1
+    assert steps2[0]["params"]["query"] == "AAPL latest price and news"
+
+    # Parse failure: returns None
+    assert client._parse_steps("not json", user_query) is None
+    assert client._parse_steps("{}", user_query) is None
+    assert client._parse_steps("null", user_query) is None
+
+    # Valid empty array: returns []
+    steps_empty = client._parse_steps("[]", user_query)
+    assert steps_empty is not None
+    assert steps_empty == []
+
+
+def test_stage_10_2_planner_empty_list_single_analyst_fallback() -> None:
+    """When LLM returns empty list, planner returns single analyst step so pipeline does not stall."""
+    from unittest.mock import MagicMock
+
+    from a2a.message_bus import InMemoryMessageBus
+    from agents.planner_agent import PlannerAgent, TaskStep
+
+    mock_llm = MagicMock()
+    mock_llm.decompose_to_steps = MagicMock(return_value=[])
+    bus = InMemoryMessageBus()
+    bus.register_agent("planner")
+    planner = PlannerAgent("planner", bus, llm_client=mock_llm)
+    steps = planner.decompose_task("What is NVDA?")
+    assert len(steps) == 1
+    assert steps[0].agent == "analyst"
+    assert steps[0].params.get("query") == "What is NVDA?"
+
+
+def test_planner_decompose_sample_output() -> None:
+    """Run planner task decomposition with live LLM and print sample output (run with -s to see). Skips if LLM_API_KEY unset or openai not installed."""
+    pytest.importorskip("openai")
+    from config.config import load_config
+    from llm.factory import get_llm_client
+
+    cfg = load_config()
+    if not (cfg.llm_api_key and cfg.llm_api_key.strip()):
+        pytest.skip("LLM_API_KEY not set")
+    try:
+        llm_client = get_llm_client(cfg)
+    except (ValueError, ImportError):
+        pytest.skip("Live LLM not available")
+
+    from a2a.message_bus import InMemoryMessageBus
+    from agents.planner_agent import PlannerAgent, TaskStep
+
+    bus = InMemoryMessageBus()
+    bus.register_agent("planner")
+    planner = PlannerAgent("planner", bus, llm_client=llm_client)
+    user_query = "Should I invest in AAPL given the latest news and fundamentals?"
+    steps = planner.decompose_task(user_query)
+
+    assert len(steps) >= 1
+    for step in steps:
+        assert isinstance(step, TaskStep)
+        assert step.agent in ("librarian", "websearcher", "analyst")
+        assert "query" in step.params
+
+    print("\n--- Task decomposition sample output (live LLM) ---")
+    print(f"User query: {user_query!r}")
+    for i, step in enumerate(steps, 1):
+        q = step.params.get("query", "")
+        print(f"Step {i}: agent={step.agent} query={q!r}")
+    print("---\n")
 
 
 def test_stage_10_2_librarian_tool_selection_when_llm_returns_tool_calls() -> None:

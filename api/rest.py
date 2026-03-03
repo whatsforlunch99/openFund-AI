@@ -26,6 +26,7 @@ from api.websocket import handle_websocket as ws_handle_websocket
 from safety.safety_gateway import SafetyError, SafetyGateway
 from util.trace_log import trace
 from util import interaction_log
+from util.log_format import struct_log
 
 logger = logging.getLogger(__name__)
 VALID_USER_PROFILES = ("beginner", "long_term", "analyst")
@@ -265,6 +266,7 @@ def create_app(
 
         server = MCPServer()
         server.register_default_tools()
+        struct_log(logger, logging.INFO, "system.mcp_tools", count=len(server._handlers))
         mcp_client = MCPClient(server)
     if agents is None:
         from agents.analyst_agent import AnalystAgent
@@ -283,6 +285,10 @@ def create_app(
                 raise RuntimeError(
                     "LLM is required. Set LLM_API_KEY in .env and install: pip install openfund-ai[llm]. See README."
                 ) from e
+        _model = (cfg.llm_model or "").strip() or "gpt-4o-mini"
+        _base = (cfg.llm_base_url or "").strip()
+        _provider = "deepseek" if _base and "deepseek" in _base.lower() else "openai"
+        struct_log(logger, logging.INFO, "llm.connection", provider=_provider, status="connected", model=_model)
         planner = PlannerAgent(
             "planner", bus, llm_client=llm_client, conversation_manager=manager,
             max_research_rounds=cfg.max_research_rounds,
@@ -324,7 +330,7 @@ def create_app(
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI):
-        logger.info("OpenFund-AI API: live MCP and LLM when configured")
+        struct_log(logger, logging.INFO, "system.ready", status="live")
         yield
 
     app = FastAPI(title="OpenFund-AI REST API", lifespan=_lifespan)
@@ -332,6 +338,18 @@ def create_app(
     app.state.manager = manager
     app.state.safety_gateway = safety_gateway
     app.state.e2e_timeout_seconds = effective_timeout
+    app.state.mcp_client = mcp_client
+    app.state.llm_configured = llm_client is not None
+
+    @app.get("/health")
+    def get_health() -> JSONResponse:
+        """Return registered MCP tools and whether LLM is configured (for diagnostics)."""
+        mcp = getattr(app.state, "mcp_client", None)
+        tools = mcp.get_registered_tool_names() if mcp else []
+        llm_configured = getattr(app.state, "llm_configured", False)
+        return JSONResponse(
+            content={"tools": tools, "llm_configured": llm_configured}
+        )
 
     @app.post("/register")
     def post_register_endpoint(body: RegisterRequest) -> JSONResponse:
@@ -449,6 +467,8 @@ def create_app(
             )
             return JSONResponse(status_code=400, content={"detail": e.reason})
 
+        struct_log(logger, logging.INFO, "pipeline.validation", status="passed")
+        struct_log(logger, logging.INFO, "pipeline.safety", guardrails="passed")
         trace(
             2,
             "safety_passed",
@@ -523,6 +543,8 @@ def create_app(
                 },
             )
 
+        struct_log(logger, logging.INFO, "request.received", conversation_id=conversation_id, query=query, profile=user_profile)
+
         # 3. Build planner payload and dispatch REQUEST into the A2A message bus.
         content = {
             "query": query,
@@ -594,6 +616,24 @@ def create_app(
             next_="return 200",
         )
         flow = manager.get_flow_events(conversation_id)
+        now_utc = datetime.now(timezone.utc)
+        duration_s = (now_utc - state.created_at).total_seconds() if state.created_at else 0.0
+        struct_log(
+            logger,
+            logging.INFO,
+            "response.generated",
+            length=len(state.final_response or ""),
+            profile=user_profile,
+            formatting="success",
+        )
+        struct_log(
+            logger,
+            logging.INFO,
+            "conversation.closed",
+            conversation_id=conversation_id,
+            duration=f"{duration_s:.1f}s",
+            status="completed",
+        )
         interaction_log.log_call(
             "api.rest.post_chat_endpoint",
             result={

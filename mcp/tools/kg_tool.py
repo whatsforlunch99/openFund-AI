@@ -680,10 +680,10 @@ def get_relations(entity: str) -> dict:
             "edges": [],
             "entity": entity,
         }
-    # One-hop: match (e)-[r]-(other) where e has id or name = entity
+    # One-hop: match (e)-[r]-(other) where e has id or name = entity (elementId for Neo4j 5+)
     cypher = """
     MATCH (e)-[r]-(other)
-    WHERE e.id = $entity OR e.name = $entity OR toString(id(e)) = $entity
+    WHERE e.id = $entity OR e.name = $entity OR e.symbol = $entity OR toString(elementId(e)) = $entity
     RETURN e, type(r) AS rel_type, other
     LIMIT 100
     """

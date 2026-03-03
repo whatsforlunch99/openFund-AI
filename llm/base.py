@@ -17,7 +17,7 @@ class LLMClient(Protocol):
     ) -> list[dict[str, Any]]:
         """Turn a user query into a list of task steps.
 
-        Each step is a dict with keys: agent (str), action (str), params (dict).
+        Each step is a dict with keys: agent (str), params (dict).
         Allowed agents: "librarian", "websearcher", "analyst".
 
         Args:
@@ -25,7 +25,7 @@ class LLMClient(Protocol):
             memory_context: Optional user memory context from prior conversations.
 
         Returns:
-            List of step dicts, e.g. [{"agent": "librarian", "action": "read_file", "params": {"query": "..."}}].
+            List of step dicts, e.g. [{"agent": "librarian", "params": {"query": "..."}}].
         """
         # Contract method: implementations must return planner-compatible step dicts.
         ...

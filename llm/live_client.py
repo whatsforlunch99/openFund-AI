@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Any, Optional
 
 from llm.prompts import PLANNER_DECOMPOSE
+from util.log_format import struct_log
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +36,13 @@ class LiveLLMClient:
         self._api_key = api_key
         self._model = model
         self._base_url = (base_url or "").strip() or None
+        self._timeout_seconds = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
         self._client: Any = None
         kwargs: dict[str, Any] = {"api_key": self._api_key}
         if self._base_url:
             kwargs["base_url"] = self._base_url
+        kwargs["timeout"] = max(1.0, self._timeout_seconds)
+        kwargs["max_retries"] = 0
         self._client = OpenAI(**kwargs)
 
     def _get_client(self) -> Any:
@@ -66,15 +71,20 @@ class LiveLLMClient:
                 model=self._model,
                 messages=planner_messages,
                 max_tokens=500,
+                timeout=max(1.0, self._timeout_seconds),
             )
             raw = response.choices[0].message.content if response.choices and response.choices[0].message else None
             text = (raw or "").strip()
             # Parse + validate into canonical planner steps.
             steps = self._parse_steps(text, query)
-            if steps:
-                return steps
+            if steps is not None:
+                return steps  # May be empty list (LLM returned []) or list of steps
         except Exception as e:
-            logger.warning("LLM decompose_to_steps failed: %s", e)
+            err_msg = str(e).lower()
+            if "timed out" in err_msg or "timeout" in err_msg:
+                struct_log(logger, logging.WARNING, "llm.timeout", message=str(e), recovered=True)
+            else:
+                logger.warning("LLM decompose_to_steps failed: %s", e)
         # Fallback path: keep the pipeline running with static three-agent steps.
         from llm.static_client import DEFAULT_STATIC_STEPS
 
@@ -83,8 +93,8 @@ class LiveLLMClient:
             for s in DEFAULT_STATIC_STEPS
         ]
 
-    def _parse_steps(self, text: str, query: str) -> list[dict[str, Any]]:
-        """Extract JSON array from LLM response and validate agent names."""
+    def _parse_steps(self, text: str, query: str) -> list[dict[str, Any]] | None:
+        """Extract JSON array from LLM response; validate agent names. Each element is agent + params (query). Per-step query from params.query or top-level 'query'; only use user query when step has neither. Returns None on parse failure, [] when LLM returned valid empty array."""
         # Normalize markdown-wrapped answers into raw JSON text before decoding.
         if "```" in text:
             match = re.search(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", text)
@@ -93,9 +103,9 @@ class LiveLLMClient:
         try:
             raw = json.loads(text)
         except json.JSONDecodeError:
-            return []
+            return None
         if not isinstance(raw, list):
-            return []
+            return None
         # Validate each element and coerce to canonical planner-step shape.
         result = []
         for item in raw:
@@ -104,10 +114,14 @@ class LiveLLMClient:
             agent = (item.get("agent") or "").strip().lower()
             if agent not in ALLOWED_AGENTS:
                 continue
-            action = (item.get("action") or "analyze").strip() or "analyze"
             params = dict(item.get("params") or {})
-            params.setdefault("query", query)
-            result.append({"agent": agent, "action": action, "params": params})
+            # Per-step query: from params.query or top-level "query"; only setdefault when neither present.
+            step_query = params.get("query") or item.get("query")
+            if isinstance(step_query, str) and step_query.strip():
+                params["query"] = step_query.strip()
+            else:
+                params.setdefault("query", query)
+            result.append({"agent": agent, "params": params})
         return result
 
     def complete(self, system_prompt: str, user_content: str) -> str:
@@ -122,6 +136,7 @@ class LiveLLMClient:
                 model=self._model,
                 messages=completion_messages,
                 max_tokens=1500,
+                timeout=max(1.0, self._timeout_seconds),
             )  # type: ignore[dict-item]
             text = (
                 (response.choices[0].message.content or "")
@@ -130,7 +145,11 @@ class LiveLLMClient:
             ).strip()
             return text or user_content
         except Exception as e:
-            logger.warning("LLM complete failed: %s", e)
+            err_msg = str(e).lower()
+            if "timed out" in err_msg or "timeout" in err_msg:
+                struct_log(logger, logging.WARNING, "llm.timeout", message=str(e), recovered=True)
+            else:
+                logger.warning("LLM complete failed: %s", e)
             return user_content
 
     def select_tools(
@@ -151,7 +170,11 @@ class LiveLLMClient:
             parsed = self._parse_tool_calls(text)
             return normalize_tool_calls(parsed)
         except Exception as e:
-            logger.warning("LLM select_tools failed: %s", e)
+            err_msg = str(e).lower()
+            if "timed out" in err_msg or "timeout" in err_msg:
+                struct_log(logger, logging.WARNING, "llm.timeout", message=str(e), recovered=True)
+            else:
+                logger.warning("LLM select_tools failed: %s", e)
             return []
 
     def _parse_tool_calls(self, text: str) -> list[dict[str, Any]]:

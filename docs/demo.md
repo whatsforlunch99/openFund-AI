@@ -12,7 +12,13 @@ The project runs the **full stack** with real data, real API calls, and a real L
 ./scripts/run.sh
 ```
 
-On first run this creates `.env` from `.env.example`. Edit `.env` and set `LLM_API_KEY` (and any backend keys you need), then re-run.
+This starts backends (when configured), seeds data, loads funds, starts the live API, and launches an **interactive chat** in the terminal. On first run it creates `.env` from `.env.example` — edit `.env` and set `LLM_API_KEY` (and any backend keys you need), then re-run.
+
+To run the API only without the interactive chat client:
+
+```bash
+./scripts/run.sh --no-chat
+```
 
 **Direct API (no backends, no seed):**
 
@@ -52,10 +58,23 @@ python -m data_manager sql "SELECT * FROM fund_info LIMIT 5"
 
 ---
 
+## Setup checklist (tools and LLM)
+
+Use this to get **tools callable** and **LLM functioning**:
+
+- **LLM:** Set `LLM_API_KEY` in `.env`. Run `pip install -e ".[llm]"`. For DeepSeek set `LLM_BASE_URL=https://api.deepseek.com` and `LLM_MODEL=deepseek-chat`. At startup the API logs `LLM: model=..., base_url=...` so you can confirm configuration.
+- **Market / analyst tools:** If you see "Unknown tool" for `market_tool.*` or `analyst_tool.*`, check the startup log for `market_tool skipped` or `analyst_tool skipped` (usually due to missing deps). Install full deps: `pip install -e ".[backends]"` or `pip install -e ".[llm]"`. For market data, set `ALPHA_VANTAGE_API_KEY` or `FINNHUB_API_KEY` and vendor env vars; see [backend.md](backend.md).
+- **How to verify:** Call **GET /health** to see `tools` (registered MCP tool names) and `llm_configured`. Or run `PYTHONPATH=. python3 scripts/test_third_party_apis.py` to exercise tools and generate `docs/api-test-results.md`.
+
+---
+
 ## Troubleshooting
 
-- **"Unknown tool" or MCP errors:** Ensure the API was started after installing dependencies; market_tool and analyst_tool are skipped if optional deps (e.g. pandas) are missing.
+- **"Unknown tool" or MCP errors:** Check the startup log for `market_tool skipped` / `analyst_tool skipped` (install pandas and deps; re-run `pip install -e ".[backends]"` or full install). Ensure the API was started after installing dependencies. For market/analyst tools to return data (not just be callable), set `ALPHA_VANTAGE_API_KEY` or `FINNHUB_API_KEY` as in [backend.md](backend.md).
+- **LLM not functioning:** Confirm `LLM_API_KEY` is set and `pip install -e ".[llm]"` is done. For DeepSeek set `LLM_BASE_URL` and `LLM_MODEL`. Check startup log for `LLM: model=..., base_url=...`. If the server fails to start with "LLM is required", set the key and reinstall the llm extra.
 - **Timeout on POST /chat:** Increase timeout or check that LLM_API_KEY is set and the LLM provider is reachable (e.g. LLM_BASE_URL for DeepSeek).
 - **Empty or stub responses:** Confirm backends are running and data has been loaded (`python -m data_manager populate`, `distribute-funds` as needed).
+
+**Logging:** By default, the console shows structured logs (request.received, pipeline.*, planner.decompose, agent.*, response.generated, etc.). Interaction and trace logs (`openfund.interaction`, `util.trace_log`) are at DEBUG level and do not appear unless you set `LOG_LEVEL=DEBUG` or re-enable interaction logging (e.g. `INTERACTION_LOG=1` in env) so the default console stays readable.
 
 For API contracts and configuration details, see [backend.md](backend.md). For quick start and command reference, see [README.md](../README.md).

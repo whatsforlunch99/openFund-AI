@@ -15,6 +15,8 @@ from mcp.tools.market_tool import (
     AlphaVantageRateLimitError,
     _make_api_request,
     _now_iso,
+    _av_rate_limit_error,
+    _mark_av_rate_limited,
 )
 
 logger = logging.getLogger(__name__)
@@ -271,10 +273,14 @@ def _route_indicators(
     symbol: str, indicator: str, as_of_date: str, look_back_days: int
 ) -> dict:
     """Route get_indicators to configured vendor (alpha_vantage)."""
+    blocked = _av_rate_limit_error("analyst_tool.get_indicators")
+    if blocked:
+        return {"error": blocked}
     try:
         return get_indicators_av(symbol, indicator, as_of_date, look_back_days)
     except AlphaVantageRateLimitError as e:
         logger.warning("API_LIMIT_HIT analyst_tool.get_indicators: %s", e)
+        _mark_av_rate_limited(str(e))
         return {"error": f"Indicator data unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage indicators failed: %s", e)

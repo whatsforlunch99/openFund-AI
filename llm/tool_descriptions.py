@@ -34,9 +34,9 @@ TOOL_DESCRIPTIONS_BY_NAME: dict[str, str] = {
     "kg_tool.bulk_export": "Read-only Cypher export as JSON or CSV. Payload: cypher (string), params (optional), format ('json'|'csv'), row_limit (optional int).",
     "kg_tool.bulk_create_nodes": "Create/merge nodes. Payload: nodes (list of dicts), label (optional string), id_key (optional string).",
     # sql_tool
-    "sql_tool.run_query": "Execute SQL. Payload: query (string), params (optional).",
+    "sql_tool.run_query": "Execute SQL on PostgreSQL. Use only tables/columns from the schema in your instructions (e.g. fund_info, fund_performance, fund_holdings with fund_symbol, fund_sector_allocation). Payload: query (string), params (optional).",
     "sql_tool.explain_query": "Return SQL query plan. Payload: query (string), params (optional), analyze (optional bool).",
-    "sql_tool.export_results": "Run SQL and return JSON/CSV. Payload: query (string), params (optional), format ('json'|'csv'), row_limit (optional int).",
+    "sql_tool.export_results": "Run SQL and return JSON/CSV. Use only schema from instructions. Payload: query (string), params (optional), format ('json'|'csv'), row_limit (optional int).",
     "sql_tool.connection_health_check": "Test PostgreSQL connectivity. Payload: {}.",
     # market_tool
     "market_tool.get_fundamentals": "Company fundamentals/overview (vendor-routed). Payload: symbol or ticker (string).",
@@ -155,19 +155,46 @@ def _build_descriptions_string(tool_names: list[str]) -> str:
     return "\n".join(lines)
 
 
-def get_librarian_tool_descriptions() -> str:
-    """Return prompt-ready tool descriptions for the Librarian (allowed pool only)."""
-    return _build_descriptions_string(_LIBRARIAN_TOOL_ORDER)
+def get_librarian_tool_descriptions(
+    registered_tool_names: set[str] | None = None,
+) -> str:
+    """Return prompt-ready tool descriptions for the Librarian (allowed pool only).
+    If registered_tool_names is set, only include tools that are actually registered.
+    """
+    order = (
+        [n for n in _LIBRARIAN_TOOL_ORDER if n in registered_tool_names]
+        if registered_tool_names is not None
+        else _LIBRARIAN_TOOL_ORDER
+    )
+    return _build_descriptions_string(order)
 
 
-def get_websearcher_tool_descriptions() -> str:
-    """Return prompt-ready tool descriptions for the WebSearcher (allowed pool only)."""
-    return _build_descriptions_string(_WEBSEARCHER_TOOL_ORDER)
+def get_websearcher_tool_descriptions(
+    registered_tool_names: set[str] | None = None,
+) -> str:
+    """Return prompt-ready tool descriptions for the WebSearcher (allowed pool only).
+    If registered_tool_names is set, only include tools that are actually registered.
+    """
+    order = (
+        [n for n in _WEBSEARCHER_TOOL_ORDER if n in registered_tool_names]
+        if registered_tool_names is not None
+        else _WEBSEARCHER_TOOL_ORDER
+    )
+    return _build_descriptions_string(order)
 
 
-def get_analyst_tool_descriptions() -> str:
-    """Return prompt-ready tool descriptions for the Analyst (allowed pool only)."""
-    return _build_descriptions_string(_ANALYST_TOOL_ORDER)
+def get_analyst_tool_descriptions(
+    registered_tool_names: set[str] | None = None,
+) -> str:
+    """Return prompt-ready tool descriptions for the Analyst (allowed pool only).
+    If registered_tool_names is set, only include tools that are actually registered.
+    """
+    order = (
+        [n for n in _ANALYST_TOOL_ORDER if n in registered_tool_names]
+        if registered_tool_names is not None
+        else _ANALYST_TOOL_ORDER
+    )
+    return _build_descriptions_string(order)
 
 
 def normalize_tool_calls(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:

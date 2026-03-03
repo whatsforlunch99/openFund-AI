@@ -274,7 +274,7 @@ def _route_indicators(
     try:
         return get_indicators_av(symbol, indicator, as_of_date, look_back_days)
     except AlphaVantageRateLimitError as e:
-        logger.debug("Alpha Vantage rate limit: %s", e)
+        logger.warning("API_LIMIT_HIT analyst_tool.get_indicators: %s", e)
         return {"error": f"Indicator data unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage indicators failed: %s", e)

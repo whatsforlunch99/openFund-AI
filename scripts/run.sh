@@ -12,10 +12,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# Prefer python3 so script works when python is not in PATH (e.g. macOS)
-PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
-[[ -n "$PYTHON" ]] || PYTHON=python3
-
 PORT=8000
 START_BACKENDS=1
 SEED_DEMO=1
@@ -61,6 +57,15 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if [[ -f "$ROOT/.venv/bin/activate" ]]; then
   # shellcheck source=/dev/null
   source "$ROOT/.venv/bin/activate"
+fi
+
+# Resolve interpreter after optional venv activation so PYTHON points at active env.
+if [[ -x "$ROOT/.venv/bin/python" ]]; then
+  PYTHON="$ROOT/.venv/bin/python"
+else
+  # Prefer python3 so script works when python is not in PATH (e.g. macOS)
+  PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
+  [[ -n "$PYTHON" ]] || PYTHON=python3
 fi
 
 if [[ ! -f "$ROOT/.env" ]]; then

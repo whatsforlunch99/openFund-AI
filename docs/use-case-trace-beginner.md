@@ -109,7 +109,7 @@ Each row gives **caller**, **function** (with module path), **arguments** (key o
 | 12b | PlannerAgent | When `_round_pending[cid]` empty: `_check_sufficiency(user_query, aggregated)` | original query + aggregated specialist output | `bool`. If `False` and round cap not reached, planner builds refined steps and dispatches another round. |
 | 12c | PlannerAgent | When sufficient (or refinement exhausted): `_format_final(collected)` then `bus.send(ACLMessage(INFORM, receiver="responder", content={ final_response, conversation_id, user_profile, insufficient? }))` | `collected` = map agent name → INFORM content | `None`. |
 | 13 | ResponderAgent ([agents/responder_agent.py](agents/responder_agent.py)) | `bus.receive("responder")` → `handle_message(message)` | — | — |
-| 13a | ResponderAgent | `output_rail.format_for_user(final_response, "beginner")` ([output/output_rail.py](output/output_rail.py)) | `text` = final_response str, `user_profile` = `"beginner"` | `str`: `text.strip() + "\n\nThis is not investment advice."` |
+| 13a | ResponderAgent | Final formatting path | If `llm_client` is set: `llm_client.complete(RESPONDER_SYSTEM, get_responder_user_content(user_profile, final_response))`; else `output_rail.format_for_user(final_response, user_profile)` | `str` final draft (LLM-formatted text or OutputRail-formatted text). |
 | 13b | ResponderAgent | `output_rail.check_compliance(draft)` | `draft` = formatted text | `ComplianceResult(passed=True)` or `passed=False`, `reason` set if blocked phrase found. |
 | 13c | ResponderAgent | If not passed: append disclaimer to draft | — | — |
 | 13d | ResponderAgent | `conversation_manager.register_reply(conversation_id, reply_msg)` | — | `None`. |
@@ -123,8 +123,9 @@ Each row gives **caller**, **function** (with module path), **arguments** (key o
 
 ## 4. Beginner-specific behavior
 
-- **OutputRail.format_for_user(text, "beginner"):** For `user_profile == "beginner"`, the implementation appends `"\n\nThis is not investment advice."` to the response text. See [output/output_rail.py](output/output_rail.py) (lines 65–67).
-- **ResponderAgent** reads `user_profile` from the planner's INFORM content (already `"beginner"`), passes it to `format_for_user`, runs `check_compliance`, stores final response, and broadcasts STOP. The Phase 2 methods `evaluate_confidence`, `should_terminate`, `format_response`, and `request_refinement` remain stubs and are **not** part of the active flow.
+- **OutputRail beginner formatting:** When responder runs the OutputRail path, `format_for_user(text, "beginner")` appends `"\n\nThis is not investment advice."`.
+- **Responder runtime branch:** In current live wiring, responder receives `llm_client`; it uses the responder LLM formatting path first. If LLM calls fail, the client may fall back to returning raw user-content template text (as observed in runtime logs), which may not include the beginner disclaimer string. After formatting, responder runs `check_compliance`, stores final response, and broadcasts STOP.
+- **Non-active stubs:** `evaluate_confidence`, `should_terminate`, `format_response`, and `request_refinement` remain stubs and are **not** part of the active flow.
 
 ---
 
@@ -137,7 +138,7 @@ Each row gives **caller**, **function** (with module path), **arguments** (key o
 {
   "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "complete",
-  "response": "Librarian: data retrieved. WebSearcher: market and sentiment data retrieved. Analyst: analysis complete.\n\nThis is not investment advice.",
+  "response": "user_profile: beginner\n\naggregated_research:\nInsufficient information.",
   "flow": [
     {"step": "user_created", "message": "New conversation started. (welcome, user user_123) You can ask your question below."},
     {"step": "request_sent", "message": "Query received. Sent to Planner; you will see decomposition and agent steps as they run."}
@@ -145,7 +146,7 @@ Each row gives **caller**, **function** (with module path), **arguments** (key o
 }
 ```
 
-Exact `response` text depends on what the librarian, websearcher, and analyst return in this run (e.g. if librarian gets a real file, the file content may appear in the concatenated summary; if file_tool returns an error, librarian may still send a reply with that error or a fallback string). The trailing disclaimer is always added for the beginner profile.
+Exact `response` text depends on specialist outputs and formatting path (responder LLM vs OutputRail). In the observed run, the planner marked insufficient data and responder returned an LLM-path fallback template string.
 
 ---
 

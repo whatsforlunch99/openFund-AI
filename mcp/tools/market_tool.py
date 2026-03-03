@@ -474,6 +474,9 @@ def _route_stock_data(symbol: str, start_date: str, end_date: str) -> dict:
         return get_stock_data_finnhub(symbol, start_date, end_date)
     try:
         return get_stock_data_av(symbol, start_date, end_date)
+    except AlphaVantageRateLimitError as e:
+        logger.warning("API_LIMIT_HIT market_tool.get_stock_data: %s", e)
+        return {"error": f"Market data unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage stock data failed: %s", e)
         return {"error": f"Market data unavailable: {e}"}
@@ -485,6 +488,9 @@ def _route_fundamentals(symbol: str) -> dict:
         return get_fundamentals_finnhub(symbol)
     try:
         return get_fundamentals_av(symbol)
+    except AlphaVantageRateLimitError as e:
+        logger.warning("API_LIMIT_HIT market_tool.get_fundamentals: %s", e)
+        return {"error": f"Fundamentals unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage fundamentals failed: %s", e)
         return {"error": f"Fundamentals unavailable: {e}"}
@@ -494,6 +500,9 @@ def _route_balance_sheet(symbol: str, freq: str) -> dict:
     """Route get_balance_sheet to configured vendor."""
     try:
         return get_balance_sheet_av(symbol, freq)
+    except AlphaVantageRateLimitError as e:
+        logger.warning("API_LIMIT_HIT market_tool.get_balance_sheet: %s", e)
+        return {"error": f"Balance sheet unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage balance sheet failed: %s", e)
         return {"error": f"Balance sheet unavailable: {e}"}
@@ -503,6 +512,9 @@ def _route_cashflow(symbol: str, freq: str) -> dict:
     """Route get_cashflow to configured vendor."""
     try:
         return get_cashflow_av(symbol, freq)
+    except AlphaVantageRateLimitError as e:
+        logger.warning("API_LIMIT_HIT market_tool.get_cashflow: %s", e)
+        return {"error": f"Cash flow unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage cashflow failed: %s", e)
         return {"error": f"Cash flow unavailable: {e}"}
@@ -512,6 +524,9 @@ def _route_income_statement(symbol: str, freq: str) -> dict:
     """Route get_income_statement to configured vendor."""
     try:
         return get_income_statement_av(symbol, freq)
+    except AlphaVantageRateLimitError as e:
+        logger.warning("API_LIMIT_HIT market_tool.get_income_statement: %s", e)
+        return {"error": f"Income statement unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage income statement failed: %s", e)
         return {"error": f"Income statement unavailable: {e}"}
@@ -528,6 +543,9 @@ def _route_news(
         return {"error": "News requires MCP_MARKET_VENDOR=alpha_vantage and start_date/end_date."}
     try:
         return get_news_av(symbol, start_date, end_date)
+    except AlphaVantageRateLimitError as e:
+        logger.warning("API_LIMIT_HIT market_tool.get_news: %s", e)
+        return {"error": f"News unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage news failed: %s", e)
         return {"error": f"News unavailable: {e}"}
@@ -537,6 +555,9 @@ def _route_global_news(as_of_date: str, look_back_days: int, limit: int) -> dict
     """Route get_global_news to configured vendor."""
     try:
         return get_global_news_av(as_of_date, look_back_days, limit or 50)
+    except AlphaVantageRateLimitError as e:
+        logger.warning("API_LIMIT_HIT market_tool.get_global_news: %s", e)
+        return {"error": f"Global news unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage global news failed: %s", e)
         return {"error": f"Global news unavailable: {e}"}
@@ -546,6 +567,9 @@ def _route_insider_transactions(symbol: str) -> dict:
     """Route get_insider_transactions to configured vendor."""
     try:
         return get_insider_transactions_av(symbol)
+    except AlphaVantageRateLimitError as e:
+        logger.warning("API_LIMIT_HIT market_tool.get_insider_transactions: %s", e)
+        return {"error": f"Insider transactions unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage insider transactions failed: %s", e)
         return {"error": f"Insider transactions unavailable: {e}"}

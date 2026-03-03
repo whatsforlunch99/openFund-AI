@@ -23,21 +23,25 @@ class LiveLLMClient:
         model: str = "gpt-4o-mini",
         base_url: Optional[str] = None,
     ) -> None:
+        # Fail fast on missing SDK so API startup surfaces a clear setup error.
+        try:
+            from openai import OpenAI  # type: ignore
+        except ImportError as e:
+            raise ImportError(
+                "openai package is required for LiveLLMClient. "
+                "Install with: pip install -e '.[llm]'"
+            ) from e
         self._api_key = api_key
         self._model = model
         self._base_url = (base_url or "").strip() or None
         self._client: Any = None
+        kwargs: dict[str, Any] = {"api_key": self._api_key}
+        if self._base_url:
+            kwargs["base_url"] = self._base_url
+        self._client = OpenAI(**kwargs)
 
     def _get_client(self) -> Any:
-        # Lazily create the OpenAI-compatible SDK client once and reuse it.
-        if self._client is None:
-            from openai import OpenAI
-
-            # Declare connection kwargs first, then append provider-specific base_url if configured.
-            kwargs: dict[str, Any] = {"api_key": self._api_key}
-            if self._base_url:
-                kwargs["base_url"] = self._base_url
-            self._client = OpenAI(**kwargs)
+        # Client is initialized eagerly in __init__ for fail-fast dependency checks.
         return self._client
 
     def decompose_to_steps(

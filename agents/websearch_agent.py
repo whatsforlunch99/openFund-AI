@@ -1,6 +1,8 @@
 """Web Searcher agent: real-time market and regulatory data via MCP (Tavily, Yahoo)."""
 
 import logging
+import re
+from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
@@ -36,6 +38,29 @@ class WebSearcherAgent(BaseAgent):
         self.conversation_manager = conversation_manager
         self._llm_client = llm_client
 
+    def _normalize_symbol(self, raw: str) -> str:
+        """Best-effort ticker extraction for free-form planner query text."""
+        text = (raw or "").strip()
+        if not text:
+            return "AAPL"
+        # Prefer explicit uppercase ticker tokens (1-5 chars) in query text.
+        tokens = re.findall(r"\b[A-Z]{1,5}\b", text.upper())
+        if tokens:
+            return tokens[0]
+        known = {
+            "nvidia": "NVDA",
+            "apple": "AAPL",
+            "tesla": "TSLA",
+            "microsoft": "MSFT",
+            "google": "GOOGL",
+            "alphabet": "GOOGL",
+        }
+        lower = text.lower()
+        for key, sym in known.items():
+            if key in lower:
+                return sym
+        return "AAPL"
+
     def handle_message(self, message: ACLMessage) -> None:
         """Process market/sentiment/regulatory requests and send INFORM to planner.
 
@@ -50,7 +75,8 @@ class WebSearcherAgent(BaseAgent):
         if not self.mcp_client:
             return
         content = message.content or {}
-        fund = content.get("fund") or content.get("symbol") or content.get("query") or "AAPL"
+        raw_fund = content.get("fund") or content.get("symbol") or content.get("query") or "AAPL"
+        fund = self._normalize_symbol(str(raw_fund))
         conversation_id = getattr(message, "conversation_id", "") or ""
         if not isinstance(conversation_id, str):
             conversation_id = str(conversation_id) if conversation_id else ""
@@ -259,9 +285,16 @@ class WebSearcherAgent(BaseAgent):
         """
         if not self.mcp_client:
             return {"error": "No MCP client", "timestamp": ""}
+        end_date = date.today().isoformat()
+        start_date = (date.today() - timedelta(days=7)).isoformat()
         result = self.mcp_client.call_tool(
             "market_tool.get_news",
-            {"symbol": symbol_or_fund, "limit": 3},
+            {
+                "symbol": self._normalize_symbol(symbol_or_fund),
+                "limit": 3,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
         )
         if isinstance(result, dict) and "error" not in result:
             result.setdefault("timestamp", result.get("timestamp", ""))
@@ -284,9 +317,10 @@ class WebSearcherAgent(BaseAgent):
         if not self.mcp_client:
             return {"error": "No MCP client", "timestamp": ""}
         # Stub: use global news as placeholder for regulatory
+        as_of = date.today().isoformat()
         result = self.mcp_client.call_tool(
             "market_tool.get_global_news",
-            {"as_of_date": "", "limit": 2},
+            {"as_of_date": as_of, "look_back_days": 7, "limit": 2},
         )
         if isinstance(result, dict) and "error" not in result:
             result.setdefault("timestamp", result.get("timestamp", ""))

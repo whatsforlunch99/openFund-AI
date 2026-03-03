@@ -6,7 +6,7 @@ Application behavioral flow from the user perspective. See [prd.md](prd.md) for 
 
 ## Current implementation (Slices 1–10.2)
 
-The codebase implements REST and WebSocket with planner-driven orchestration: `python main.py --e2e-once` runs a single conversation (api → planner → librarian + websearcher + analyst → responder). The planner sends the initial planner round REQUESTs to specialists, aggregates INFORMs, and uses the planner sufficiency check (LLM-based) to decide whether to run refined planner round(s) (capped by `MAX_RESEARCH_ROUNDS`) or forward to responder. The responder formats via OutputRail, checks compliance, calls register_reply, and broadcasts STOP. **POST /register**, **POST /login**, **POST /chat**, and **GET /conversations/{id}** are implemented. **SafetyGateway** runs on all chat input. **WebSocket /ws** follows the same core flow as POST /chat. The flow below applies to both REST and WebSocket chat paths.
+The codebase implements REST and WebSocket with planner-driven orchestration: `python main.py --e2e-once` runs a single conversation (api → planner → librarian + websearcher + analyst → responder). The planner sends the initial planner round REQUESTs to specialists, aggregates INFORMs, and uses the planner sufficiency check (LLM-based) to decide whether to run refined planner round(s) (capped by `MAX_RESEARCH_ROUNDS`) or forward to responder. The responder formats final text via responder-LLM path when `llm_client` is set, otherwise via OutputRail; then it checks compliance, calls register_reply, and broadcasts STOP. **POST /register**, **POST /login**, **POST /chat**, and **GET /conversations/{id}** are implemented. **SafetyGateway** runs on all chat input. **WebSocket /ws** follows the same core flow as POST /chat. The flow below applies to both REST and WebSocket chat paths.
 
 ---
 
@@ -83,13 +83,13 @@ This section describes the pipeline at a **high level** (shared flow summary and
 
 ## Shared flow summary
 
-All three audiences use the same pipeline; only the **request body** (notably `user_profile`) and the **final formatting** step differ:
+All three audiences use the same pipeline; only the **request body** (notably `user_profile`) and the **final formatting output** differ:
 
 1. **Layer 1 (API):** Request body → safety → conversation create/get → send to Planner → block on completion.
 2. **Layer 2 (Safety):** Validate, guardrails, PII mask.
 3. **A2A (Planner rounds):** Planner chooses one or more of LibrarianAgent, WebSearcherAgent, and AnalystAgent in each round. It sends REQUEST(s) to the chosen agent(s); each replies with INFORM to Planner. If the collected information is not sufficient, Planner starts a new refined round (up to `MAX_RESEARCH_ROUNDS`). When sufficient (or refinement exhausted), Planner sends INFORM to Responder with consolidated data.
 4. **Research execution:** Librarian (vector + graph + sql), WebSearcher (market + sentiment + regulatory), Analyst (run_analysis / local metrics)—each only when chosen that round.
-5. **Layer 6 (Output):** Responder formats via OutputRail using **user_profile**, checks compliance, registers final response, broadcasts STOP.
+5. **Layer 6 (Output):** Responder formats using **user_profile** (responder LLM path when configured, otherwise OutputRail), checks compliance, registers final response, broadcasts STOP.
 6. **API** unblocks and returns JSON.
 
 For a step-by-step function trace of one beginner request, see [use-case-trace-beginner.md](use-case-trace-beginner.md).
@@ -124,7 +124,7 @@ The **function call sequence is the same** as in §1 (steps 1–11). Only the fo
 
 - **Sample input:** `query` = e.g. `"How does fund X behave in drawdowns and over a 10-year horizon?"`, `user_profile` = `"long_term"`, `user_id` = e.g. `"user_456"`.
 - **Step 4:** `content["user_profile"]` = `"long_term"`.
-- **Step 10:** Responder uses `OutputRail.format_for_user(text, "long_term")` to adapt tone and content for long-term holders (industry trend, drawdown, horizon).
+- **Step 10:** Responder formats with `user_profile="long_term"` (responder LLM path or OutputRail fallback), adapting tone and content for long-term holders (industry trend, drawdown, horizon).
 - **Step 11:** Response JSON contains the long-term–oriented formatted answer.
 
 ---
@@ -137,7 +137,7 @@ The **function call sequence is the same** as in §1 (steps 1–11). Only the fo
 
 - **Sample input:** `query` = e.g. `"Give me Sharpe, max drawdown, and a Monte Carlo distribution for fund X."`, `user_profile` = `"analyst"`, `user_id` = e.g. `"analyst_99"`.
 - **Step 4:** `content["user_profile"]` = `"analyst"`.
-- **Step 10:** Responder uses `OutputRail.format_for_user(text, "analyst")` to preserve or highlight full workflow, raw API-style metrics, and confidence intervals.
+- **Step 10:** Responder formats with `user_profile="analyst"` (responder LLM path or OutputRail fallback), preserving or highlighting full workflow, raw API-style metrics, and confidence intervals.
 - **Step 11:** Response JSON contains the analyst-oriented answer (full metrics, assumptions, intervals).
 
 (When Analyst agent is chosen in a round, it may return richer structure from `analyze` / `analyst_tool.run_analysis`; the flow and step count are unchanged.)
@@ -154,5 +154,5 @@ The **function call sequence is the same** as in §1 (steps 1–11). Only the fo
 | 4 | a2a | MessageBus.send(REQUEST → planner) | user_profile=beginner | user_profile=long_term | user_profile=analyst |
 | 5 | api/rest | completion_event.wait(timeout) | ✓ | ✓ | ✓ |
 | 6–9 | agents | **Planner rounds:** choose one or more of Librarian, WebSearcher, Analyst; send REQUEST(s); collect INFORM(s); if insufficient, run refined planner round(s) up to MAX_RESEARCH_ROUNDS; when planner sufficiency check passes (or rounds are exhausted) → Responder | ✓ | ✓ | ✓ |
-| 10 | agents + output | Responder handles planner INFORM; **OutputRail.format_for_user(_, user_profile)**; check_compliance; register_reply; broadcast_stop | beginner wording | long_term wording | analyst wording |
+| 10 | agents + output | Responder handles planner INFORM; responder LLM formatting (when configured) or `OutputRail.format_for_user(_, user_profile)`; check_compliance; register_reply; broadcast_stop | beginner wording | long_term wording | analyst wording |
 | 11 | api/rest | Return { conversation_id, status, response, flow } | ✓ | ✓ | ✓ |

@@ -10,6 +10,10 @@ from typing import Any, Optional
 
 
 class Performative(str, Enum):
+    # inherit from Enum to ensure type-safe, confine the values to predefined constants
+    # inherit from str to ensure we could directly use it as a string
+    # every instance of performances is both a str and a Enum
+    
     """FIPA-ACL performatives (B1).
 
     Uses (str, Enum) for Python 3.9 compatibility (StrEnum is 3.11+).
@@ -30,7 +34,7 @@ class ACLMessage:
     """FIPA-ACL message exchanged between agents.
 
     Attributes:
-        performative: Communication intent (Performative enum per B1).
+        performative: Communication intent or action(Performative enum per B1).
         sender: Name of the sending agent.
         receiver: Name of the receiving agent.
         content: Structured payload of the message.
@@ -51,9 +55,11 @@ class ACLMessage:
 
     def __post_init__(self) -> None:
         """Normalize performative to enum; set conversation_id and timestamp if missing."""
+        
         # Normalize string performative to enum (e.g. from JSON)
         if isinstance(self.performative, str):
             self.performative = Performative(self.performative.upper())
+            
         # One conversation_id per thread so agents can route replies; timestamp for ordering
         if not self.conversation_id:
             self.conversation_id = str(uuid.uuid4())
@@ -61,7 +67,7 @@ class ACLMessage:
             self.timestamp = datetime.utcnow()
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable dict for persistence (D2).
+        """Return a JSON-serializable dict for persistence (D2) - saving communication message in conversation log.
 
         Converts performative to string and timestamp to ISO format for
         serialization to memory/<user_id>/conversations.json.

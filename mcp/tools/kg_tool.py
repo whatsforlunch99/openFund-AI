@@ -687,6 +687,17 @@ def get_relations(entity: str) -> dict:
     RETURN e, type(r) AS rel_type, other
     LIMIT 100
     """
+    # #region debug log
+    try:
+        import time
+        _has_el = "elementId(e)" in cypher
+        _has_id = "id(e)" in cypher
+        _dbg = open("/Users/jiani/Desktop/openFund AI/.cursor/debug-0f3c81.log", "a")
+        _dbg.write('{"sessionId":"0f3c81","location":"kg_tool.py:get_relations","message":"cypher check","data":{"has_elementId":%s,"has_deprecated_id":%s},"timestamp":%d}\n' % (str(_has_el).lower(), str(_has_id).lower(), int(time.time() * 1000)))
+        _dbg.close()
+    except Exception:
+        pass
+    # #endregion
     try:
         records, summary, keys = driver.execute_query(
             cypher,

@@ -54,7 +54,8 @@ Invalid or unknown `user_profile` is rejected before processing.
 
 ## Authentication boundaries
 
-- `user_id` is optional; when absent, treated as anonymous. Auth-header extraction is a later phase. No authentication required for current entry points.
+- `user_id` is optional; when absent, treated as anonymous. Auth-header extraction is a later phase.
+- **Chat CLI:** When not using `--no-login`, the interactive chat client may prompt for username and password (or Enter at username to skip) before the "You: " prompt; successful login sends `user_id` with every POST /chat request.
 
 ---
 

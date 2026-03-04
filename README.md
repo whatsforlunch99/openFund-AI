@@ -73,7 +73,7 @@ See [docs/backend.md](docs/backend.md) for API contracts, data models, and confi
 ./scripts/run.sh
 ```
 
-On first run this creates `.env` from `.env.example` (edit `.env` and set `LLM_API_KEY`, then re-run). The script starts local backends (PostgreSQL, Neo4j, Milvus) when configured in `.env`, seeds baseline data, loads `datasets/combined_funds.json`, starts the live API, and launches an **interactive chat** in the terminal. Use `--no-chat` to start the API only (no chat client). For a **setup checklist** (tools callable, LLM functioning) and troubleshooting, see [docs/demo.md](docs/demo.md).
+On first run this creates `.env` from `.env.example` (edit `.env` and set `LLM_API_KEY`, then re-run). The script starts local backends (PostgreSQL, Neo4j, Milvus) when configured in `.env`, seeds baseline data, loads `datasets/combined_funds.json`, starts the live API, and launches an **interactive chat** in the terminal. The chat may prompt for username and password (or Enter to skip for anonymous) before the "You: " prompt. Use `--no-chat` to start the API only (no chat client). For a **setup checklist** (tools callable, LLM functioning) and troubleshooting, see [docs/demo.md](docs/demo.md). To stop local backends, run `./scripts/stop.sh`.
 
 ## Commands reference
 
@@ -110,6 +110,8 @@ Examples:
 ./scripts/run.sh --no-chat   # API only, no interactive chat
 ```
 
+To run the chat client alone (e.g. against an already-running API) without the login prompt: `python scripts/chat_cli.py --port 8000 --no-login`.
+
 ### Direct API run
 
 If you prefer to run without the helper script (e.g. no backends, no seed):
@@ -119,6 +121,16 @@ python main.py --serve --port 8000
 ```
 
 Use `python3` if `python` is not Python 3.
+
+### Stopping backends
+
+To stop local backends (PostgreSQL, Neo4j, Milvus) started by `run.sh`:
+
+```bash
+./scripts/stop.sh
+```
+
+Stops PostgreSQL via brew services, Neo4j via neo4j/brew, and Milvus via `docker stop`; idempotent (safe if already stopped). The API process started by `run.sh` is cleaned up when you exit the chat (Ctrl+C or quit).
 
 ### Data CLI
 

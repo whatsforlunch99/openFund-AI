@@ -119,8 +119,46 @@ start_neo4j() {
     echo "Neo4j: skipped"
     return
   fi
-  (neo4j start >/dev/null 2>&1 || brew services start neo4j >/dev/null 2>&1 || true)
-  echo "Neo4j: started/ready"
+  if command -v neo4j &>/dev/null; then
+    if neo4j status &>/dev/null; then
+      echo "Neo4j: already running"
+      return
+    fi
+    neo4j start >/dev/null 2>&1 || brew services start neo4j >/dev/null 2>&1 || true
+    if neo4j status &>/dev/null; then
+      echo "Neo4j: started"
+    else
+      echo "Neo4j: start requested (if port 7687 never opens, run 'neo4j console' in another terminal to avoid launchd; or use Neo4j Desktop)" >&2
+    fi
+  elif brew services list 2>/dev/null | grep -q neo4j; then
+    brew services start neo4j >/dev/null 2>&1 || true
+    echo "Neo4j: start requested via brew (if you see 'Bootstrap failed: 5', run 'neo4j console' in another terminal instead)" >&2
+  else
+    echo "Neo4j: not found (install with 'brew install neo4j' or use Neo4j Desktop; unset NEO4J_URI to skip)" >&2
+  fi
+}
+
+# Wait for a TCP port to accept connections. Returns 0 when ready, 1 on timeout.
+wait_for_port() {
+  local host="${1:-127.0.0.1}" port="$2" max_secs="${3:-60}" t=0
+  while [[ $t -lt "$max_secs" ]]; do
+    if (python3 -c "
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(2)
+try:
+    s.connect(('$host', $port))
+    s.close()
+    exit(0)
+except Exception:
+    exit(1)
+" 2>/dev/null); then
+      return 0
+    fi
+    sleep 2
+    t=$((t + 2))
+  done
+  return 1
 }
 
 start_milvus() {
@@ -139,9 +177,14 @@ start_milvus() {
   fi
 
   if docker ps -a --format '{{.Names}}' | grep -q '^milvus-standalone$'; then
-    docker start milvus-standalone >/dev/null
-    echo "Milvus: started existing container"
-    return
+    # Try to start; if mounts are stale (e.g. scripts/milvus/embedEtcd.yaml dir-vs-file), start fails. Then remove and create fresh.
+    if ! docker start milvus-standalone; then
+      docker rm -f milvus-standalone >/dev/null 2>&1 || true
+      echo "Milvus: removed container with invalid mounts; creating new one..."
+    else
+      echo "Milvus: started existing container"
+      return
+    fi
   fi
 
   cfg_dir="$ROOT/.tmp_milvus_cfg"
@@ -182,6 +225,14 @@ if [[ $START_BACKENDS -eq 1 ]]; then
   start_milvus
   echo "==> Waiting ${WAIT_SECS}s for backends..."
   sleep "$WAIT_SECS"
+  # Wait for Neo4j Bolt port so populate does not hit connection refused.
+  if [[ -n "${NEO4J_URI:-}" ]] && [[ "${NEO4J_URI:-}" =~ localhost|127\.0\.0\.1 ]]; then
+    if wait_for_port 127.0.0.1 7687 45; then
+      echo "Neo4j: port 7687 ready"
+    else
+      echo "Neo4j: port 7687 not ready after 45s. If Neo4j says already running, remove stale pid: 'rm -f \$(find /opt/homebrew -name neo4j.pid 2>/dev/null)' then run 'neo4j console' and wait for 'Bolt enabled'. Or unset NEO4J_URI in .env to skip." >&2
+    fi
+  fi
 fi
 
 if command -v createdb >/dev/null 2>&1; then

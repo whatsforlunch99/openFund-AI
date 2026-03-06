@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from typing import Optional
 
@@ -195,7 +195,7 @@ def _alpha_vantage_information_message(raw: str) -> str | None:
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # --- Stubs (Tavily / Yahoo) ---

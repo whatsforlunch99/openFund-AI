@@ -10,7 +10,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from mcp.mcp_client import MCPClient
@@ -138,7 +138,7 @@ class DataCollector:
             "metadata": {
                 "symbol": symbol,
                 "task_type": task_type,
-                "collected_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "collected_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "source": source,
                 "as_of_date": as_of_date,
             },

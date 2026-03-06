@@ -11,7 +11,7 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from mcp.tools import sql_tool, kg_tool, vector_tool
@@ -530,7 +530,7 @@ class DataDistributor:
         collected_at = (
             str(metadata.get("last_updated") or "").strip()
             or str(metadata.get("generated_at") or "").strip()
-            or datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         )
 
         transformer = DataTransformer(collected_at=collected_at)
@@ -567,7 +567,7 @@ class DataDistributor:
             effective_as_of_date = (
                 str(fund.get("as_of_date") or "").strip()
                 or metadata_as_of_date
-                or datetime.utcnow().strftime("%Y-%m-%d")
+                or datetime.now(timezone.utc).strftime("%Y-%m-%d")
             )
             fund["as_of_date"] = effective_as_of_date
 

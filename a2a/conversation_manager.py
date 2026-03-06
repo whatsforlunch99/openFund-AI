@@ -7,7 +7,7 @@ import logging
 import os
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
@@ -50,7 +50,7 @@ class ConversationState:
         self.messages = list(messages) if messages else []
         self.status = status
         self.final_response = final_response
-        self.created_at = created_at if created_at is not None else datetime.utcnow()
+        self.created_at = created_at if created_at is not None else datetime.now(timezone.utc)
         self.completion_event = (
             completion_event if completion_event is not None else threading.Event()
         )
@@ -59,6 +59,8 @@ class ConversationState:
 
     def append_flow(self, event: dict[str, Any]) -> None:
         """Append a flow step (thread-safe). event: at least 'step' and 'message'; optional 'detail'."""
+
+        # only one thread can append to the flow_events list at a time
         with self._flow_lock:
             self.flow_events.append(event)
 
@@ -102,9 +104,11 @@ class ConversationManager:
         Args:
             user_id: User whose conversations to persist.
         """
+        # get user previous conversation
         dir_path = self._user_dir(user_id)
         os.makedirs(dir_path, exist_ok=True)
         path = os.path.join(dir_path, "conversations.json")
+
         # Build one dict keyed by conversation_id for this user only (one file per user)
         data = {}
         for cid, state in self._conversations.items():
@@ -150,13 +154,19 @@ class ConversationManager:
         # Parse persisted JSON map into in-memory ConversationState objects.
         loaded = 0
         for cid, raw in data.items():
+            # skip if cid is not a string or raw is not a dict
             if not isinstance(cid, str) or not isinstance(raw, dict):
                 continue
             if cid in self._conversations:
                 continue
+            
+            # time now in UTC
+            created_at = datetime.now(timezone.utc)
 
-            created_at = datetime.utcnow()
+            # load the real creation time from the persisted data
             created_raw = raw.get("created_at")
+
+            # if there is valid creation time, use it, else use the current time in UTC
             if isinstance(created_raw, str) and created_raw.strip():
                 try:
                     created_at = datetime.fromisoformat(created_raw)
@@ -173,9 +183,13 @@ class ConversationManager:
                 final_response=raw.get("final_response"),
                 created_at=created_at,
             )
+
+            # match the in-memory status with the persisted status 
             if state.status == "complete" or state.final_response:
                 state.status = "complete"
                 state.completion_event.set()
+
+            # add to the in-memory conversations dictionary so it can be used by the system
             self._conversations[cid] = state
             loaded += 1
 
@@ -207,10 +221,11 @@ class ConversationManager:
         if not history:
             return ""
 
-        history.sort(key=lambda s: s.created_at or datetime.utcnow(), reverse=True)
+        # sort the history by created_at in descending order and return most recent ones
+        history.sort(key=lambda s: s.created_at or datetime.now(timezone.utc), reverse=True)
         selected = history[: max(1, max_conversations)]
 
-        # Build compact Q/A memory blocks until char budget is reached.
+        # Build compact Q/A memory blocks until char budget (default 3000) is reached.
         parts: list[str] = []
         current_len = 0
         for state in selected:
@@ -245,8 +260,14 @@ class ConversationManager:
             "a2a.conversation_manager.ConversationManager.create_conversation",
             params={"user_id": user_id, "initial_query_len": len(initial_query)},
         )
+
+        # load the user's previous conversations into memory
         self.load_user_conversations(user_id)
+
+        # generate a new random UUID as the conversation id
         cid = str(uuid.uuid4())
+
+        # create a new conversation state
         state = ConversationState(
             conversation_id=cid,
             user_id=user_id,
@@ -273,6 +294,8 @@ class ConversationManager:
     def append_flow(self, conversation_id: str, event: dict[str, Any]) -> None:
         """Append a flow step for a conversation (for UI). Safe if state not found."""
         state = self._conversations.get(conversation_id)
+
+        # method append_flow is also an attribute of the class, this is skipped in case somesone place a differet object in _conversations
         if state is not None and hasattr(state, "append_flow"):
             state.append_flow(event)
 
@@ -281,6 +304,8 @@ class ConversationManager:
         state = self._conversations.get(conversation_id)
         if state is None or not hasattr(state, "flow_events"):
             return []
+
+        # ensure no other thread is appending to the flow_events list at the read time
         lock = getattr(state, "_flow_lock", None)
         if lock is not None:
             with lock:

@@ -8,10 +8,20 @@ from a2a.acl_message import ACLMessage
 from util import interaction_log
 
 
+# agents do not communicate directly with each other, they communicate through the message bus -  there could be async and comcurrent agents
+
+# changing the implementation of an agent does not affect the other agents
+# "separation of concerns" :the message bus is responsible for the communication between the agents, while the agents are responsible for the business logic
+
+# adding any new abstract method will require the subclasses to implement it, else raise TypeError
+# "open/closed" principle: the message bus is open for extension, but closed for modification, and the agents are closed for modification, but open for extension
+
+# ABC here means Abstract Base Class: it’s the Python mechanism for defining a class that can’t be instantiated by itself and that declares methods subclasses must implement.
+
 class MessageBus(ABC):
     """Abstract message transport layer for A2A communication.
 
-    Backends may use Redis, Kafka, NATS, or in-memory queues.
+    Backends may use Redis, Kafka, NATS later on without rewriting agents, or in-memory queues for now.
     """
 
     @abstractmethod
@@ -59,6 +69,7 @@ class MessageBus(ABC):
         raise NotImplementedError
 
 
+# this could be swapped out for a different implementation such as Redis, Kafka, NATS later on without rewriting agents 
 class InMemoryMessageBus(MessageBus):
     """In-memory message transport using one queue per registered agent.
 
@@ -130,6 +141,18 @@ class InMemoryMessageBus(MessageBus):
         Args:
             message: Message to send (e.g. STOP for shutdown).
         """
+        cid = getattr(message, "conversation_id", None) or (
+            (message.content or {}).get("conversation_id")
+        )
         # Write one copy into each registered queue for fan-out semantics.
         for name in self._queues:
             self._queues[name].put(message)
+
+        interaction_log.log_call(
+        "a2a.message_bus.InMemoryMessageBus.broadcast",
+        params={
+            "sender": message.sender,
+            "conversation_id": cid or "",
+        },
+        result=None,
+        )

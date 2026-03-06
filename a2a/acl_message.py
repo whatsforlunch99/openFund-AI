@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
@@ -34,7 +34,7 @@ class ACLMessage:
     """FIPA-ACL message exchanged between agents.
 
     Attributes:
-        performative: Communication intent or action(Performative enum per B1).
+        performative: Communication intent or action (Performative enum per B1).
         sender: Name of the sending agent.
         receiver: Name of the receiving agent.
         content: Structured payload of the message.
@@ -64,7 +64,7 @@ class ACLMessage:
         if not self.conversation_id:
             self.conversation_id = str(uuid.uuid4())
         if self.timestamp is None:
-            self.timestamp = datetime.utcnow()
+            self.timestamp = datetime.now(timezone.utc)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dict for persistence (D2) - saving communication message in conversation log.

@@ -29,6 +29,8 @@ class Performative(str, Enum):
     CANCEL = "CANCEL"
 
 
+# Dataclass: has a standard __init__, a nice __repr__, and optional __eq__ without writing them by hand. You can still add methods (like to_dict() or __post_init__) exactly as in a normal class
+
 @dataclass
 class ACLMessage:
     """FIPA-ACL message exchanged between agents.

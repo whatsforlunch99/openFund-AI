@@ -23,11 +23,11 @@ VALID_USER_PROFILES = ("beginner", "long_term", "analyst")
 
 
 class TaskStep:
-    """Single step in a decomposed task chain.
+    """Planner decompose tasks into many step, TaskStep holds target and instructions for the specific step.
 
     Attributes:
         agent: Target agent: "librarian" | "websearcher" | "analyst".
-        params: Parameters for the step (including "query"); forwarded as ACLMessage content.
+        params: Parameters for the step (including "query"); forwarded as ACLMessage content. Either a dict with string keys and values of any type, defaulting to None.
     """
 
     def __init__(
@@ -54,18 +54,25 @@ class PlannerAgent(BaseAgent):
         conversation_manager: Any = None,
         max_research_rounds: int = 2,
     ) -> None:
+
         super().__init__(name, message_bus)
         self._llm_client = llm_client
         self._conversation_manager = conversation_manager
+
+        # store agents we're waiting for for each conversation_id
         self._round_pending: dict[
             str, set[str]
-        ] = {}  # conversation_id -> agents we're waiting for
+        ] = {}
+
+        # store collected content from each agent for each conversation_id
         self._collected: dict[
             str, dict[str, Any]
-        ] = {}  # conversation_id -> { agent: content }
+        ] = {} 
+
+        # store user profile for each conversation
         self._user_profile_by_conversation: dict[
             str, str
-        ] = {}  # conversation_id -> user_profile
+        ] = {}
         self._round_number: dict[str, int] = {}  # conversation_id -> round (capped by max_research_rounds)
         self._original_query_by_conversation: dict[str, str] = {}  # for sufficiency/refined
         self._max_rounds = max(1, max_research_rounds)
@@ -110,8 +117,12 @@ class PlannerAgent(BaseAgent):
                     result={"skipped": True, "reason": "conversation_id not in _collected"},
                 )
                 return
+            
+            # collect content from the agent 
             self._collected[conversation_id][message.sender] = content
+            # remove the agent from the list of agents we're waiting for
             self._round_pending[conversation_id].discard(message.sender)
+
             trace(
                 12,
                 "planner_inform_received",
@@ -123,6 +134,8 @@ class PlannerAgent(BaseAgent):
                 out="stored",
                 next_="all received → format_final else wait",
             )
+
+            # if the conversation manager is set, append a flow event
             if self._conversation_manager:
                 pending_list = list(self._round_pending[conversation_id])
                 still_waiting = ", ".join(pending_list) if pending_list else "none"
@@ -140,8 +153,9 @@ class PlannerAgent(BaseAgent):
                         },
                     },
                 )
+            
+            # if all agents have responded, compute the combined answer candidate
             if not self._round_pending[conversation_id]:
-                # All specialist results are in; compute combined answer candidate.
                 collected = self._collected[conversation_id]
                 final = self._format_final(collected)
                 user_profile = self._user_profile_by_conversation.get(
@@ -398,7 +412,38 @@ class PlannerAgent(BaseAgent):
             if c.get("content"):
                 parts.append(str(c["content"]))
             elif c.get("documents") or c.get("graph"):
-                parts.append("Librarian: documents and graph data retrieved.")
+                bits: list[str] = []
+                docs = c.get("documents")
+                if isinstance(docs, list) and docs:
+                    bits.append(f"{len(docs)} doc(s)")
+                    first = docs[0]
+                    if isinstance(first, dict):
+                        content_str = first.get("content") or first.get("text")
+                        if isinstance(content_str, str) and content_str.strip():
+                            snippet = content_str.strip()[:120]
+                            bits.append(
+                                f' (e.g. "{snippet}{"..." if len(content_str.strip()) > 120 else ""}")'
+                            )
+                g = c.get("graph")
+                if isinstance(g, dict) and g.get("nodes"):
+                    nodes = g["nodes"]
+                    if isinstance(nodes, list) and nodes:
+                        bits.append(f"{len(nodes)} graph node(s)")
+                        ids = []
+                        for n in nodes[:3]:
+                            if isinstance(n, dict):
+                                nid = n.get("id")
+                                if nid is None:
+                                    lbl = n.get("label")
+                                    nid = lbl[0] if isinstance(lbl, list) and lbl else lbl
+                                if nid is not None:
+                                    ids.append(str(nid))
+                        if ids:
+                            bits.append(f" ({', '.join(ids)})")
+                if bits:
+                    parts.append("Librarian: " + ", ".join(bits).strip() + ".")
+                else:
+                    parts.append("Librarian: documents and graph data retrieved.")
             elif (
                 c.get("file")
                 and isinstance(c["file"], dict)
@@ -407,10 +452,12 @@ class PlannerAgent(BaseAgent):
                 parts.append(c["file"]["content"])
             else:
                 parts.append("Librarian: data retrieved.")
+
         if "websearcher" in collected:
             w = collected["websearcher"]
             if w.get("market_data") or w.get("sentiment"):
                 parts.append("WebSearcher: market and sentiment data retrieved.")
+                
         if "analyst" in collected:
             a = collected["analyst"]
             if a.get("analysis"):
@@ -614,15 +661,15 @@ class PlannerAgent(BaseAgent):
 
         Args:
             query: User query.
-            step: Current task step.
-            context: Optional prior context.
+            step: Current task step (TaskStep object that holds target agent and instructions for the specific step).
+            context: Optional prior context (not used in this implementation).
 
         Returns:
             ACL message addressed to the appropriate agent.
         """
-        # Content includes query (role-specific from step.params or fallback) and any step.params
+        # Content includes query (role-specific from step.params or fallback) and any step params   
         step_query = step.params.get("query", query)
-        content = {"query": step_query, **step.params}
+        content = {"query": step_query, **step.params} # ** dictionary unpacking, overwrite query with step.params if it exists
         return ACLMessage(
             performative=Performative.REQUEST,
             sender=self.name,

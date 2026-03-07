@@ -32,6 +32,7 @@ class BaseAgent(ABC):
         while True:
             # Blocking receive loop: each agent processes only messages addressed to itself.
             message = self.bus.receive(self.name)
+            
             if message is None:
                 continue
             # Exit loop on STOP so this agent thread shuts down cleanly
@@ -42,6 +43,8 @@ class BaseAgent(ABC):
     @abstractmethod
     def handle_message(self, message: ACLMessage) -> None:
         """Process an incoming ACL message.
+
+        Each subclass must implement this abstract method to handle the incoming message.
 
         Args:
             message: The received ACL message.

@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from util.trace_log import trace
 from util import interaction_log
 
 logger = logging.getLogger(__name__)
@@ -160,48 +159,20 @@ class SafetyGateway:
         # Validate length and charset; raise if invalid
         vr = self.validate_input(raw_input)
         if not vr.valid:
-            trace(
-                2,
-                "validate_input",
-                in_={"raw_len": len(raw_input)},
-                out=f"invalid reason={vr.reason}",
-                next_="raise SafetyError",
-            )
             interaction_log.log_call(
                 "safety.safety_gateway.SafetyGateway.process_user_input",
                 result={"error": vr.reason},
             )
             raise SafetyError(vr.reason or "Validation failed")
-        trace(
-            2,
-            "validate_input",
-            in_={"raw_len": len(raw_input)},
-            out="valid",
-            next_="check_guardrails",
-        )
 
         # Block disallowed phrases (e.g. investment advice)
         gr = self.check_guardrails(raw_input)
         if not gr.allowed:
-            trace(
-                2,
-                "check_guardrails",
-                in_={"text": raw_input[:50]},
-                out=f"blocked reason={gr.reason}",
-                next_="raise SafetyError",
-            )
             interaction_log.log_call(
                 "safety.safety_gateway.SafetyGateway.process_user_input",
                 result={"error": gr.reason},
             )
             raise SafetyError(gr.reason or "Guardrails blocked input")
-        trace(
-            2,
-            "check_guardrails",
-            in_={"text": raw_input[:50]},
-            out="allowed",
-            next_="mask_pii",
-        )
 
         # Mask PII then return cleaned input and metadata
         masked_text = self.mask_pii(raw_input)
@@ -217,12 +188,5 @@ class SafetyGateway:
                 "raw_length": result.raw_length,
                 "masked": result.masked,
             },
-        )
-        trace(
-            2,
-            "process_user_input",
-            in_={"raw_length": len(raw_input)},
-            out=f"ProcessedInput raw_length={result.raw_length} masked={result.masked}",
-            next_="return to API",
         )
         return result

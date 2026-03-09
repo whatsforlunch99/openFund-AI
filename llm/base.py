@@ -8,8 +8,8 @@ from typing import Any, Protocol
 class LLMClient(Protocol):
     """Protocol for LLM clients used by Planner (decompose) and optionally Responder (complete).
 
-    When no API key is set, use StaticLLMClient (mock). When LLM_API_KEY is set,
-    use a live client (e.g. OpenAI) if the optional dependency is installed.
+    When no LLM client is provided, Planner and agents use built-in fallbacks.
+    When LLM_API_KEY is set, use a live client (e.g. OpenAI) if the optional dependency is installed.
     """
 
     def decompose_to_steps(

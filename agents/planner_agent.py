@@ -10,9 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
-from util.trace_log import trace
 from util import interaction_log
-from util.log_format import struct_log
 
 logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
@@ -123,23 +121,11 @@ class PlannerAgent(BaseAgent):
             # remove the agent from the list of agents we're waiting for
             self._round_pending[conversation_id].discard(message.sender)
 
-            trace(
-                12,
-                "planner_inform_received",
-                in_={
-                    "conversation_id": conversation_id,
-                    "sender": message.sender,
-                    "pending": list(self._round_pending[conversation_id]),
-                },
-                out="stored",
-                next_="all received → format_final else wait",
-            )
-
             # if the conversation manager is set, append a flow event
             if self._conversation_manager:
                 pending_list = list(self._round_pending[conversation_id])
                 still_waiting = ", ".join(pending_list) if pending_list else "none"
-                snippet = self._agent_content_snippet(content)
+                snippet = self._conversation_state_snippet(content)
                 self._conversation_manager.append_flow(
                     conversation_id,
                     {
@@ -236,16 +222,6 @@ class PlannerAgent(BaseAgent):
                     if insufficient:
                         final = "Insufficient information."
                     # Finalization phase: send one INFORM to responder and clean planner state.
-                    trace(
-                        12,
-                        "planner_format_final",
-                        in_={
-                            "conversation_id": conversation_id,
-                            "user_profile": user_profile,
-                        },
-                        out=f"final_len={len(final)}",
-                        next_="send INFORM to responder",
-                    )
                     if self._conversation_manager:
                         self._conversation_manager.append_flow(
                             conversation_id,
@@ -275,13 +251,6 @@ class PlannerAgent(BaseAgent):
                         "agents.planner_agent.PlannerAgent.handle_message",
                         result={"INFORM": "sent to responder"},
                     )
-                    trace(
-                        12,
-                        "planner_sent_to_responder",
-                        in_={"conversation_id": conversation_id},
-                        out="sent",
-                        next_="responder handles",
-                    )
                     del self._round_pending[conversation_id]
                     del self._collected[conversation_id]
                     self._user_profile_by_conversation.pop(conversation_id, None)
@@ -293,13 +262,6 @@ class PlannerAgent(BaseAgent):
         query = content.get("query", "")
         if not query:
             return
-        trace(
-            6,
-            "planner_request_received",
-            in_={"conversation_id": conversation_id, "query_len": len(query)},
-            out="ok",
-            next_="decompose_task",
-        )
         raw_profile = content.get("user_profile") or "beginner"
         if isinstance(raw_profile, str):
             profile = raw_profile.strip().lower()
@@ -320,7 +282,6 @@ class PlannerAgent(BaseAgent):
                 result={"skipped": True, "reason": "no steps"},
             )
             return
-        struct_log(logger, logging.INFO, "planner.decompose", agents=[s.agent for s in steps])
         # Flow: one summary message with actual decomposed steps and full sub-queries
         query_short = query[:80] + ("..." if len(query) > 80 else "")
         step_parts = [s.agent for s in steps]
@@ -343,18 +304,6 @@ class PlannerAgent(BaseAgent):
                     },
                 },
             )
-        trace(
-            7,
-            "planner_handle_request",
-            in_={
-                "conversation_id": conversation_id,
-                "query_len": len(query),
-                "user_profile": profile,
-                "steps": [s.agent for s in steps],
-            },
-            out="ok",
-            next_="send REQUEST to each agent",
-        )
         if self._conversation_manager:
             for s in steps:
                 q = s.params.get("query", query)
@@ -375,12 +324,7 @@ class PlannerAgent(BaseAgent):
         self._collected[conversation_id] = {}
         for step in steps:
             step.params = dict(step.params)
-            if "path" in content:
-                step.params["path"] = content[
-                    "path"
-                ]  # E2E and API can pass file path for file_tool
             q = step.params.get("query", query)
-            struct_log(logger, logging.INFO, "planner.sent", agent=step.agent, query=q)
             req = self.create_research_request(query, step, context=None)
             req.conversation_id = conversation_id
             req.reply_to = self.name
@@ -389,13 +333,15 @@ class PlannerAgent(BaseAgent):
             "agents.planner_agent.PlannerAgent.handle_message",
             result={"REQUEST": "sent to specialists", "agents": [s.agent for s in steps]},
         )
-        trace(
-            7,
-            "planner_sent_requests",
-            in_={"conversation_id": conversation_id},
-            out="sent to librarian, websearcher, analyst",
-            next_="wait INFORMs",
-        )
+
+    def _snippet(self, text: str | None, max_len: int = 120) -> str:
+        """Return text truncated to max_len with '...' if longer. Handles None/non-str."""
+        if text is None:
+            return ""
+        s = str(text).strip()
+        if len(s) <= max_len:
+            return s
+        return s[:max_len] + "..."
 
     def _format_final(self, collected: dict[str, Any]) -> str:
         """Turn collected agent outputs into a single string for Responder.
@@ -404,29 +350,34 @@ class PlannerAgent(BaseAgent):
             collected: Map of agent name to INFORM content (e.g. librarian, websearcher, analyst).
 
         Returns:
-            Concatenated summary string (file content, or "Librarian/WebSearcher/Analyst: ...").
+            Concatenated summary string (Librarian/WebSearcher/Analyst: ...).
         """
         parts = []
         if "librarian" in collected:
             c = collected["librarian"]
             if c.get("content"):
                 parts.append(str(c["content"]))
+            
+            # if the librarian has retrieved documents or graph data, add a summary of the data
             elif c.get("documents") or c.get("graph"):
                 bits: list[str] = []
+
                 docs = c.get("documents")
                 if isinstance(docs, list) and docs:
                     bits.append(f"{len(docs)} doc(s)")
+
+                    # add a summary of the first document
                     first = docs[0]
                     if isinstance(first, dict):
                         content_str = first.get("content") or first.get("text")
                         if isinstance(content_str, str) and content_str.strip():
-                            snippet = content_str.strip()[:120]
-                            bits.append(
-                                f' (e.g. "{snippet}{"..." if len(content_str.strip()) > 120 else ""}")'
-                            )
+                            bits.append(f' (e.g. "{self._snippet(content_str, 120)}")')
+
                 g = c.get("graph")
                 if isinstance(g, dict) and g.get("nodes"):
                     nodes = g["nodes"]
+
+                    # add a summary of the graph nodes - the first 3 nodes
                     if isinstance(nodes, list) and nodes:
                         bits.append(f"{len(nodes)} graph node(s)")
                         ids = []
@@ -443,51 +394,90 @@ class PlannerAgent(BaseAgent):
                 if bits:
                     parts.append("Librarian: " + ", ".join(bits).strip() + ".")
                 else:
-                    parts.append("Librarian: documents and graph data retrieved.")
-            elif (
-                c.get("file")
-                and isinstance(c["file"], dict)
-                and c["file"].get("content")
-            ):
-                parts.append(c["file"]["content"])
+                    parts.append("Librarian: no content.")
             else:
                 parts.append("Librarian: data retrieved.")
 
         if "websearcher" in collected:
             w = collected["websearcher"]
             if w.get("market_data") or w.get("sentiment"):
-                parts.append("WebSearcher: market and sentiment data retrieved.")
-                
+                bits_ws: list[str] = []
+                summary_ws = w.get("summary")
+
+                # if there is a summary, add a snippet of the summary
+                if isinstance(summary_ws, str) and summary_ws.strip():
+                    bits_ws.append(f'"{self._snippet(summary_ws, 120)}"')
+                else:
+                    # if there is no summary, add a summary of the market data and sentiment data
+                    for key, label in (("market_data", "market data"), ("sentiment", "sentiment")):
+                        val = w.get(key)
+
+                        # if there is an error, add a summary of the error
+                        if isinstance(val, dict):
+                            err = val.get("error")
+                            if isinstance(err, str) and err.strip():
+                                bits_ws.append(f"{label}: error {self._snippet(err, 80)}")
+                            else:
+                                # if there is content, add 120-char snippet
+                                content_val = val.get("content")
+                                if isinstance(content_val, str) and content_val.strip():
+                                    bits_ws.append(f'{label}: "{self._snippet(content_val, 120)}"')
+                                else:
+                                    # else just say that there's a label
+                                    bits_ws.append(f"{label} present, no content")
+                if bits_ws:
+                    parts.append("WebSearcher: " + "; ".join(bits_ws) + ".")
+                else:
+                    parts.append("WebSearcher: no content.")
+
         if "analyst" in collected:
             a = collected["analyst"]
-            if a.get("analysis"):
-                parts.append("Analyst: analysis complete.")
+            if a.get("analysis") is not None:
+                analysis_val = a["analysis"]
+                bits_a: list[str] = []
+
+                # if the analysis is a dictionary, add a summary of the confidence and summary
+                if isinstance(analysis_val, dict):
+                    conf = analysis_val.get("confidence")
+                    if conf is not None:
+                        bits_a.append(f"confidence {conf}")
+                    
+                    # if the summary is a string, add a snippet of the summary
+                    summary_a = analysis_val.get("summary")
+                    if isinstance(summary_a, str) and summary_a.strip():
+                        bits_a.append(f'"{self._snippet(summary_a, 120)}"')
+                    elif not bits_a:
+                        # if there is no confidence or summary, add a snippet of the analysis
+                        bits_a.append(self._snippet(str(analysis_val), 150))
+                else:
+                    # if the analysis is not a dictionary, add a snippet of the analysis
+                    bits_a.append(self._snippet(str(analysis_val), 120))
+                
+                if bits_a:
+                    parts.append("Analyst: " + " ".join(bits_a) + ".")
+                else:
+                    parts.append("Analyst: no content.")
+
         return " ".join(parts) if parts else "Research round complete."
 
-    def _agent_content_snippet(self, content: dict[str, Any], max_chars: int = 350) -> str:
-        """Human-readable summary of agent result for flow display (errors, summary, or key fields)."""
+    def _conversation_state_snippet(self, content: dict[str, Any], max_chars: int = 350) -> str:
+        """Human-readable summary of agent result for flow display (errors, summary, or key fields) for use in the conversation manager."""
         if not content:
             return ""
+
         # Explicit error (e.g. from tool or MCP)
         err = content.get("error")
         if isinstance(err, str) and err.strip():
-            s = err.strip()[:250]
-            return f"Error: {s}{'...' if len(err) > 250 else ''}"
+            return f"Error: {self._snippet(err, 250)}"
         if isinstance(content.get("market_data"), dict) and content["market_data"].get("error"):
             e = content["market_data"]["error"]
-            s = str(e)[:250]
-            return f"Error: {s}{'...' if len(str(e)) > 250 else ''}"
+            return f"Error: {self._snippet(e, 250)}"
+
         # Summary from LLM or agent
         summary = content.get("summary")
         if isinstance(summary, str) and summary.strip():
-            s = summary.strip()[:max_chars]
-            return f"Summary: {s}{'...' if len(summary) > max_chars else ''}"
-        # File content
-        if content.get("file") and isinstance(content["file"], dict):
-            fc = content["file"].get("content")
-            if isinstance(fc, str) and fc.strip():
-                s = fc.strip()[:250]
-                return f"Content: {s}{'...' if len(fc) > 250 else ''}"
+            return f"Summary: {self._snippet(summary, max_chars)}"
+
         # Structured keys: describe what's present and show a short preview
         parts = []
         for key in ("market_data", "sentiment", "analysis", "documents", "graph", "combined_data"):
@@ -495,18 +485,16 @@ class PlannerAgent(BaseAgent):
             if val is None:
                 continue
             if isinstance(val, dict) and val.get("error"):
-                parts.append(f"{key}: Error: {str(val['error'])[:120]}")
+                parts.append(f"{key}: Error: {self._snippet(val.get('error'), 120)}")
             elif isinstance(val, dict):
                 parts.append(f"{key}: present ({len(val)} keys)")
             elif isinstance(val, list):
                 parts.append(f"{key}: {len(val)} items")
             else:
-                text = str(val)[:150]
-                parts.append(f"{key}: {text}{'...' if len(str(val)) > 150 else ''}")
+                parts.append(f"{key}: {self._snippet(str(val), 150)}")
         if parts:
             return " | ".join(parts)
-        text = str(content)[:max_chars]
-        return f"Result: {text}{'...' if len(str(content)) > max_chars else ''}"
+        return f"Result: {self._snippet(str(content), max_chars)}"
 
     def _format_aggregated_for_sufficiency(self, collected: dict[str, Any]) -> str:
         """Build a string from collected agent outputs for LLM sufficiency check."""
@@ -518,8 +506,6 @@ class PlannerAgent(BaseAgent):
             summary = c.get("summary")
             if isinstance(summary, str) and summary.strip():
                 parts.append(f"[{agent}]\n{summary.strip()}")
-            elif c.get("file") and isinstance(c["file"], dict) and c["file"].get("content"):
-                parts.append(f"[{agent}]\n{(c['file']['content'] or '')[:2000]}")
             elif c.get("market_data") or c.get("sentiment"):
                 parts.append(f"[{agent}] market/sentiment data present.")
             elif c.get("analysis") is not None:
@@ -620,7 +606,7 @@ class PlannerAgent(BaseAgent):
                 logger.debug("LLM task parse failed, using default steps: %s", e)
         # No LLM or parse failed; use fixed three steps (librarian, websearcher, analyst)
         # Pass vector_query and fund so the librarian calls vector_tool and kg_tool
-        # (demo can then use populated backends; file_tool uses path=query)
+        # (demo can then use populated backends)
         # Fallback fund/symbol: small heuristic map; full decomposition requires LLM.
         _QUERY_TO_SYMBOL = (
             ("nvidia", "NVDA"), ("nvda", "NVDA"),
@@ -640,7 +626,6 @@ class PlannerAgent(BaseAgent):
                 agent="librarian",
                 params={
                     "query": query,
-                    "path": query,
                     "vector_query": query,
                     "fund": fund,
                 },
@@ -677,13 +662,3 @@ class PlannerAgent(BaseAgent):
             content=content,
         )
 
-    def resolve_conflicts(self, _agent_outputs: dict[str, Any]) -> Any:
-        """Self-reflection when agent results conflict (Phase 2).
-
-        Args:
-            agent_outputs: Map of agent name to output.
-
-        Returns:
-            Reconciled result.
-        """
-        raise NotImplementedError

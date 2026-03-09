@@ -6,9 +6,7 @@ from typing import TYPE_CHECKING, Any
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
-from util.trace_log import trace
 from util import interaction_log
-from util.log_format import log_agent_section, struct_log
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
@@ -36,7 +34,7 @@ class LibrarianAgent(BaseAgent):
         Args:
             name: Unique agent name (receiver address).
             message_bus: Shared A2A transport.
-            mcp_client: MCP client for file_tool, vector_tool, kg_tool, sql_tool.
+            mcp_client: MCP client for vector_tool, kg_tool, sql_tool.
             conversation_manager: Optional ConversationManager for flow events.
             llm_client: Optional LLM client for summarizing combined results (LIBRARIAN_SYSTEM).
         """
@@ -51,10 +49,10 @@ class LibrarianAgent(BaseAgent):
         When llm_client is set: use LLM (prompt + tool descriptions) to select tools and
         parameters, execute via call_tool, combine results, send INFORM. If select_tools
         returns empty or fails, fall back to content-key dispatch.
-        When llm_client is None: use content-key dispatch (path, vector_query, fund, sql_query).
+        When llm_client is None: use content-key dispatch (vector_query, fund, sql_query).
 
         Args:
-            message: The received ACL message; content may include path, vector_query,
+            message: The received ACL message; content may include vector_query,
                 fund, entity, sql_query, top_k, sql_params, and query (decomposed from planner).
         """
         if not self.mcp_client:
@@ -74,9 +72,7 @@ class LibrarianAgent(BaseAgent):
             },
         )
         if message.performative == Performative.REQUEST:
-            log_agent_section(logger, "librarian")
-            struct_log(logger, logging.INFO, "agent.librarian.start")
-        query = content.get("query") or content.get("path") or ""
+            query = content.get("query") or ""
 
         # When LLM is available, try tool selection first; fall back to content-key if empty/fail
         if self._llm_client is not None:
@@ -116,7 +112,6 @@ class LibrarianAgent(BaseAgent):
                         summary = self._llm_client.complete(LIBRARIAN_SYSTEM, user_content_summary)
                         reply_content = dict(reply_content)
                         reply_content["summary"] = summary
-                    struct_log(logger, logging.INFO, "agent.librarian.done", status="success")
                     self._send_inform(message, reply_content, conversation_id)
                     interaction_log.log_call(
                         "agents.librarian_agent.LibrarianAgent.handle_message",
@@ -124,51 +119,21 @@ class LibrarianAgent(BaseAgent):
                     )
                     return
         # Fallback: content-key dispatch
-        path = content.get("path")
-        if not path and content.get("query"):
-            path = content.get("query")
         vector_query = content.get("vector_query")
         fund = content.get("fund") or content.get("entity") or ""
         sql_query = content.get("sql_query") or content.get("sql") or ""
-        trace(
-            8,
-            "librarian_request_received",
-            in_={
-                "conversation_id": conversation_id,
-                "path": path or "(none)",
-                "fund": fund or "(none)",
-            },
-            out="ok",
-            next_="call tools (file, vector, kg, sql)",
-        )
         if self.conversation_manager and conversation_id:
-            path_preview = (path or "(query)")[:60] + (
-                "..." if len(path or "") > 60 else ""
-            )
             self.conversation_manager.append_flow(
                 conversation_id,
                 {
                     "step": "librarian_start",
-                    "message": f'**Librarian** received request: path="{path_preview}", fund={fund or "(none)"}. Retrieving documents and knowledge graph data.',
-                    "detail": {"path": path or "(query)", "fund": fund or "(none)"},
+                    "message": f'**Librarian** received request: fund={fund or "(none)"}. Retrieving documents and knowledge graph data.',
+                    "detail": {"fund": fund or "(none)"},
                 },
             )
 
         # Call each requested tool and collect results
         parts: dict[str, Any] = {}
-        if path:
-            result = self.mcp_client.call_tool("file_tool.read_file", {"path": path})
-            parts["file"] = (
-                result if isinstance(result, dict) else {"content": str(result)}
-            )
-            has_error = isinstance(parts["file"], dict) and "error" in parts["file"]
-            trace(
-                9,
-                "librarian_read_file_done",
-                in_={"path": path},
-                out=f"error={has_error}",
-                next_="build reply",
-            )
         if vector_query:
             docs_result = self.mcp_client.call_tool(
                 "vector_tool.search",
@@ -196,11 +161,9 @@ class LibrarianAgent(BaseAgent):
             )
             parts["sql"] = sql_result if isinstance(sql_result, dict) else {"rows": []}
 
-        # Build reply: file-only keeps Slice 3 shape; else combined structure
+        # Build reply: combined structure from documents/graph/sql
         if not parts:
-            reply_content: Any = {"error": "Missing path, vector_query, fund, or sql_query"}
-        elif len(parts) == 1 and "file" in parts:
-            reply_content = parts["file"]
+            reply_content: Any = {"error": "Missing vector_query, fund, or sql_query"}
         else:
             docs_list = (
                 list(parts["documents"])
@@ -209,8 +172,6 @@ class LibrarianAgent(BaseAgent):
             )
             graph_data = parts.get("graph", {})
             reply_content = self.combine_results(docs_list, graph_data)
-            if parts.get("file"):
-                reply_content["file"] = parts["file"]
             if parts.get("sql"):
                 reply_content["sql"] = parts["sql"]
 
@@ -218,14 +179,13 @@ class LibrarianAgent(BaseAgent):
         if self._llm_client is not None and isinstance(reply_content, dict):
             from llm.prompts import LIBRARIAN_SYSTEM, get_librarian_user_content
 
-            query = content.get("query") or content.get("path") or ""
+            query = content.get("query") or ""
             user_content = get_librarian_user_content(str(query)[:500], reply_content)
             summary = self._llm_client.complete(LIBRARIAN_SYSTEM, user_content)
             reply_content = dict(reply_content)
             reply_content["summary"] = summary
 
         status = "limited_data" if (isinstance(reply_content, dict) and reply_content.get("error")) else "success"
-        struct_log(logger, logging.INFO, "agent.librarian.done", status=status)
         reply_to = getattr(message, "reply_to", None) or message.sender
         reply = ACLMessage(
             performative=Performative.INFORM,
@@ -240,24 +200,11 @@ class LibrarianAgent(BaseAgent):
             "agents.librarian_agent.LibrarianAgent.handle_message",
             result={"INFORM": "sent to planner", "reply_keys": list(reply_content.keys()) if isinstance(reply_content, dict) else []},
         )
-        trace(
-            9,
-            "librarian_inform_sent",
-            in_={"conversation_id": conversation_id},
-            out=f"reply_keys={list(reply_content.keys()) if isinstance(reply_content, dict) else []}",
-            next_="planner receives",
-        )
         if self.conversation_manager and conversation_id:
-            summary = "file content" if parts.get("file") else "documents and graph"
+            summary = "documents and graph"
             nchars = 0
             if isinstance(reply_content, dict) and reply_content.get("content"):
                 nchars = len(str(reply_content["content"]))
-            elif (
-                isinstance(reply_content, dict)
-                and reply_content.get("file")
-                and isinstance(reply_content["file"], dict)
-            ):
-                nchars = len(str(reply_content["file"].get("content", "")))
             size_str = f" ({nchars} chars)" if nchars else ""
             self.conversation_manager.append_flow(
                 conversation_id,
@@ -273,7 +220,7 @@ class LibrarianAgent(BaseAgent):
             )
 
     def _execute_tool_calls(self, tool_calls: list) -> dict[str, Any]:
-        """Execute a list of {tool, payload} dicts via mcp_client; return parts dict (file, documents, graph, sql)."""
+        """Execute a list of {tool, payload} dicts via mcp_client; return parts dict (documents, graph, sql)."""
         parts: dict[str, Any] = {}
         for tc in tool_calls:
             tool = tc.get("tool", "")
@@ -281,9 +228,7 @@ class LibrarianAgent(BaseAgent):
             if not isinstance(tool, str) or not tool.strip():
                 continue
             result = self.mcp_client.call_tool(tool, payload)
-            if tool == "file_tool.read_file":
-                parts["file"] = result if isinstance(result, dict) else {"content": str(result)}
-            elif tool == "vector_tool.search":
+            if tool == "vector_tool.search":
                 docs = result.get("documents", result) if isinstance(result, dict) else result
                 docs_list = docs if isinstance(docs, list) else [docs]
                 parts.setdefault("documents", []).extend(docs_list)
@@ -306,13 +251,9 @@ class LibrarianAgent(BaseAgent):
         """Build reply_content from parts (same shape as content-key path)."""
         if not parts:
             return {"error": "No tool results"}
-        if len(parts) == 1 and "file" in parts:
-            return parts["file"]
         docs_list = list(parts.get("documents", [])) if isinstance(parts.get("documents"), list) else []
         graph_data = parts.get("graph", {}) if isinstance(parts.get("graph"), dict) else {}
         reply_content = self.combine_results(docs_list, graph_data)
-        if parts.get("file"):
-            reply_content["file"] = parts["file"]
         if parts.get("sql"):
             reply_content["sql"] = parts["sql"]
         return reply_content
@@ -333,7 +274,6 @@ class LibrarianAgent(BaseAgent):
             "agents.librarian_agent.LibrarianAgent.handle_message",
             result={"INFORM": "sent to planner"},
         )
-        trace(9, "librarian_inform_sent", in_={"conversation_id": conversation_id}, out="sent", next_="planner receives")
         if self.conversation_manager and conversation_id:
             summary = "documents and graph" if isinstance(reply_content, dict) else "data"
             self.conversation_manager.append_flow(

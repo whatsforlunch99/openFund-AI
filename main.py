@@ -6,7 +6,7 @@ import sys
 import warnings
 
 from config.config import load_config
-from util.log_format import OpenFundFormatter, struct_log
+from util.log_format import OpenFundFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +68,7 @@ def _run_e2e_once() -> None:
     try:
         llm_client = get_llm_client(cfg)
     except (ValueError, ImportError):
-        from llm.static_client import StaticLLMClient
-
-        llm_client = StaticLLMClient()
+        llm_client = None
     planner = PlannerAgent("planner", bus, llm_client=llm_client)
     librarian = LibrarianAgent(
         "librarian", bus, mcp_client=client, llm_client=llm_client
@@ -160,14 +158,12 @@ def main() -> None:
         h.setFormatter(OpenFundFormatter())
     if os.environ.get("LOG_LEVEL", "").strip().upper() == "DEBUG":
         logging.getLogger("openfund.interaction").setLevel(logging.INFO)
-        logging.getLogger("util.trace_log").setLevel(logging.INFO)
     else:
         logging.getLogger("openfund.interaction").setLevel(logging.WARNING)
-        logging.getLogger("util.trace_log").setLevel(logging.WARNING)
     try:
         import ssl
         if "LibreSSL" in getattr(ssl, "OPENSSL_VERSION_STRING", ""):
-            struct_log(logger, logging.WARNING, "ssl.environment", message="LibreSSL detected (urllib3 v2 prefers OpenSSL)")
+            logger.warning("ssl.environment: LibreSSL detected (urllib3 v2 prefers OpenSSL)")
     except Exception:
         pass
     if "--e2e-once" in sys.argv:
@@ -181,7 +177,7 @@ def main() -> None:
 
         get_situation_memory(cfg.memory_store_path)
     except ImportError as e:
-        struct_log(logger, logging.INFO, "memory.load", status="unavailable", reason=str(e))
+        logger.info("memory.load status=unavailable reason=%s", e)
 
     serve = ("--serve" in sys.argv) or ("--no-serve" not in sys.argv)
     port = 8000
@@ -193,9 +189,9 @@ def main() -> None:
             except ValueError:
                 port = 8000
     if serve:
-        struct_log(logger, logging.INFO, "system.startup", port=port, status="ready")
+        logger.info("system.startup port=%s status=ready", port)
     else:
-        struct_log(logger, logging.INFO, "system.startup", status="ready")
+        logger.info("system.startup status=ready")
 
     if serve:
         import uvicorn

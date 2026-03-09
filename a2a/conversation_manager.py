@@ -12,7 +12,6 @@ from typing import Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
-from util.trace_log import trace
 from util import interaction_log
 
 logger = logging.getLogger(__name__)
@@ -282,13 +281,6 @@ class ConversationManager:
             "a2a.conversation_manager.ConversationManager.create_conversation",
             result={"conversation_id": cid, "status": "created"},
         )
-        trace(
-            3,
-            "create_conversation",
-            in_={"user_id": user_id, "initial_query": initial_query[:50]},
-            out=f"conversation_id={cid}",
-            next_="return to API",
-        )
         return cid
 
     def append_flow(self, conversation_id: str, event: dict[str, Any]) -> None:
@@ -371,13 +363,6 @@ class ConversationManager:
                     "response_len": len(state.final_response or ""),
                 },
             )
-            trace(
-                13,
-                "register_reply",
-                in_={"conversation_id": conversation_id},
-                out=f"status=complete response_len={len(state.final_response or '')}",
-                next_="save_user, then API unblocks",
-            )
         else:
             interaction_log.log_call(
                 "a2a.conversation_manager.ConversationManager.register_reply",
@@ -407,11 +392,4 @@ class ConversationManager:
         interaction_log.log_call(
             "a2a.conversation_manager.ConversationManager.broadcast_stop",
             result={"sent": True},
-        )
-        trace(
-            13,
-            "broadcast_stop",
-            in_={"conversation_id": conversation_id},
-            out="STOP sent to all agents",
-            next_="agents exit run loop",
         )

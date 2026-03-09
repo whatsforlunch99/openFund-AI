@@ -139,7 +139,7 @@ Allowed tools (call via mcp_client.call_tool(tool_name, payload)):
 {tool_descriptions}
 """ + POSTGRES_SCHEMA_FOR_SQL_TOOL + """
 Output a JSON array of tool calls. Each element must have:
-- "tool" or "tool_name": exact tool name from the list above (e.g. "file_tool.read_file")
+- "tool" or "tool_name": exact tool name from the list above (e.g. "vector_tool.search")
 - "payload": object with the required parameters for that tool
 
 Guidelines:

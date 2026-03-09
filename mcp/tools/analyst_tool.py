@@ -285,3 +285,14 @@ def _route_indicators(
     except Exception as e:
         logger.debug("Alpha Vantage indicators failed: %s", e)
         return {"error": f"Indicator data unavailable: {e}"}
+
+
+# MCP registration: (name, func_name, required_keys, arg_specs, result_key).
+TOOL_SPECS: list[tuple[str, str, list[str], list, str | None]] = [
+    ("analyst_tool.get_indicators", "_route_indicators", [], [
+        ("symbol", ["symbol", "ticker"], "", None),
+        ("indicator", ["indicator"], "", None),
+        ("as_of_date", ["as_of_date", "curr_date"], "", None),
+        ("look_back_days", ["look_back_days"], 30, int),
+    ], None),
+]

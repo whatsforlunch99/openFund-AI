@@ -18,7 +18,6 @@ from mcp.mcp_server import MCPServer
 # Minimal payloads per tool (from docs/agent-tools-reference.md sample calls).
 # Used to verify each tool is registered and accepts the documented payload shape.
 SAMPLE_PAYLOADS: dict[str, dict] = {
-    "file_tool.read_file": {"path": "/tmp/agent_tools_test"},
     "vector_tool.search": {"query": "NVDA fund performance 2024", "top_k": 5},
     "vector_tool.get_by_ids": {"ids": ["doc_001", "doc_002"]},
     "vector_tool.upsert_documents": {"docs": [{"id": "doc_003", "content": "Test."}]},

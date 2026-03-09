@@ -5,7 +5,6 @@ Runs:
 - combine_results (unit)
 - retrieve_documents (vector_tool.search)
 - retrieve_knowledge_graph (kg_tool.get_relations)
-- handle_message with content path -> file_tool.read_file
 - handle_message with vector_query -> vector_tool.search
 - handle_message with fund -> kg_tool.get_relations
 - handle_message with sql_query -> sql_tool.run_query (schema-aligned)
@@ -19,7 +18,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 import uuid
 
 # Project root on path so "from a2a...", "from agents...", "from mcp..." work
@@ -85,7 +83,6 @@ def _show(label: str, data: object, max_item_chars: int = 200) -> None:
 
 
 def run(
-    skip_file: bool = False,
     skip_vector: bool = False,
     skip_kg: bool = False,
     skip_sql: bool = False,
@@ -155,51 +152,7 @@ def run(
     else:
         print("SKIP: retrieve_knowledge_graph")
 
-    # --- 4. handle_message REQUEST with path -> file_tool.read_file ---
-    if not skip_file:
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", delete=False, encoding="utf-8"
-            ) as f:
-                f.write("Librarian test file content")
-                path = f.name
-            try:
-                cid = str(uuid.uuid4())
-                req = ACLMessage(
-                    performative=Performative.REQUEST,
-                    sender="planner",
-                    receiver="librarian",
-                    content={"path": path, "query": "read file"},
-                    conversation_id=cid,
-                    reply_to="planner",
-                )
-                bus.send(req)
-                librarian.handle_message(req)
-                reply = bus.receive("planner", timeout=2.0)
-                assert reply is not None, "No INFORM reply"
-                assert reply.performative == Performative.INFORM
-                assert reply.sender == "librarian"
-                assert isinstance(reply.content, dict)
-                if "content" in reply.content:
-                    assert "Librarian test file content" in str(reply.content["content"])
-                elif "file" in reply.content and isinstance(reply.content["file"], dict):
-                    assert "Librarian test file content" in str(reply.content["file"].get("content", ""))
-                else:
-                    assert "content" in reply.content or "file" in reply.content
-                print("PASS: handle_message path -> file_tool.read_file")
-                _show("path reply", reply.content)
-            finally:
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
-        except Exception as e:
-            print(f"FAIL: handle_message path — {e}")
-            failures += 1
-    else:
-        print("SKIP: handle_message path")
-
-    # --- 5. handle_message REQUEST with vector_query ---
+    # --- 4. handle_message REQUEST with vector_query ---
     if not skip_vector:
         try:
             cid = str(uuid.uuid4())
@@ -225,7 +178,7 @@ def run(
             print(f"FAIL: handle_message vector_query — {e}")
             failures += 1
 
-    # --- 6. handle_message REQUEST with fund -> kg_tool ---
+    # --- 5. handle_message REQUEST with fund -> kg_tool ---
     if not skip_kg:
         try:
             cid = str(uuid.uuid4())
@@ -251,7 +204,7 @@ def run(
             print(f"FAIL: handle_message fund — {e}")
             failures += 1
 
-    # --- 7. handle_message REQUEST with sql_query (schema-aligned) ---
+    # --- 6. handle_message REQUEST with sql_query (schema-aligned) ---
     if not skip_sql:
         try:
             cid = str(uuid.uuid4())
@@ -291,13 +244,11 @@ def run(
 def main() -> None:
     import argparse
     p = argparse.ArgumentParser(description="Test all Librarian functions and MCP tools.")
-    p.add_argument("--skip-file", action="store_true", help="Skip file_tool path test")
     p.add_argument("--skip-vector", action="store_true", help="Skip vector_tool tests")
     p.add_argument("--skip-kg", action="store_true", help="Skip kg_tool tests")
     p.add_argument("--skip-sql", action="store_true", help="Skip sql_tool test")
     args = p.parse_args()
     code = run(
-        skip_file=args.skip_file,
         skip_vector=args.skip_vector,
         skip_kg=args.skip_kg,
         skip_sql=args.skip_sql,

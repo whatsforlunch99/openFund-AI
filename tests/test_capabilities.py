@@ -12,7 +12,7 @@ def test_get_capabilities_structure(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NEO4J_URI", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("MILVUS_URI", raising=False)
-    out = capabilities.get_capabilities(["file_tool.read_file"])
+    out = capabilities.get_capabilities(["vector_tool.search"])
     assert "neo4j" in out
     assert "postgres" in out
     assert "milvus" in out
@@ -52,7 +52,7 @@ def test_get_capabilities_via_mcp_dispatch(monkeypatch: pytest.MonkeyPatch) -> N
     result = client.call_tool("get_capabilities", {})
     assert "tools" in result
     assert "get_capabilities" in result["tools"]
-    assert "file_tool.read_file" in result["tools"]
+    assert "vector_tool.search" in result["tools"]
     assert "sql_tool.explain_query" in result["tools"]
     assert "vector_tool.get_by_ids" in result["tools"]
     assert "kg_tool.get_node_by_id" in result["tools"]

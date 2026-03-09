@@ -8,9 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
-from util.trace_log import trace
 from util import interaction_log
-from util.log_format import log_agent_section, struct_log
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
@@ -92,9 +90,7 @@ class WebSearcherAgent(BaseAgent):
             },
         )
         if message.performative == Performative.REQUEST:
-            log_agent_section(logger, "websearcher")
-            struct_log(logger, logging.INFO, "agent.websearcher.start")
-        query = content.get("query") or fund
+            query = content.get("query") or fund
 
         # When LLM is available, try tool selection first; fall back to content-based dispatch if empty/fail
         if self._llm_client is not None:
@@ -134,7 +130,6 @@ class WebSearcherAgent(BaseAgent):
                         reply_content = dict(reply_content)
                         reply_content["summary"] = summary
                     self._ensure_timestamp(reply_content)
-                    struct_log(logger, logging.INFO, "agent.websearcher.done", status="success")
                     self._send_inform_web(message, reply_content, conversation_id)
                     interaction_log.log_call(
                         "agents.websearch_agent.WebSearcherAgent.handle_message",
@@ -142,13 +137,6 @@ class WebSearcherAgent(BaseAgent):
                     )
                     return
         # Fallback: content-based dispatch
-        trace(
-            10,
-            "websearcher_request_received",
-            in_={"conversation_id": conversation_id, "fund": fund},
-            out="ok",
-            next_="fetch market, sentiment, regulatory",
-        )
         if self.conversation_manager and conversation_id:
             self.conversation_manager.append_flow(
                 conversation_id,
@@ -181,7 +169,6 @@ class WebSearcherAgent(BaseAgent):
             if reply_content.get(k)
         )
         status = "limited_data" if has_errors else "success"
-        struct_log(logger, logging.INFO, "agent.websearcher.done", status=status)
         reply_to = getattr(message, "reply_to", None) or message.sender
         reply = ACLMessage(
             performative=Performative.INFORM,
@@ -195,13 +182,6 @@ class WebSearcherAgent(BaseAgent):
         interaction_log.log_call(
             "agents.websearch_agent.WebSearcherAgent.handle_message",
             result={"INFORM": "sent to planner"},
-        )
-        trace(
-            10,
-            "websearcher_inform_sent",
-            in_={"conversation_id": conversation_id},
-            out="sent",
-            next_="planner receives",
         )
         if self.conversation_manager and conversation_id:
             self.conversation_manager.append_flow(
@@ -264,7 +244,6 @@ class WebSearcherAgent(BaseAgent):
             "agents.websearch_agent.WebSearcherAgent.handle_message",
             result={"INFORM": "sent to planner"},
         )
-        trace(10, "websearcher_inform_sent", in_={"conversation_id": conversation_id}, out="sent", next_="planner receives")
         if self.conversation_manager and conversation_id:
             self.conversation_manager.append_flow(
                 conversation_id,

@@ -8,9 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
-from util.trace_log import trace
 from util import interaction_log
-from util.log_format import log_agent_section, struct_log
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
@@ -92,9 +90,7 @@ class AnalystAgent(BaseAgent):
             },
         )
         if message.performative == Performative.REQUEST:
-            log_agent_section(logger, "analyst")
-            struct_log(logger, logging.INFO, "agent.analyst.start")
-        query = content.get("query") or ""
+            query = content.get("query") or ""
 
         # When LLM is available, try tool selection first; fall back to content-based if empty/fail
         if self._llm_client is not None:
@@ -146,7 +142,6 @@ class AnalystAgent(BaseAgent):
                         else:
                             result = {"analysis": result, "summary": summary}
                     status = "partial" if (isinstance(result, dict) and (result.get("confidence") or 0) < self._analyst_confidence_threshold) else "success"
-                    struct_log(logger, logging.INFO, "agent.analyst.done", status=status)
                     self._send_inform_analyst(message, result, conversation_id)
                     interaction_log.log_call(
                         "agents.analyst_agent.AnalystAgent.handle_message",
@@ -165,13 +160,6 @@ class AnalystAgent(BaseAgent):
             structured_data = {"data": structured_data}
         if not isinstance(market_data, dict):
             market_data = {"data": market_data}
-        trace(
-            11,
-            "analyst_request_received",
-            in_={"conversation_id": conversation_id},
-            out="ok",
-            next_="analyze()",
-        )
         if self.conversation_manager and conversation_id:
             self.conversation_manager.append_flow(
                 conversation_id,
@@ -195,15 +183,7 @@ class AnalystAgent(BaseAgent):
                 result = {"analysis": result, "summary": summary}
         confidence = result.get("confidence")
         keys = list(result.keys()) if isinstance(result, dict) else []
-        trace(
-            11,
-            "analyst_analyze_done",
-            in_={"conversation_id": conversation_id},
-            out=f"confidence={confidence} keys={keys}",
-            next_="send INFORM to planner",
-        )
         status = "partial" if (confidence or 0) < self._analyst_confidence_threshold else "success"
-        struct_log(logger, logging.INFO, "agent.analyst.done", status=status)
         reply_to = getattr(message, "reply_to", None) or message.sender
         reply = ACLMessage(
             performative=Performative.INFORM,
@@ -217,13 +197,6 @@ class AnalystAgent(BaseAgent):
         interaction_log.log_call(
             "agents.analyst_agent.AnalystAgent.handle_message",
             result={"INFORM": "sent to planner"},
-        )
-        trace(
-            11,
-            "analyst_inform_sent",
-            in_={"conversation_id": conversation_id},
-            out="sent",
-            next_="planner receives",
         )
         if self.conversation_manager and conversation_id:
             conf = result.get("confidence")
@@ -269,7 +242,6 @@ class AnalystAgent(BaseAgent):
             "agents.analyst_agent.AnalystAgent.handle_message",
             result={"INFORM": "sent to planner"},
         )
-        trace(11, "analyst_inform_sent", in_={"conversation_id": conversation_id}, out="sent", next_="planner receives")
         if self.conversation_manager and conversation_id:
             conf = result.get("confidence")
             self.conversation_manager.append_flow(

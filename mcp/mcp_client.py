@@ -42,12 +42,15 @@ class MCPClient:
         start = time.perf_counter()
         result = self._server.dispatch(tool_name, payload)
         duration_ms = (time.perf_counter() - start) * 1000.0
+        
         # Build result summary for logging (keys, size, error if present)
         result_summary: dict = {}
+
         if isinstance(result, dict):
             result_summary["result_keys"] = list(result.keys())
             if "error" in result:
                 result_summary["error"] = str(result.get("error", ""))[:200]
+            # build the result summary
             for k in ("documents", "rows", "content"):
                 if k in result and result[k] is not None:
                     val = result[k]

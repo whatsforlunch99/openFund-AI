@@ -18,8 +18,6 @@ import pandas as pd
 import requests
 from dateutil.relativedelta import relativedelta
 
-from util.log_format import struct_log
-
 logger = logging.getLogger(__name__)
 
 
@@ -515,14 +513,6 @@ def _route_stock_data(symbol: str, start_date: str, end_date: str) -> dict:
     try:
         return get_stock_data_av(symbol, start_date, end_date)
     except AlphaVantageRateLimitError as e:
-        struct_log(
-            logger,
-            logging.WARNING,
-            "agent.websearcher.api",
-            provider="alpha_vantage",
-            error="rate_limit_exceeded",
-            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
-        )
         _mark_av_rate_limited(str(e))
         return {"error": f"Market data unavailable: {e}"}
     except Exception as e:
@@ -540,14 +530,6 @@ def _route_fundamentals(symbol: str) -> dict:
     try:
         return get_fundamentals_av(symbol)
     except AlphaVantageRateLimitError as e:
-        struct_log(
-            logger,
-            logging.WARNING,
-            "agent.websearcher.api",
-            provider="alpha_vantage",
-            error="rate_limit_exceeded",
-            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
-        )
         _mark_av_rate_limited(str(e))
         return {"error": f"Fundamentals unavailable: {e}"}
     except Exception as e:
@@ -563,14 +545,6 @@ def _route_balance_sheet(symbol: str, freq: str) -> dict:
     try:
         return get_balance_sheet_av(symbol, freq)
     except AlphaVantageRateLimitError as e:
-        struct_log(
-            logger,
-            logging.WARNING,
-            "agent.websearcher.api",
-            provider="alpha_vantage",
-            error="rate_limit_exceeded",
-            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
-        )
         _mark_av_rate_limited(str(e))
         return {"error": f"Balance sheet unavailable: {e}"}
     except Exception as e:
@@ -586,14 +560,6 @@ def _route_cashflow(symbol: str, freq: str) -> dict:
     try:
         return get_cashflow_av(symbol, freq)
     except AlphaVantageRateLimitError as e:
-        struct_log(
-            logger,
-            logging.WARNING,
-            "agent.websearcher.api",
-            provider="alpha_vantage",
-            error="rate_limit_exceeded",
-            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
-        )
         _mark_av_rate_limited(str(e))
         return {"error": f"Cash flow unavailable: {e}"}
     except Exception as e:
@@ -609,14 +575,6 @@ def _route_income_statement(symbol: str, freq: str) -> dict:
     try:
         return get_income_statement_av(symbol, freq)
     except AlphaVantageRateLimitError as e:
-        struct_log(
-            logger,
-            logging.WARNING,
-            "agent.websearcher.api",
-            provider="alpha_vantage",
-            error="rate_limit_exceeded",
-            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
-        )
         _mark_av_rate_limited(str(e))
         return {"error": f"Income statement unavailable: {e}"}
     except Exception as e:
@@ -639,14 +597,6 @@ def _route_news(
     try:
         return get_news_av(symbol, start_date, end_date)
     except AlphaVantageRateLimitError as e:
-        struct_log(
-            logger,
-            logging.WARNING,
-            "agent.websearcher.api",
-            provider="alpha_vantage",
-            error="rate_limit_exceeded",
-            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
-        )
         _mark_av_rate_limited(str(e))
         return {"error": f"News unavailable: {e}"}
     except Exception as e:
@@ -662,14 +612,6 @@ def _route_global_news(as_of_date: str, look_back_days: int, limit: int) -> dict
     try:
         return get_global_news_av(as_of_date, look_back_days, limit or 50)
     except AlphaVantageRateLimitError as e:
-        struct_log(
-            logger,
-            logging.WARNING,
-            "agent.websearcher.api",
-            provider="alpha_vantage",
-            error="rate_limit_exceeded",
-            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
-        )
         _mark_av_rate_limited(str(e))
         return {"error": f"Global news unavailable: {e}"}
     except Exception as e:
@@ -685,16 +627,31 @@ def _route_insider_transactions(symbol: str) -> dict:
     try:
         return get_insider_transactions_av(symbol)
     except AlphaVantageRateLimitError as e:
-        struct_log(
-            logger,
-            logging.WARNING,
-            "agent.websearcher.api",
-            provider="alpha_vantage",
-            error="rate_limit_exceeded",
-            cooldown=f"{_AV_RATE_LIMIT_COOLDOWN_SECONDS}s",
-        )
         _mark_av_rate_limited(str(e))
         return {"error": f"Insider transactions unavailable: {e}"}
     except Exception as e:
         logger.debug("Alpha Vantage insider transactions failed: %s", e)
         return {"error": f"Insider transactions unavailable: {e}"}
+
+
+# MCP registration: (name, func_name, required_keys, arg_specs, result_key).
+# Use (param, [key1, key2], default, None) for symbol/ticker alias.
+TOOL_SPECS: list[tuple[str, str, list[str], list, str | None]] = [
+    ("market_tool.get_fundamentals", "_route_fundamentals", [], [("symbol", ["symbol", "ticker"], "", None)], None),
+    ("market_tool.get_stock_data", "_route_stock_data", [], [("symbol", ["symbol", "ticker"], "", None), ("start_date", ["start_date"], "", None), ("end_date", ["end_date"], "", None)], None),
+    ("market_tool.get_balance_sheet", "_route_balance_sheet", [], [("ticker", ["ticker", "symbol"], "", None), ("freq", ["freq"], "quarterly", None)], None),
+    ("market_tool.get_cashflow", "_route_cashflow", [], [("ticker", ["ticker", "symbol"], "", None), ("freq", ["freq"], "quarterly", None)], None),
+    ("market_tool.get_income_statement", "_route_income_statement", [], [("ticker", ["ticker", "symbol"], "", None), ("freq", ["freq"], "quarterly", None)], None),
+    ("market_tool.get_news", "_route_news", [], [
+        ("symbol", ["symbol", "ticker"], "", None),
+        ("limit", ["limit", "count"], None, None),
+        ("start_date", ["start_date"], None, None),
+        ("end_date", ["end_date"], None, None),
+    ], None),
+    ("market_tool.get_global_news", "_route_global_news", [], [
+        ("as_of_date", ["as_of_date", "curr_date"], "", None),
+        ("look_back_days", ["look_back_days"], 7, int),
+        ("limit", ["limit"], 10, int),
+    ], None),
+    ("market_tool.get_insider_transactions", "_route_insider_transactions", [], [("ticker", ["ticker", "symbol"], "", None)], None),
+]

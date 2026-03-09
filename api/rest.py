@@ -24,22 +24,19 @@ from a2a.conversation_manager import ConversationManager, ConversationState
 from a2a.message_bus import InMemoryMessageBus, MessageBus
 from api.websocket import handle_websocket as ws_handle_websocket
 from safety.safety_gateway import SafetyError, SafetyGateway
-from util.trace_log import trace
 from util import interaction_log
-from util.log_format import struct_log
 
 logger = logging.getLogger(__name__)
 VALID_USER_PROFILES = ("beginner", "long_term", "analyst")
 
 
 class ChatRequest(BaseModel):
-    """POST /chat request body: query required; optional user_profile, user_id, conversation_id, path."""
+    """POST /chat request body: query required; optional user_profile, user_id, conversation_id."""
 
     query: str
     user_profile: str = "beginner"
     user_id: str = ""
     conversation_id: Optional[str] = None
-    path: Optional[str] = None
 
     @field_validator("query")
     @classmethod
@@ -212,6 +209,7 @@ def _verify_password(password: str, encoded_hash: str) -> bool:
     return hmac.compare_digest(actual, expected)
 
 
+# The * means all parameters after it must be passed as keyword arguments, not positional
 def create_app(
     *,
     bus: Optional[MessageBus] = None,
@@ -242,9 +240,10 @@ def create_app(
         FastAPI app instance.
     """
     from config.config import load_config
+    from util import interaction_log as il
 
     cfg = load_config()
-    from util import interaction_log as il
+
 
     il.set_enabled(cfg.interaction_log_enabled)
     effective_timeout = (
@@ -259,15 +258,16 @@ def create_app(
         manager = ConversationManager(bus)
     if safety_gateway is None:
         safety_gateway = SafetyGateway()
-    # Wire MCP server with all tools so agents can call file_tool, vector_tool, market_tool, etc.
+
+    # Wire MCP server with all tools so agents can call vector_tool, market_tool, etc.
     if mcp_client is None:
         from mcp.mcp_client import MCPClient
         from mcp.mcp_server import MCPServer
 
         server = MCPServer()
         server.register_default_tools()
-        struct_log(logger, logging.INFO, "system.mcp_tools", count=len(server._handlers))
         mcp_client = MCPClient(server)
+
     if agents is None:
         from agents.analyst_agent import AnalystAgent
         from agents.librarian_agent import LibrarianAgent
@@ -285,10 +285,11 @@ def create_app(
                 raise RuntimeError(
                     "LLM is required. Set LLM_API_KEY in .env and install: pip install openfund-ai[llm]. See README."
                 ) from e
+
         _model = (cfg.llm_model or "").strip() or "gpt-4o-mini"
         _base = (cfg.llm_base_url or "").strip()
         _provider = "deepseek" if _base and "deepseek" in _base.lower() else "openai"
-        struct_log(logger, logging.INFO, "llm.connection", provider=_provider, status="connected", model=_model)
+
         planner = PlannerAgent(
             "planner", bus, llm_client=llm_client, conversation_manager=manager,
             max_research_rounds=cfg.max_research_rounds,
@@ -328,9 +329,9 @@ def create_app(
             t = threading.Thread(target=agent.run, daemon=True)
             t.start()
 
+    # asynccontextmanager can be used with async functions to close resources cleanly
     @asynccontextmanager
     async def _lifespan(app: FastAPI):
-        struct_log(logger, logging.INFO, "system.ready", status="live")
         yield
 
     app = FastAPI(title="OpenFund-AI REST API", lifespan=_lifespan)
@@ -356,6 +357,8 @@ def create_app(
         """POST /register: create a username account with password and return welcome message."""
         requested = body.username or body.display_name
         user_id = _validate_new_username(requested)
+
+        # if the username is not valid, return a 422 error
         if not user_id:
             return JSONResponse(
                 status_code=422,
@@ -367,13 +370,17 @@ def create_app(
                 },
             )
 
+        # load the users from the users.json file
         users = _load_users()
+
         # Enforce uniqueness across usernames and legacy display_name values.
         if _resolve_user_key(users, user_id) is not None:
             return JSONResponse(
                 status_code=409,
                 content={"detail": f"username '{user_id}' is already registered"},
             )
+
+        # create a new user with the username and password
         users[user_id] = {
             "display_name": user_id,
             "username": user_id,
@@ -381,6 +388,8 @@ def create_app(
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         _save_users(users)
+
+        # return the new user id and username
         return JSONResponse(
             status_code=200,
             content={
@@ -393,18 +402,21 @@ def create_app(
     @app.post("/login")
     def post_login_endpoint(body: LoginRequest) -> JSONResponse:
         """POST /login: verify password by username/user_id and preload memory."""
-        # Read credential store first, then validate password hash.
+        # load the users from the users.json file
         users = _load_users()
         login_name = body.username or body.user_id
         user_key = _resolve_user_key(users, login_name)
+
+        # if the user is not found or the password is incorrect, return a 401 error
         record = users.get(user_key or "")
         if not record or not _verify_password(body.password, str(record.get("password_hash") or "")):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid username/user_id or password"},
             )
+
+        # load the user's conversations
         loaded = manager.load_user_conversations(user_key or "")
-        # Compute compact memory context for planner priming on the next query.
         memory_context = manager.get_user_memory_context(
             user_key or "", max_conversations=3, max_chars=1000
         )
@@ -427,10 +439,10 @@ def create_app(
         user_profile = body.user_profile
         user_id = body.user_id
         conversation_id = body.conversation_id
-        path = body.path
         user_memory = ""
+
+        #  Load persisted history and derive planner memory context before dispatch.
         if user_id:
-            # Load persisted history and derive planner memory context before dispatch.
             manager.load_user_conversations(user_id)
             user_memory = manager.get_user_memory_context(user_id)
 
@@ -443,93 +455,39 @@ def create_app(
             },
         )
 
-        trace(
-            1,
-            "request_validated",
-            in_={
-                "query_len": len(query),
-                "user_profile": user_profile,
-                "user_id": user_id or "(none)",
-                "conversation_id": conversation_id or "(new)",
-            },
-            out="validated body",
-            next_="safety check",
-        )
-
-        # 1. Validate and run safety (guardrails, PII masking)
+        # validate and run safety (guardrails, PII masking)
         try:
             safety_gateway.process_user_input(query)
         except SafetyError as e:
-            trace(2, "safety_failed", out=f"reason={e.reason}", next_="return 400")
             interaction_log.log_call(
                 "api.rest.post_chat_endpoint",
                 result={"status_code": 400, "error": e.reason},
             )
             return JSONResponse(status_code=400, content={"detail": e.reason})
 
-        struct_log(logger, logging.INFO, "pipeline.validation", status="passed")
-        struct_log(logger, logging.INFO, "pipeline.safety", guardrails="passed")
-        trace(
-            2,
-            "safety_passed",
-            in_={"query": "processed"},
-            out="ok",
-            next_="create or get conversation",
-        )
-
-        # 2. Create a new conversation or restore an existing one by conversation_id.
+        # Create or resume conversation: if user_id present, reload and use conversation_id if provided; else new user, create new conversation.
         if conversation_id:
+            # Resume existing conversation (reload from persistence when user is logged in).
             state = manager.get_conversation(conversation_id)
-            if state is None and user_id:
-                # Retry after persistence reload in case conversation was not in memory yet.
-                manager.load_user_conversations(user_id)
-                state = manager.get_conversation(conversation_id)
-            if state is None:
-                trace(
-                    4,
-                    "get_conversation",
-                    in_={"conversation_id": conversation_id},
-                    out="not_found",
-                    next_="return 404",
-                )
-                interaction_log.set_conversation_id(conversation_id)
-                interaction_log.log_call(
-                    "api.rest.post_chat_endpoint",
-                    result={"status_code": 404, "error": "Conversation not found"},
-                )
-                return JSONResponse(
-                    status_code=404,
-                    content={"detail": "Conversation not found"},
-                )
             interaction_log.set_conversation_id(conversation_id)
-            trace(
-                4,
-                "get_conversation",
-                in_={"conversation_id": conversation_id},
-                out=f"found status={state.status}",
-                next_="send to planner",
+
+            manager.append_flow(
+                conversation_id,
+                {
+                    "step": "reload_conversation",
+                    "message": "Conversation loaded. You can ask your question below.",
+                    "detail": {
+                        "user_id": user_id or "anonymous",
+                        "conversation_id": conversation_id,
+                    },
+                },
             )
         else:
+            # New user or new conversation: create one.
             conversation_id = manager.create_conversation(user_id, query)
             state = manager.get_conversation(conversation_id)
-            if state is None:
-                interaction_log.set_conversation_id(conversation_id)
-                interaction_log.log_call(
-                    "api.rest.post_chat_endpoint",
-                    result={"status_code": 500, "error": "Failed to create conversation"},
-                )
-                return JSONResponse(
-                    status_code=500,
-                    content={"detail": "Failed to create conversation"},
-                )
+
             interaction_log.set_conversation_id(conversation_id)
-            trace(
-                3,
-                "conversation_created",
-                in_={"user_id": user_id, "initial_query": query[:50]},
-                out=f"conversation_id={conversation_id}",
-                next_="append flow, then send to planner",
-            )
             display = f" (welcome, user {user_id})" if user_id else ""
             manager.append_flow(
                 conversation_id,
@@ -543,18 +501,16 @@ def create_app(
                 },
             )
 
-        struct_log(logger, logging.INFO, "request.received", conversation_id=conversation_id, query=query, profile=user_profile)
-
         # 3. Build planner payload and dispatch REQUEST into the A2A message bus.
         content = {
             "query": query,
             "conversation_id": conversation_id,
             "user_profile": user_profile,
         }
+
         if user_memory:
             content["user_memory"] = user_memory
-        if path is not None:
-            content["path"] = path
+
         bus.send(
             ACLMessage(
                 performative=Performative.REQUEST,
@@ -564,17 +520,7 @@ def create_app(
                 conversation_id=conversation_id,
             )
         )
-        trace(
-            5,
-            "request_sent_to_planner",
-            in_={
-                "conversation_id": conversation_id,
-                "user_profile": user_profile,
-                "query_preview": query[:50],
-            },
-            out="sent",
-            next_="wait completion_event",
-        )
+
         manager.append_flow(
             conversation_id,
             {
@@ -588,13 +534,6 @@ def create_app(
         timeout = app.state.e2e_timeout_seconds
         signaled = state.completion_event.wait(timeout=timeout)
         if not signaled:
-            trace(
-                14,
-                "timeout",
-                in_={"conversation_id": conversation_id, "timeout_seconds": timeout},
-                out="no final_response",
-                next_="return 408",
-            )
             interaction_log.log_call(
                 "api.rest.post_chat_endpoint",
                 result={"status_code": 408, "status": "timeout", "response_len": None},
@@ -608,32 +547,9 @@ def create_app(
                     "flow": manager.get_flow_events(conversation_id),
                 },
             )
-        trace(
-            15,
-            "response_ready",
-            in_={"conversation_id": conversation_id},
-            out=f"status={state.status} response_len={len(state.final_response or '')}",
-            next_="return 200",
-        )
+
+        # get the flow events
         flow = manager.get_flow_events(conversation_id)
-        now_utc = datetime.now(timezone.utc)
-        duration_s = (now_utc - state.created_at).total_seconds() if state.created_at else 0.0
-        struct_log(
-            logger,
-            logging.INFO,
-            "response.generated",
-            length=len(state.final_response or ""),
-            profile=user_profile,
-            formatting="success",
-        )
-        struct_log(
-            logger,
-            logging.INFO,
-            "conversation.closed",
-            conversation_id=conversation_id,
-            duration=f"{duration_s:.1f}s",
-            status="completed",
-        )
         interaction_log.log_call(
             "api.rest.post_chat_endpoint",
             result={
@@ -642,6 +558,7 @@ def create_app(
                 "response_len": len(state.final_response or ""),
             },
         )
+
         return JSONResponse(
             status_code=200,
             content={
@@ -661,6 +578,7 @@ def create_app(
                 status_code=404,
                 content={"detail": "Conversation not found"},
             )
+        # serialize the conversation state to JSON
         payload = _state_to_json(state)
         return JSONResponse(status_code=200, content=payload)
 
@@ -692,36 +610,3 @@ def _state_to_json(state: ConversationState) -> dict[str, Any]:
         "flow": getattr(state, "flow_events", []),
     }
 
-
-def post_chat(body: dict) -> dict:
-    """
-    Handle POST /chat (or POST /research).
-
-    Flow: validate body -> SafetyGateway.process_user_input ->
-    create/load conversation -> send ACLMessage to Planner ->
-    wait for response (or stream) -> return.
-
-    Args:
-        body: Request body with 'query'; optional 'conversation_id', 'user_profile'.
-
-    Returns:
-        Response dict with conversation_id, message_id, status, response.
-    """
-    raise NotImplementedError(
-        "Use FastAPI TestClient with create_app() or POST /chat endpoint."
-    )
-
-
-def get_conversation(conversation_id: str) -> Optional[dict]:
-    """
-    Handle GET /conversations/{id}.
-
-    Args:
-        conversation_id: Conversation to fetch.
-
-    Returns:
-        Conversation state/messages or None if not found.
-    """
-    raise NotImplementedError(
-        "Use FastAPI TestClient with create_app() or GET /conversations/{id} endpoint."
-    )

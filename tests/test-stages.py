@@ -14,7 +14,48 @@ import uuid
 from io import StringIO
 from unittest.mock import patch
 
+from typing import Optional
+
 import pytest
+
+
+# --- Mock LLM client for tests (no API key / no live LLM) ---
+
+def _default_mock_steps() -> list:
+    return [
+        {"agent": "librarian", "params": {"query": ""}},
+        {"agent": "websearcher", "params": {"query": ""}},
+        {"agent": "analyst", "params": {"query": ""}},
+    ]
+
+
+class MockLLMClient:
+    """Minimal LLMClient implementation for tests: fixed steps, complete passthrough, select_tools returns []."""
+
+    def __init__(self, steps: Optional[list] = None) -> None:
+        self._steps = steps if steps is not None else _default_mock_steps()
+
+    def decompose_to_steps(self, query: str, memory_context: str = "") -> list:
+        result = []
+        for s in self._steps:
+            step = dict(s)
+            params = dict(step.get("params") or {})
+            params["query"] = query
+            step["params"] = params
+            result.append(step)
+        return result
+
+    def complete(self, system_prompt: str, user_content: str) -> str:
+        return user_content
+
+    def select_tools(
+        self,
+        system_prompt: str,
+        user_content: str,
+        tool_descriptions: str,
+    ) -> list:
+        return []
+
 
 # --- Stage 1.1: Config and minimal main ---
 
@@ -233,7 +274,7 @@ def test_stage_1_3() -> None:
 
 
 def test_stage_2_1() -> None:
-    """Stage 2.1: MCP server and client, file_tool.read_file."""
+    """Stage 2.1: MCP server and client, vector_tool.search."""
     try:
         from mcp.mcp_client import MCPClient
         from mcp.mcp_server import MCPServer
@@ -244,27 +285,15 @@ def test_stage_2_1() -> None:
     server.register_default_tools()
     client = MCPClient(server)
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-        f.write("hello stage 2.1")
-        path = f.name
-    try:
-        result = client.call_tool("file_tool.read_file", {"path": path})
-        assert isinstance(result, dict)
-        assert "content" in result
-        assert result["content"] == "hello stage 2.1"
-        assert result.get("path") == path
-    finally:
-        os.unlink(path)
+    result = client.call_tool("vector_tool.search", {"query": "test query", "top_k": 2})
+    assert isinstance(result, dict)
+    assert "documents" in result or "error" in result
+    if "documents" in result:
+        assert isinstance(result["documents"], list)
 
-    missing_result = client.call_tool(
-        "file_tool.read_file", {"path": "/nonexistent/file.txt"}
-    )
+    missing_result = client.call_tool("vector_tool.search", {})
     assert isinstance(missing_result, dict)
-    assert (
-        "error" in missing_result
-        or "content" not in missing_result
-        or missing_result.get("content") is None
-    )
+    assert "error" in missing_result or "documents" in missing_result
 
 
 def test_stage_2_2_trading_tools() -> None:
@@ -568,7 +597,7 @@ def test_stage_3_1() -> None:
 
 
 def test_stage_3_2() -> None:
-    """Stage 3.2: LibrarianAgent (Slice 3 subset) — file_tool.read_file."""
+    """Stage 3.2: LibrarianAgent (Slice 3 subset) — vector_tool.search."""
     try:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
@@ -580,11 +609,11 @@ def test_stage_3_2() -> None:
 
     server = MCPServer()
     server.register_tool(
-        "file_tool.read_file",
+        "vector_tool.search",
         lambda p: (
-            {"content": "hello from file", "path": p["path"]}
-            if "path" in p
-            else {"error": "Missing path"}
+            {"documents": [{"id": "1", "content": "hello from vector", "score": 0.9}]}
+            if "query" in p
+            else {"error": "Missing query"}
         ),
     )
     client = MCPClient(server)
@@ -598,7 +627,7 @@ def test_stage_3_2() -> None:
         performative=Performative.REQUEST,
         sender="planner",
         receiver="librarian",
-        content={"query": "read file", "path": "/tmp/test.txt"},
+        content={"vector_query": "test", "query": "test"},
         conversation_id=cid,
         reply_to="planner",
     )
@@ -609,13 +638,9 @@ def test_stage_3_2() -> None:
     assert reply.performative == Performative.INFORM
     assert reply.sender == "librarian"
     assert isinstance(reply.content, dict)
-    assert (
-        "content" in reply.content
-        or "result" in reply.content
-        or "data" in reply.content
-    )
-    if "content" in reply.content:
-        assert reply.content["content"] == "hello from file"
+    assert "documents" in reply.content or "error" in reply.content
+    if "documents" in reply.content and reply.content["documents"]:
+        assert reply.content["documents"][0].get("content") == "hello from vector"
 
 
 def test_stage_3_3() -> None:
@@ -926,10 +951,9 @@ def test_stage_7_1() -> None:
     from fastapi.testclient import TestClient
 
     from api.rest import create_app
-    from llm.static_client import StaticLLMClient
 
-    # Use static LLM so test does not require LLM_API_KEY
-    app = create_app(timeout_seconds=5, llm_client=StaticLLMClient())
+    # Use mock LLM so test does not require LLM_API_KEY
+    app = create_app(timeout_seconds=5, llm_client=MockLLMClient())
     client = TestClient(app)
 
     # Invalid user_profile is rejected (PRD: invalid profile rejected)
@@ -942,37 +966,30 @@ def test_stage_7_1() -> None:
     )
     assert r_bad.status_code == 422, r_bad.text
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-        f.write("Fund X is a sample fund.")
-        path = f.name
-    try:
-        r = client.post(
-            "/chat",
-            json={
-                "query": "What is fund X?",
-                "user_profile": "beginner",
-                "path": path,
-            },
-        )
-        assert r.status_code == 200, r.text
-        data = r.json()
-        assert "conversation_id" in data
-        assert "status" in data
-        assert "response" in data
-        cid = data["conversation_id"]
+    r = client.post(
+        "/chat",
+        json={
+            "query": "What is fund X?",
+            "user_profile": "beginner",
+        },
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "conversation_id" in data
+    assert "status" in data
+    assert "response" in data
+    cid = data["conversation_id"]
 
-        r2 = client.get(f"/conversations/{cid}")
-        assert r2.status_code == 200, r2.text
-        state = r2.json()
-        assert state.get("id") == cid
-        assert "user_id" in state
-        assert state.get("initial_query") == "What is fund X?"
-        assert "messages" in state
-        assert state.get("status") in ("active", "complete", "error")
-        assert "final_response" in state
-        assert "created_at" in state
-    finally:
-        os.unlink(path)
+    r2 = client.get(f"/conversations/{cid}")
+    assert r2.status_code == 200, r2.text
+    state = r2.json()
+    assert state.get("id") == cid
+    assert "user_id" in state
+    assert state.get("initial_query") == "What is fund X?"
+    assert "messages" in state
+    assert state.get("status") in ("active", "complete", "error")
+    assert "final_response" in state
+    assert "created_at" in state
 
 
 def test_stage_8_1() -> None:
@@ -1002,39 +1019,30 @@ def test_stage_9_1() -> None:
     from fastapi.testclient import TestClient
 
     from api.rest import create_app
-    from llm.static_client import StaticLLMClient
 
-    app = create_app(timeout_seconds=5, llm_client=StaticLLMClient())
+    app = create_app(timeout_seconds=5, llm_client=MockLLMClient())
     client = TestClient(app)
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-        f.write("What is fund X? (stage 9.1)")
-        path = f.name
-    try:
-        with client.websocket_connect("/ws") as ws:
-            ws.send_json(
-                {
-                    "query": "What is fund X?",
-                    "user_profile": "beginner",
-                    "path": path,
-                }
-            )
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json(
+            {
+                "query": "What is fund X?",
+                "user_profile": "beginner",
+            }
+        )
+        data = ws.receive_json()
+        while data.get("event") == "flow":
             data = ws.receive_json()
-            while data.get("event") == "flow":
-                data = ws.receive_json()
-        assert "event" in data
-        assert data["event"] in ("response", "timeout", "error")
-        if data["event"] == "response":
-            assert "conversation_id" in data
-            assert "response" in data
-        elif data["event"] == "timeout":
-            assert "conversation_id" in data
-            assert data.get("response") is None
-        else:
-            assert "detail" in data
-    finally:
-        if os.path.exists(path):
-            os.unlink(path)
+    assert "event" in data
+    assert data["event"] in ("response", "timeout", "error")
+    if data["event"] == "response":
+        assert "conversation_id" in data
+        assert "response" in data
+    elif data["event"] == "timeout":
+        assert "conversation_id" in data
+        assert data.get("response") is None
+    else:
+        assert "detail" in data
 
 
 def test_stage_10_1() -> None:
@@ -1055,18 +1063,17 @@ def test_stage_10_1() -> None:
 
 
 def test_stage_10_2_llm_static_mock() -> None:
-    """Stage 10.2: get_llm_client requires LLM_API_KEY; Planner with StaticLLMClient returns runnable steps."""
+    """Stage 10.2: get_llm_client requires LLM_API_KEY; Planner with MockLLMClient returns runnable steps."""
     from config.config import Config, load_config
     from llm.factory import get_llm_client
-    from llm.static_client import StaticLLMClient
 
     cfg = load_config()
     cfg_no_key = Config(**{**vars(cfg), "llm_api_key": None})
     with pytest.raises((ValueError, ImportError)):
         get_llm_client(cfg_no_key)
 
-    # Planner with StaticLLMClient (e.g. for tests/E2E) still produces runnable steps
-    client = StaticLLMClient()
+    # Planner with MockLLMClient (e.g. for tests/E2E) still produces runnable steps
+    client = MockLLMClient()
     steps = client.decompose_to_steps("What is fund X?")
     assert isinstance(steps, list)
     assert len(steps) == 3
@@ -1099,7 +1106,7 @@ def test_stage_10_2_planner_uses_prompts_module() -> None:
     mock_create.return_value.choices = [
         MagicMock(
             message=MagicMock(
-                content='[{"agent":"librarian","action":"read_file","params":{"query":"q"}}]'
+                content='[{"agent":"librarian","action":"search","params":{"query":"q"}}]'
             )
         )
     ]
@@ -1116,11 +1123,9 @@ def test_stage_10_2_planner_uses_prompts_module() -> None:
     assert system_content == PLANNER_DECOMPOSE
 
 
-def test_stage_10_2_static_client_complete_passthrough() -> None:
-    """Stage 10.2: StaticLLMClient.complete returns user_content unchanged."""
-    from llm.static_client import StaticLLMClient
-
-    client = StaticLLMClient()
+def test_stage_10_2_mock_llm_complete_passthrough() -> None:
+    """Stage 10.2: MockLLMClient.complete returns user_content unchanged."""
+    client = MockLLMClient()
     out = client.complete("system prompt", "user content")
     assert out == "user content"
 
@@ -1192,8 +1197,8 @@ def test_stage_10_2_librarian_llm_prompt() -> None:
 
     server = MCPServer()
     server.register_tool(
-        "file_tool.read_file",
-        lambda p: {"content": "file content", "path": p.get("path", "")},
+        "vector_tool.search",
+        lambda p: {"documents": [{"id": "1", "content": "vector content", "score": 0.9}]},
     )
     client = MCPClient(server)
     bus = InMemoryMessageBus()
@@ -1204,7 +1209,7 @@ def test_stage_10_2_librarian_llm_prompt() -> None:
         performative=Performative.REQUEST,
         sender="planner",
         receiver="librarian",
-        content={"query": "fund X", "path": "/tmp/x.txt"},
+        content={"query": "fund X", "vector_query": "fund X"},
         conversation_id="cid-lib",
         reply_to="planner",
     )
@@ -1214,7 +1219,7 @@ def test_stage_10_2_librarian_llm_prompt() -> None:
     call_args = mock_llm.complete.call_args[0]
     assert len(call_args) >= 2
     assert call_args[0] == LIBRARIAN_SYSTEM
-    assert "fund X" in call_args[1] or "/tmp/x.txt" in call_args[1]
+    assert "fund X" in call_args[1]
 
 
 def test_stage_10_2_websearcher_llm_prompt() -> None:
@@ -1314,10 +1319,8 @@ def test_stage_10_2_analyst_llm_prompt() -> None:
 
 
 def test_stage_10_2_static_client_select_tools_returns_empty() -> None:
-    """Stage 10.2: StaticLLMClient.select_tools returns [] so specialists fall back to content-key dispatch."""
-    from llm.static_client import StaticLLMClient
-
-    client = StaticLLMClient()
+    """Stage 10.2: MockLLMClient.select_tools returns [] so specialists fall back to content-key dispatch."""
+    client = MockLLMClient()
     tool_calls = client.select_tools("system", "user", "tool list")
     assert tool_calls == []
 
@@ -1327,14 +1330,13 @@ def test_stage_10_2_planner_sends_only_to_chosen_agents_with_decomposed_query() 
     from a2a.acl_message import ACLMessage, Performative
     from a2a.message_bus import InMemoryMessageBus
     from agents.planner_agent import PlannerAgent, TaskStep
-    from llm.static_client import StaticLLMClient
 
-    # Custom steps: only librarian and websearcher (no analyst). StaticLLMClient injects user query into params.
+    # Custom steps: only librarian and websearcher (no analyst). MockLLMClient injects user query into params.
     custom_steps = [
         {"agent": "librarian", "params": {"query": "Find NVDA fund facts"}},
         {"agent": "websearcher", "params": {"query": "NVDA stock price and news"}},
     ]
-    client = StaticLLMClient(steps=custom_steps)
+    client = MockLLMClient(steps=custom_steps)
     bus = InMemoryMessageBus()
     for name in ("planner", "librarian", "websearcher", "analyst"):
         bus.register_agent(name)
@@ -1343,7 +1345,7 @@ def test_stage_10_2_planner_sends_only_to_chosen_agents_with_decomposed_query() 
     steps = planner.decompose_task(user_query)
     assert len(steps) == 2
     assert [s.agent for s in steps] == ["librarian", "websearcher"]
-    # StaticLLMClient overwrites params["query"] with user query
+    # MockLLMClient overwrites params["query"] with user query
     assert steps[0].params.get("query") == user_query
     assert steps[1].params.get("query") == user_query
 
@@ -1364,7 +1366,7 @@ def test_stage_10_2_live_client_parse_steps_per_agent_query() -> None:
     user_query = "Should I invest in AAPL?"
 
     # Two agents with params.query: each step keeps its own query
-    text1 = '[{"agent":"librarian","action":"read_file","params":{"query":"AAPL fundamentals and holdings"}},{"agent":"analyst","action":"analyze","params":{"query":"Risk and return for AAPL"}}]'
+    text1 = '[{"agent":"librarian","action":"search","params":{"query":"AAPL fundamentals and holdings"}},{"agent":"analyst","action":"analyze","params":{"query":"Risk and return for AAPL"}}]'
     steps1 = client._parse_steps(text1, user_query)
     assert steps1 is not None
     assert len(steps1) == 2
@@ -1451,11 +1453,10 @@ def test_stage_10_2_librarian_tool_selection_when_llm_returns_tool_calls() -> No
     mock_llm = MagicMock()
     mock_llm.select_tools = MagicMock(
         return_value=[
-            {"tool": "file_tool.read_file", "payload": {"path": "/data/fund.txt"}},
             {"tool": "vector_tool.search", "payload": {"query": "NVDA", "top_k": 3}},
         ]
     )
-    mock_llm.complete = MagicMock(return_value="Summary of file and vector results.")
+    mock_llm.complete = MagicMock(return_value="Summary of vector results.")
 
     try:
         from a2a.acl_message import ACLMessage, Performative
@@ -1467,10 +1468,6 @@ def test_stage_10_2_librarian_tool_selection_when_llm_returns_tool_calls() -> No
         pytest.skip(f"Stage 10.2 librarian deps not available: {e}")
 
     server = MCPServer()
-    server.register_tool(
-        "file_tool.read_file",
-        lambda p: {"content": "fund content", "path": p.get("path", "")},
-    )
     server.register_tool(
         "vector_tool.search",
         lambda p: {"documents": [{"id": "1", "text": "NVDA doc", "score": 0.9}]},
@@ -1497,7 +1494,7 @@ def test_stage_10_2_librarian_tool_selection_when_llm_returns_tool_calls() -> No
     assert reply.performative == Performative.INFORM
     assert reply.sender == "librarian"
     assert isinstance(reply.content, dict)
-    assert "file" in reply.content or "documents" in reply.content or "content" in reply.content
+    assert "documents" in reply.content or "content" in reply.content
     assert mock_llm.complete.called
 
 

@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
-from util.trace_log import trace
 from util import interaction_log
 
 if TYPE_CHECKING:
@@ -84,19 +83,6 @@ class ResponderAgent(BaseAgent):
             user_profile = user_profile.strip() or "beginner"
         else:
             user_profile = "beginner"
-        trace(
-            13,
-            "responder_inform_received",
-            in_={
-                "conversation_id": conversation_id,
-                "user_profile": user_profile,
-                "draft_len": len(final_response)
-                if isinstance(final_response, str)
-                else 0,
-            },
-            out="ok",
-            next_="format_for_user, check_compliance",
-        )
         if self.conversation_manager and conversation_id:
             self.conversation_manager.append_flow(
                 conversation_id,
@@ -119,21 +105,7 @@ class ResponderAgent(BaseAgent):
                 draft = self._llm_client.complete(RESPONDER_SYSTEM, user_content)
             else:
                 draft = self.output_rail.format_for_user(final_text, user_profile)
-            trace(
-                13,
-                "responder_format_for_user",
-                in_={"conversation_id": conversation_id},
-                out=f"draft_len={len(draft)}",
-                next_="check_compliance",
-            )
             comp = self.output_rail.check_compliance(draft)
-            trace(
-                13,
-                "responder_check_compliance",
-                in_={"conversation_id": conversation_id},
-                out=f"passed={comp.passed}",
-                next_="register_reply or append disclaimer",
-            )
             if not comp.passed:
                 draft = f"{draft}\n\nThis is not investment advice."
             final_response = draft
@@ -151,13 +123,6 @@ class ResponderAgent(BaseAgent):
             conversation_id=conversation_id,
         )
         if self.conversation_manager:
-            trace(
-                13,
-                "responder_register_reply",
-                in_={"conversation_id": conversation_id},
-                out="final_response stored",
-                next_="broadcast_stop",
-            )
             self.conversation_manager.append_flow(
                 conversation_id,
                 {
@@ -165,13 +130,6 @@ class ResponderAgent(BaseAgent):
                     "message": "Your answer is ready.",
                     "detail": {},
                 },
-            )
-            trace(
-                13,
-                "responder_broadcast_stop",
-                in_={"conversation_id": conversation_id},
-                out="STOP sent",
-                next_="agents exit",
             )
             self.conversation_manager.register_reply(conversation_id, reply_msg)
             self.conversation_manager.broadcast_stop(conversation_id)

@@ -389,3 +389,26 @@ def populate_demo() -> tuple[bool, str]:
     if r.get("error"):
         return False, f"PostgreSQL insert failed: {r['error']}"
     return True, "PostgreSQL: created/updated funds, inserted NVDA."
+
+
+def _coerce_analyze(x: Any) -> bool:
+    """Coerce payload 'analyze' to True only when explicitly True (for explain_query)."""
+    return x is True
+
+
+# MCP registration: (name, func_name, required_keys, arg_specs, result_key).
+TOOL_SPECS: list[tuple[str, str, list[str], list, str | None]] = [
+    ("sql_tool.run_query", "run_query", ["query"], [("query", ["query"], "", None), ("params", ["params"], None, None)], None),
+    ("sql_tool.explain_query", "explain_query", [], [
+        ("query", ["query"], "", None),
+        ("params", ["params"], None, None),
+        ("analyze", ["analyze"], False, _coerce_analyze),
+    ], None),
+    ("sql_tool.export_results", "export_results", [], [
+        ("query", ["query"], "", None),
+        ("params", ["params"], None, None),
+        ("format", ["format"], "json", None),
+        ("row_limit", ["row_limit"], 1000, int),
+    ], None),
+    ("sql_tool.connection_health_check", "connection_health_check", [], [], None),
+]

@@ -28,7 +28,7 @@ async def handle_websocket(
     Handle WebSocket /ws connection.
 
     Same flow as POST /chat: receive one JSON message (query required;
-    optional conversation_id, user_profile, user_id, path), validate,
+    optional conversation_id, user_profile, user_id), validate,
     run SafetyGateway.process_user_input, create or get conversation,
     send REQUEST to planner, wait on completion_event, then send one
     event (response, timeout, or error) and close.
@@ -77,7 +77,6 @@ async def handle_websocket(
     conversation_id = body.get("conversation_id")
     if conversation_id is not None:
         conversation_id = str(conversation_id).strip() or None
-    path = body.get("path")
     user_memory = ""
     if user_id:
         # Load persisted user history and compute planner memory context.
@@ -107,35 +106,23 @@ async def handle_websocket(
 
     if conversation_id:
         state = manager.get_conversation(conversation_id)
-        if state is None and user_id:
-            manager.load_user_conversations(user_id)
-            state = manager.get_conversation(conversation_id)
-        if state is None:
-            interaction_log.set_conversation_id(conversation_id)
-            interaction_log.log_call(
-                "api.websocket.handle_websocket",
-                result={"event": "error", "error": "Conversation not found"},
-            )
-            await websocket.send_json(
-                {"event": "error", "detail": "Conversation not found"}
-            )
-            await websocket.close()
-            return
+
         interaction_log.set_conversation_id(conversation_id)
+        manager.append_flow(
+            conversation_id,
+            {
+                "step": "reload_conversation",
+                "message": "Conversation loaded. You can ask your question below.",
+                "detail": {
+                    "user_id": user_id or "anonymous",
+                    "conversation_id": conversation_id,
+                },
+            },
+        )
     else:
         conversation_id = manager.create_conversation(user_id, query)
         state = manager.get_conversation(conversation_id)
-        if state is None:
-            interaction_log.set_conversation_id(conversation_id)
-            interaction_log.log_call(
-                "api.websocket.handle_websocket",
-                result={"event": "error", "error": "Failed to create conversation"},
-            )
-            await websocket.send_json(
-                {"event": "error", "detail": "Failed to create conversation"}
-            )
-            await websocket.close()
-            return
+
         interaction_log.set_conversation_id(conversation_id)
         display = f" (welcome, user {user_id})" if user_id else ""
         manager.append_flow(
@@ -158,8 +145,6 @@ async def handle_websocket(
     }
     if user_memory:
         content["user_memory"] = user_memory
-    if path is not None:
-        content["path"] = path
 
     bus.send(
         ACLMessage(
@@ -186,20 +171,26 @@ async def handle_websocket(
     signaled = False
     # Poll completion_event in executor so async loop stays responsive; stream flow as it arrives
     while (time.monotonic() - start) < timeout_seconds:
-        # Compute delta flow slice and stream only unseen events.
+
+        # Compute delta flow slice and stream only new events.
         flow = manager.get_flow_events(conversation_id)
         for i in range(sent_count, len(flow)):
             await websocket.send_json({"event": "flow", **flow[i]})
         sent_count = len(flow)
+
         # Poll completion_event using a short blocking window in executor.
         remaining = timeout_seconds - (time.monotonic() - start)
         if remaining <= 0:
             break
+
+        # wait for the completion event
         wait_time = min(COMPLETION_POLL_INTERVAL, remaining)
         def _wait() -> bool:
             return state.completion_event.wait(timeout=wait_time)
 
         signaled = await loop.run_in_executor(None, _wait)
+
+        # if the completion event is signaled, break the loop
         if signaled:
             break
         await asyncio.sleep(FLOW_POLL_INTERVAL)

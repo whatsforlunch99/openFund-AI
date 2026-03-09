@@ -1,8 +1,9 @@
-"""Tool descriptions per agent for LLM tool selection. Mirrors docs/agent-tools-reference.md.
+"""Tool descriptions per agent for LLM tool selection.
 
-The allowed tool sets and descriptions here are the single source of truth in code.
-Any change to the "Summary: tools available per agent" table in docs/agent-tools-reference.md
-should be reflected here (and vice versa).
+Tools and payload parameters are derived from mcp/tools/*.py and
+mcp/mcp_server.py register_default_tools(). Kept in sync with
+docs/agent-tools-reference.md. Only tools actually registered in
+MCPServer are listed here (file_tool is not registered).
 """
 
 from __future__ import annotations
@@ -11,55 +12,52 @@ from typing import Any
 
 # ---------------------------------------------------------------------------
 # Single flat dict of all tools: tool_name -> short description.
-# Used to build per-agent prompt strings from the allowed sets below.
+# Payload keys match mcp_server lambdas and tool function signatures.
 # ---------------------------------------------------------------------------
 TOOL_DESCRIPTIONS_BY_NAME: dict[str, str] = {
-    # file_tool
-    "file_tool.read_file": "Read file content. Payload: path (string).",
-    # vector_tool
-    "vector_tool.search": "Semantic search over documents. Payload: query (string), top_k (optional int, default 5), filter (optional dict, e.g. fund_id, source).",
+    # vector_tool (mcp/tools/vector_tool.py)
+    "vector_tool.search": "Semantic search over documents. Payload: query (required), top_k (optional int, default 5), filter (optional dict, e.g. fund_id, source).",
     "vector_tool.get_by_ids": "Retrieve entities by IDs. Payload: ids (list of strings), collection_name (optional). Returns entities.",
-    "vector_tool.upsert_documents": "Insert or update documents in vector collection. Payload: docs (list of dicts with 'id' and 'content').",
+    "vector_tool.upsert_documents": "Insert or update documents in vector collection. Payload: docs (list of dicts with 'id' and 'content'; optional fund_id, source).",
     "vector_tool.health_check": "Check Milvus connectivity. Payload: {}.",
-    "vector_tool.create_collection_from_config": "Create a new Milvus collection. Payload: name (string), dimension (optional int), primary_key_field (optional), scalar_fields (optional), index_params (optional).",
-    # kg_tool
+    "vector_tool.create_collection_from_config": "Create a new Milvus collection. Payload: name (string), dimension (optional int, default 384), primary_key_field (optional), scalar_fields (optional), index_params (optional).",
+    # kg_tool (mcp/tools/kg_tool.py)
     "kg_tool.query_graph": "Run Cypher query. Payload: cypher (string), params (optional dict).",
     "kg_tool.get_relations": "Get relationships for an entity (fund/company). Payload: entity (string).",
-    "kg_tool.get_node_by_id": "Look up a node by property. Payload: id_val (string), id_key (optional, default 'id').",
-    "kg_tool.get_neighbors": "Get neighbors of a node. Payload: node_id (string), id_key, direction ('in'|'out'|'both'), relationship_type (optional), limit (optional int).",
+    "kg_tool.get_node_by_id": "Look up a node by property. Payload: id_val or id (string), id_key (optional, default 'id').",
+    "kg_tool.get_neighbors": "Get neighbors of a node. Payload: node_id or id (string), id_key, direction ('in'|'out'|'both'), relationship_type (optional), limit (optional int, default 100).",
     "kg_tool.get_graph_schema": "List node labels and relationship types. Payload: {}.",
-    "kg_tool.shortest_path": "Find shortest path between two nodes. Payload: start_id (string), end_id (string), id_key (optional), relationship_type (optional), max_depth (optional int).",
-    "kg_tool.get_similar_nodes": "Find structurally similar nodes by shared neighbors. Payload: node_id (string), id_key (optional), limit (optional int).",
-    "kg_tool.fulltext_search": "Full-text search via Neo4j index. Payload: index_name (string), query_string (string), limit (optional int).",
-    "kg_tool.bulk_export": "Read-only Cypher export as JSON or CSV. Payload: cypher (string), params (optional), format ('json'|'csv'), row_limit (optional int).",
-    "kg_tool.bulk_create_nodes": "Create/merge nodes. Payload: nodes (list of dicts), label (optional string), id_key (optional string).",
-    # sql_tool
-    "sql_tool.run_query": "Execute SQL on PostgreSQL. Use only tables/columns from the schema in your instructions (e.g. fund_info, fund_performance, fund_holdings with fund_symbol, fund_sector_allocation). Payload: query (string), params (optional).",
+    "kg_tool.shortest_path": "Find shortest path between two nodes. Payload: start_id (string), end_id (string), id_key (optional), relationship_type (optional), max_depth (optional int, default 15).",
+    "kg_tool.get_similar_nodes": "Find structurally similar nodes by shared neighbors. Payload: node_id or id (string), id_key (optional), limit (optional int, default 10).",
+    "kg_tool.fulltext_search": "Full-text search via Neo4j index. Payload: index_name (string), query_string (string), limit (optional int, default 50).",
+    "kg_tool.bulk_export": "Read-only Cypher export as JSON or CSV. Payload: cypher (string), params (optional), format ('json'|'csv'), row_limit (optional int, default 1000).",
+    "kg_tool.bulk_create_nodes": "Create/merge nodes. Payload: nodes (list of dicts), label (optional string), id_key (optional string, default 'id').",
+    # sql_tool (mcp/tools/sql_tool.py)
+    "sql_tool.run_query": "Execute SQL on PostgreSQL. Use only tables/columns from the schema in your instructions. Payload: query (string), params (optional).",
     "sql_tool.explain_query": "Return SQL query plan. Payload: query (string), params (optional), analyze (optional bool).",
-    "sql_tool.export_results": "Run SQL and return JSON/CSV. Use only schema from instructions. Payload: query (string), params (optional), format ('json'|'csv'), row_limit (optional int).",
+    "sql_tool.export_results": "Run read-only SQL and return JSON or CSV. Payload: query (string), params (optional), format ('json'|'csv'), row_limit (optional int, default 1000).",
     "sql_tool.connection_health_check": "Test PostgreSQL connectivity. Payload: {}.",
-    # market_tool
+    # market_tool (mcp/tools/market_tool.py; optional)
     "market_tool.get_fundamentals": "Company fundamentals/overview (vendor-routed). Payload: symbol or ticker (string).",
-    "market_tool.get_stock_data": "OHLCV historical data (vendor-routed). Payload: symbol (string), start_date (yyyy-mm-dd), end_date (yyyy-mm-dd).",
-    "market_tool.get_balance_sheet": "Balance sheet (vendor-routed). Payload: ticker (string), freq (optional 'quarterly'|'annual').",
-    "market_tool.get_cashflow": "Cash flow statement (vendor-routed). Payload: ticker (string), freq (optional).",
-    "market_tool.get_income_statement": "Income statement (vendor-routed). Payload: ticker (string), freq (optional).",
-    "market_tool.get_insider_transactions": "Insider transactions (vendor-routed). Payload: ticker (string).",
-    "market_tool.get_news": "Recent ticker news (vendor-routed). Payload: symbol (string), limit (optional int), start_date, end_date.",
-    "market_tool.get_global_news": "Global/macro financial news (vendor-routed). Payload: as_of_date (optional yyyy-mm-dd), look_back_days (optional int), limit (optional int).",
-    # analyst_tool
-    "analyst_tool.get_indicators": "Technical indicators (SMA, RSI, MACD, etc.). Payload: symbol (string), indicator (e.g. close_50_sma, rsi, macd, boll, atr), as_of_date (yyyy-mm-dd), look_back_days (int).",
-    # capabilities
+    "market_tool.get_stock_data": "OHLCV historical data (vendor-routed). Payload: symbol or ticker (string), start_date (yyyy-mm-dd), end_date (yyyy-mm-dd).",
+    "market_tool.get_balance_sheet": "Balance sheet (vendor-routed). Payload: ticker or symbol (string), freq (optional 'quarterly'|'annual').",
+    "market_tool.get_cashflow": "Cash flow statement (vendor-routed). Payload: ticker or symbol (string), freq (optional).",
+    "market_tool.get_income_statement": "Income statement (vendor-routed). Payload: ticker or symbol (string), freq (optional).",
+    "market_tool.get_insider_transactions": "Insider transactions (vendor-routed). Payload: ticker or symbol (string).",
+    "market_tool.get_news": "Recent ticker news (vendor-routed). Payload: symbol or ticker (string), limit (optional), start_date, end_date.",
+    "market_tool.get_global_news": "Global/macro financial news (vendor-routed). Payload: as_of_date or curr_date (optional yyyy-mm-dd), look_back_days (optional int, default 7), limit (optional int, default 10).",
+    # analyst_tool (mcp/tools/analyst_tool.py; optional)
+    "analyst_tool.get_indicators": "Technical indicators (SMA, RSI, MACD, etc.). Payload: symbol or ticker (string), indicator (e.g. close_50_sma, rsi, macd, boll, atr), as_of_date or curr_date (yyyy-mm-dd), look_back_days (optional int, default 30).",
+    # capabilities (mcp/tools/capabilities.py)
     "get_capabilities": "List registered MCP tools and backend status (neo4j, postgres, milvus). Payload: {}.",
 }
 
 
 # ---------------------------------------------------------------------------
-# Allowed tool name sets per agent — derived from docs/agent-tools-reference.md
-# "Summary: tools available per agent" table.
+# Allowed tool name sets per agent. Must match tools registered in
+# mcp/mcp_server.py register_default_tools() and mcp/tools/*.py.
 # ---------------------------------------------------------------------------
 LIBRARIAN_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
-    "file_tool.read_file",
     "vector_tool.search",
     "vector_tool.get_by_ids",
     "vector_tool.upsert_documents",
@@ -105,7 +103,6 @@ ANALYST_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
 # Each list contains tool names; descriptions are fetched from TOOL_DESCRIPTIONS_BY_NAME.
 # ---------------------------------------------------------------------------
 _LIBRARIAN_TOOL_ORDER: list[str] = [
-    "file_tool.read_file",
     "vector_tool.search",
     "vector_tool.get_by_ids",
     "vector_tool.upsert_documents",

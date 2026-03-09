@@ -4,6 +4,10 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Removed
+
+- **StaticLLMClient and llm/static_client.py:** The static mock LLM client and module were removed. E2E (`main.py --e2e-once`) uses **llm_client=None** when get_llm_client fails; planner and agents use built-in fallbacks. Tests that need a no-API client use a local **MockLLMClient** in tests/test-stages.py.
+
 ### Added
 
 - **Chat CLI login step:** The interactive chat client (`scripts/chat_cli.py`) now prompts for username and password before the chat loop when started via `./scripts/run.sh`. Enter a username and password to log in (POST /login); on 401 you can register (POST /register) with the same credentials (password min 8 chars). Successful login sends `user_id` with every POST /chat request. Press Enter at "Username" to skip and run as anonymous. Use `--no-login` to skip the prompt (e.g. for scripts or tests). docs/user-flow.md and docs/demo.md updated.
@@ -34,6 +38,10 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ### Changed
 
+- **Struct and trace logging removed; interaction_log only:** All uses of `struct_log` and `trace()` have been removed. Structured call logging is now done only via `util/interaction_log` (`log_call` with conversation_id, params, result, duration_ms, sequence). Root log formatting remains via `util/log_format.OpenFundFormatter`. Removed `util/trace_log.py`. Docs (file-structure.md, demo.md) and CHANGELOG updated.
+
+- **File-as-data support removed:** The project no longer uses file reading as a data source. Planner no longer forwards `path` or handles librarian `file` content in _format_final, _conversation_state_snippet, or _format_aggregated_for_sufficiency. Librarian no longer calls `file_tool.read_file` or returns `file` in INFORM content; it uses only vector_query, fund, and sql_query. MCP `file_tool.read_file` is no longer registered; `file_tool` removed from Librarian tool lists in llm/tool_descriptions.py and docs/agent-tools-reference.md. POST /chat and WebSocket /ws no longer document or use `path`. Tests and docs updated (Stage 2.1 uses vector_tool.search; Stage 3.2 uses vector_query; E2E tests no longer pass path).
+
 - **LLM-driven planner decomposition:** The planner now treats the LLM as the single source of truth for which agents to call and what query to pass to each. The PLANNER_DECOMPOSE prompt explicitly instructs the LLM to choose zero, one, two, or three agents and to supply a dedicated query per action. LiveLLMClient._parse_steps accepts per-step query from params.query or a top-level "query" key and only falls back to the user query when neither is present; it returns None on parse failure and [] when the LLM returns a valid empty array. When the LLM returns an empty list, the planner uses a single analyst step so the pipeline does not stall; when the LLM is absent or parse fails, the planner keeps the existing fixed three-step fallback. Tests: test_stage_10_2_live_client_parse_steps_per_agent_query (skipped when openai not installed), test_stage_10_2_planner_empty_list_single_analyst_fallback. docs/backend.md and docs/file-structure.md updated.
 
 - **Market tools: Alpha Vantage default with yfinance fallback:** Default vendor is now **Alpha Vantage** (`MCP_MARKET_VENDOR` and `MCP_INDICATOR_VENDOR` default to `alpha_vantage`; unset or invalid falls back to `yfinance`). All `_route_*` functions catch any Alpha Vantage failure (not only rate limit), log at debug, and fall back to yfinance (or Finnhub where applicable). `get_stock_data_yf` and `get_news_yf` are wired through the same routers (`_route_stock_data`, `_route_news`) so both generic and `_yf` tool names try AV first, then yfinance. `.env.example` and docs/agent-tools-reference.md updated.
@@ -52,7 +60,7 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ### Removed
 
-- (none yet)
+- **file_tool as data source:** `file_tool.read_file` is no longer registered in MCP or offered to the Librarian. The file_tool module remains in the repo but is unused in the agent flow.
 
 ## [0.2.0] - 2025-02-21
 

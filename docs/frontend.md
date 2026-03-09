@@ -1,3 +1,10 @@
-# Frontend Document
+# Frontend
 
-*(No frontend plans yet. This document is reserved for future frontend architecture, UI flows, and implementation notes. When adding a UI later, align with the PRD out-of-scope list and [backend.md](backend.md) REST/WebSocket contracts.)*
+There is no standalone web frontend in this repository.
+
+Current user-facing interfaces are:
+- REST API (`api/rest.py`)
+- WebSocket API (`/ws`)
+- Terminal chat client (`scripts/chat_cli.py`)
+
+If a dedicated frontend is added later, document routes, state model, and build/run commands here.

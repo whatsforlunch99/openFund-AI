@@ -597,3 +597,20 @@ def populate_demo() -> tuple[bool, str]:
             err += " Start Milvus with: ./scripts/start_milvus.sh (the plain 'docker run milvusdb/milvus' does not start the server). Wait ~60s then run populate again."
         return False, f"Milvus failed: {err}"
     return True, f"Milvus: indexed {out.get('indexed', 0)} demo document(s)."
+
+
+# MCP registration: (name, func_name, required_keys, arg_specs, result_key).
+# arg_specs: list of (param_name, payload_keys, default, coerce). coerce = int or callable or None.
+TOOL_SPECS: list[tuple[str, str, list[str], list, str | None]] = [
+    ("vector_tool.search", "search", ["query"], [("query", ["query"], "", None), ("top_k", ["top_k"], 5, int), ("filter", ["filter"], None, None)], "documents"),
+    ("vector_tool.get_by_ids", "get_by_ids", [], [("ids", ["ids"], [], None), ("collection_name", ["collection_name"], None, None)], None),
+    ("vector_tool.upsert_documents", "upsert_documents", [], [("docs", ["docs"], [], None)], None),
+    ("vector_tool.health_check", "health_check", [], [], None),
+    ("vector_tool.create_collection_from_config", "create_collection_from_config", [], [
+        ("name", ["name"], "", None),
+        ("dimension", ["dimension"], 384, int),
+        ("primary_key_field", ["primary_key_field"], "id", None),
+        ("scalar_fields", ["scalar_fields"], None, None),
+        ("index_params", ["index_params"], None, None),
+    ], None),
+]

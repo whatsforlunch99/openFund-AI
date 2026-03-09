@@ -748,3 +748,48 @@ def populate_demo() -> tuple[bool, str]:
             err += " Ensure NEO4J_PASSWORD in .env matches the password you set in Neo4j Browser (http://localhost:7474)."
         return False, f"Neo4j failed: {err}"
     return True, "Neo4j: merged Company NVDA, Sector Technology, IN_SECTOR edge."
+
+
+# MCP registration: (name, func_name, required_keys, arg_specs, result_key).
+# arg_specs: list of (param_name, payload_keys, default, coerce). coerce = int or None.
+TOOL_SPECS: list[tuple[str, str, list[str], list, str | None]] = [
+    ("kg_tool.query_graph", "query_graph", [], [("cypher", ["cypher"], "", None), ("params", ["params"], None, None)], None),
+    ("kg_tool.get_relations", "get_relations", ["entity"], [("entity", ["entity"], "", None)], None),
+    ("kg_tool.get_node_by_id", "get_node_by_id", [], [("id_val", ["id_val", "id"], "", None), ("id_key", ["id_key"], "id", None)], None),
+    ("kg_tool.get_neighbors", "get_neighbors", [], [
+        ("node_id", ["node_id", "id"], "", None),
+        ("id_key", ["id_key"], "id", None),
+        ("direction", ["direction"], "both", None),
+        ("relationship_type", ["relationship_type"], None, None),
+        ("limit", ["limit"], 100, int),
+    ], None),
+    ("kg_tool.get_graph_schema", "get_graph_schema", [], [], None),
+    ("kg_tool.shortest_path", "shortest_path", [], [
+        ("start_id", ["start_id"], "", None),
+        ("end_id", ["end_id"], "", None),
+        ("id_key", ["id_key"], "id", None),
+        ("relationship_type", ["relationship_type"], None, None),
+        ("max_depth", ["max_depth"], 15, int),
+    ], None),
+    ("kg_tool.get_similar_nodes", "get_similar_nodes", [], [
+        ("node_id", ["node_id", "id"], "", None),
+        ("id_key", ["id_key"], "id", None),
+        ("limit", ["limit"], 10, int),
+    ], None),
+    ("kg_tool.fulltext_search", "fulltext_search", [], [
+        ("index_name", ["index_name"], "", None),
+        ("query_string", ["query_string"], "", None),
+        ("limit", ["limit"], 50, int),
+    ], None),
+    ("kg_tool.bulk_export", "bulk_export", [], [
+        ("cypher", ["cypher"], "", None),
+        ("params", ["params"], None, None),
+        ("format", ["format"], "json", None),
+        ("row_limit", ["row_limit"], 1000, int),
+    ], None),
+    ("kg_tool.bulk_create_nodes", "bulk_create_nodes", [], [
+        ("nodes", ["nodes"], [], None),
+        ("label", ["label"], None, None),
+        ("id_key", ["id_key"], "id", None),
+    ], None),
+]

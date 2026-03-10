@@ -11,8 +11,8 @@ from __future__ import annotations
 import pytest
 
 from llm.tool_descriptions import TOOL_DESCRIPTIONS_BY_NAME
-from mcp.mcp_client import MCPClient
-from mcp.mcp_server import MCPServer
+from openfund_mcp.mcp_client import MCPClient
+from openfund_mcp.mcp_server import MCPServer
 
 
 # Minimal payloads per tool (from docs/agent-tools-reference.md sample calls).
@@ -52,7 +52,7 @@ SAMPLE_PAYLOADS: dict[str, dict] = {
 
 @pytest.fixture
 def mcp_client() -> MCPClient:
-    """Build MCP server with default tools and return client."""
+    """Build MCP server with default tools and return client (in-process for tests)."""
     server = MCPServer()
     server.register_default_tools()
     return MCPClient(server)

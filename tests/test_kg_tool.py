@@ -7,7 +7,7 @@ import pytest
 
 def test_get_node_by_id_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, get_node_by_id returns mock node."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_node_by_id("n1")
@@ -18,7 +18,7 @@ def test_get_node_by_id_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -
 
 def test_get_node_by_id_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid id_key returns error."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_node_by_id("n1", id_key="invalid-key")
@@ -29,7 +29,7 @@ def test_get_node_by_id_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_get_neighbors_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, get_neighbors returns mock nodes/relationships."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_neighbors("n1")
@@ -41,7 +41,7 @@ def test_get_neighbors_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_get_neighbors_invalid_direction(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid direction returns error."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_neighbors("n1", direction="invalid")
@@ -51,7 +51,7 @@ def test_get_neighbors_invalid_direction(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_get_neighbors_invalid_relationship_type(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid relationship_type (non-identifier) returns error."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_neighbors("n1", relationship_type="bad-type")
@@ -60,7 +60,7 @@ def test_get_neighbors_invalid_relationship_type(monkeypatch: pytest.MonkeyPatch
 
 def test_get_graph_schema_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, get_graph_schema returns mock labels/types."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_graph_schema()
@@ -72,8 +72,8 @@ def test_get_graph_schema_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch)
 
 def test_get_node_by_id_via_mcp_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
     """MCP dispatch for kg_tool.get_node_by_id with id_val."""
-    from mcp.mcp_client import MCPClient
-    from mcp.mcp_server import MCPServer
+    from openfund_mcp.mcp_client import MCPClient
+    from openfund_mcp.mcp_server import MCPServer
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     server = MCPServer()
@@ -86,8 +86,8 @@ def test_get_node_by_id_via_mcp_dispatch(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_get_capabilities_includes_kg_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_capabilities returns tools list including kg_tool community helpers."""
-    from mcp.mcp_client import MCPClient
-    from mcp.mcp_server import MCPServer
+    from openfund_mcp.mcp_client import MCPClient
+    from openfund_mcp.mcp_server import MCPServer
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
@@ -109,7 +109,7 @@ def test_get_capabilities_includes_kg_tools(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_shortest_path_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, shortest_path returns one mock path."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.shortest_path("a", "b")
@@ -123,7 +123,7 @@ def test_shortest_path_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_shortest_path_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid id_key returns error."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.shortest_path("a", "b", id_key="bad-key")
@@ -133,7 +133,7 @@ def test_shortest_path_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_get_similar_nodes_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, get_similar_nodes returns mock nodes with scores."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_similar_nodes("n1", limit=5)
@@ -145,7 +145,7 @@ def test_get_similar_nodes_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch
 
 def test_get_similar_nodes_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid id_key returns error."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_similar_nodes("n1", id_key="invalid-key")
@@ -155,7 +155,7 @@ def test_get_similar_nodes_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_fulltext_search_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, fulltext_search returns mock nodes."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.fulltext_search("myIndex", "query text", limit=10)
@@ -166,7 +166,7 @@ def test_fulltext_search_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) 
 
 def test_fulltext_search_invalid_index_name(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid index_name (non-identifier) returns error."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.fulltext_search("invalid-index-name", "q")
@@ -176,7 +176,7 @@ def test_fulltext_search_invalid_index_name(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_bulk_export_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, bulk_export returns empty data."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_export("MATCH (n) RETURN n LIMIT 1", format="json")
@@ -188,7 +188,7 @@ def test_bulk_export_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_bulk_export_invalid_cypher_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     """bulk_export rejects cypher that does not start with MATCH or CALL."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_export("MERGE (n {id: 1}) RETURN n")
@@ -198,7 +198,7 @@ def test_bulk_export_invalid_cypher_rejected(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_bulk_export_write_keyword_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     """bulk_export rejects cypher containing SET/DELETE/etc. as standalone keywords."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_export("MATCH (n) SET n.x = 1 RETURN n")
@@ -209,7 +209,7 @@ def test_bulk_export_allows_identifiers_containing_forbidden_substrings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """bulk_export allows read-only queries when property/label names contain SET/CREATE/MERGE as substrings."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     for cypher in (
@@ -227,7 +227,7 @@ def test_bulk_export_allows_identifiers_containing_forbidden_substrings(
 
 def test_bulk_create_nodes_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, bulk_create_nodes returns created count."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_create_nodes([{"id": "n1", "name": "Node1"}, {"id": "n2"}])
@@ -237,7 +237,7 @@ def test_bulk_create_nodes_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch
 
 def test_bulk_create_nodes_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid id_key returns error."""
-    from mcp.tools import kg_tool
+    from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_create_nodes([{"id": "n1"}], id_key="bad-key")
@@ -247,8 +247,8 @@ def test_bulk_create_nodes_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_kg_deferred_tools_via_mcp_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
     """MCP dispatch for shortest_path, get_similar_nodes, fulltext_search, bulk_export, bulk_create_nodes."""
-    from mcp.mcp_client import MCPClient
-    from mcp.mcp_server import MCPServer
+    from openfund_mcp.mcp_client import MCPClient
+    from openfund_mcp.mcp_server import MCPServer
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     server = MCPServer()

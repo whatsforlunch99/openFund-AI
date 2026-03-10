@@ -62,8 +62,7 @@ def _run_e2e_once() -> None:
     from agents.responder_agent import ResponderAgent
     from agents.websearch_agent import WebSearcherAgent
     from llm.factory import get_llm_client
-    from mcp.mcp_client import MCPClient
-    from mcp.mcp_server import MCPServer
+    from openfund_mcp.mcp_client import MCPClient
     from safety.safety_gateway import OutputRail
 
     cfg = load_config()
@@ -71,11 +70,12 @@ def _run_e2e_once() -> None:
     for name in ("planner", "librarian", "websearcher", "analyst", "responder"):
         bus.register_agent(name)
 
-    # Wire manager, MCP server with default tools, LLM client, and all five agents
     mgr = ConversationManager(bus)
-    server = MCPServer()
-    server.register_default_tools()
-    client = MCPClient(server)
+    client = MCPClient(
+        command=cfg.mcp_server_command,
+        args=tuple(cfg.mcp_server_args),
+        cwd=cfg.mcp_server_cwd or None,
+    )
     try:
         llm_client = get_llm_client(cfg)
     except (ValueError, ImportError):

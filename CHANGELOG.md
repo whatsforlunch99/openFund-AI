@@ -4,6 +4,10 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- **FastMCP as single path:** All MCP tool access (OpenFund API/agents and external clients like Claude Desktop) goes through the FastMCP server. Run the server with `python -m openfund_mcp`; the API spawns it automatically via MCPClient over stdio. Config: `MCP_SERVER_COMMAND`, `MCP_SERVER_ARGS`, `MCP_SERVER_CWD`. New doc [docs/mcp-server.md](docs/mcp-server.md) (run server, Claude Desktop example). Test `test_fastmcp_discovery` verifies tool discovery via FastMCP subprocess (skipped when MCP SDK not installed).
+
 ### Removed
 
 - **Output package:** The `output/` package was removed. `OutputRail` and response formatting (`format_for_user`, compliance/guardrail) now live in `safety/safety_gateway.py`; import from `safety` (e.g. `from safety import OutputRail`).
@@ -38,6 +42,8 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 - **TradingAgents tools integration:** New MCP tools (yfinance-backed) integrated into **original** tool modules: `market_tool` now includes get_stock_data, get_indicators (SMA), get_fundamentals, get_balance_sheet, get_cashflow, get_income_statement, get_insider_transactions, get_news, get_global_news. Registration via `MCPServer.register_default_tools()`. No separate fundamental_tool/news_tool/register_tools files. Dependencies: yfinance, pandas, python-dateutil. Test `test_stage_2_2_trading_tools` verifies market_tool endpoints.
 
 ### Changed
+
+- **MCP package and production path:** The app’s MCP package was renamed from `mcp` to `openfund_mcp` so the official `mcp` SDK can be used. Production no longer uses MCPServer for tool dispatch: api/rest, main, and data_manager create MCPClient with config (command/args/cwd) only; MCPServer is used only in tests (MCPClient(server)). docs/backend.md and docs/agent-tools-reference.md describe the single-path FastMCP design.
 
 - **Struct and trace logging removed; interaction_log only:** All uses of `struct_log` and `trace()` have been removed. Structured call logging is now done only via `util/interaction_log` (`log_call` with conversation_id, params, result, duration_ms, sequence). Root log formatting remains via `util/log_format.OpenFundFormatter`. Removed `util/trace_log.py`. Docs (file-structure.md, demo.md) and CHANGELOG updated.
 

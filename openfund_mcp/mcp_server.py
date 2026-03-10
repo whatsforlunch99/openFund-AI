@@ -105,21 +105,21 @@ class MCPServer:
 
     def register_default_tools(self) -> None:
         """Register vector/kg/sql first; market_tool and analyst_tool only if imports succeed (e.g. pandas)."""
-        from mcp.tools import vector_tool
+        from openfund_mcp.tools import vector_tool
 
         self._register_specs(vector_tool, vector_tool.TOOL_SPECS)
 
-        from mcp.tools import kg_tool
+        from openfund_mcp.tools import kg_tool
 
         self._register_specs(kg_tool, kg_tool.TOOL_SPECS)
 
-        from mcp.tools import sql_tool
+        from openfund_mcp.tools import sql_tool
 
         self._register_specs(sql_tool, sql_tool.TOOL_SPECS)
 
         market_tool: Any | None = None
         try:
-            from mcp.tools import market_tool as _market_tool
+            from openfund_mcp.tools import market_tool as _market_tool
 
             market_tool = _market_tool
         except ImportError:
@@ -129,7 +129,7 @@ class MCPServer:
 
         analyst_tool: Any | None = None
         try:
-            from mcp.tools import analyst_tool as _analyst_tool
+            from openfund_mcp.tools import analyst_tool as _analyst_tool
 
             analyst_tool = _analyst_tool
         except ImportError:
@@ -137,7 +137,7 @@ class MCPServer:
         if analyst_tool is not None:
             self._register_specs(analyst_tool, analyst_tool.TOOL_SPECS)
 
-        from mcp.tools import capabilities
+        from openfund_mcp.tools import capabilities
 
         self.register_tool(
             "get_capabilities",

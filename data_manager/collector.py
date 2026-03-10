@@ -13,8 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from mcp.mcp_client import MCPClient
-from mcp.mcp_server import MCPServer
+from openfund_mcp.mcp_client import MCPClient
 from data_manager.tasks import (
     CollectionTask,
     GLOBAL_NEWS_TASK,
@@ -63,10 +62,14 @@ class DataCollector:
         # Snapshot allowed tool names from task registry to enforce API consistency.
         self._active_tool_names = get_active_tool_names()
         if mcp_client is None:
-            # Default wiring: create local MCP server/client pair for CLI execution.
-            server = MCPServer()
-            server.register_default_tools()
-            mcp_client = MCPClient(server)
+            from config.config import load_config
+
+            cfg = load_config()
+            mcp_client = MCPClient(
+                command=cfg.mcp_server_command,
+                args=tuple(cfg.mcp_server_args),
+                cwd=cfg.mcp_server_cwd or None,
+            )
         self.mcp_client = mcp_client
         os.makedirs(data_dir, exist_ok=True)
 

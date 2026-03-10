@@ -14,7 +14,7 @@ When **Librarian**, **WebSearcher**, or **Analyst** receive a request from the P
 
 **Code sync:** The allowed tool sets for each agent are maintained in `llm/tool_descriptions.py` (`LIBRARIAN_ALLOWED_TOOL_NAMES`, `WEBSEARCHER_ALLOWED_TOOL_NAMES`, `ANALYST_ALLOWED_TOOL_NAMES`). The LLM prompt for each agent is injected with only that agent's tool descriptions, and any tool name the LLM returns outside the allowed set is discarded at runtime by `filter_tool_calls_to_allowed()` before execution. Keep this document and `llm/tool_descriptions.py` in sync when adding or removing tools.
 
-All tools are registered in `MCPServer.register_default_tools()` (see `mcp/mcp_server.py`). `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed.
+All tools are registered in the **FastMCP** server (`openfund_mcp/fastmcp_server.py`) and in `MCPServer.register_default_tools()` for in-process tests (`openfund_mcp/mcp_server.py`). The API and agents use **MCPClient** to call the FastMCP server over stdio. `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed.
 
 ---
 

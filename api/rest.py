@@ -259,14 +259,15 @@ def create_app(
     if safety_gateway is None:
         safety_gateway = SafetyGateway()
 
-    # Wire MCP server with all tools so agents can call vector_tool, market_tool, etc.
+    # Wire MCP client to FastMCP server (subprocess over stdio).
     if mcp_client is None:
-        from mcp.mcp_client import MCPClient
-        from mcp.mcp_server import MCPServer
+        from openfund_mcp.mcp_client import MCPClient
 
-        server = MCPServer()
-        server.register_default_tools()
-        mcp_client = MCPClient(server)
+        mcp_client = MCPClient(
+            command=cfg.mcp_server_command,
+            args=tuple(cfg.mcp_server_args),
+            cwd=cfg.mcp_server_cwd or None,
+        )
 
     if agents is None:
         from agents.analyst_agent import AnalystAgent
@@ -345,8 +346,8 @@ def create_app(
     @app.get("/health")
     def get_health() -> JSONResponse:
         """Return registered MCP tools and whether LLM is configured (for diagnostics)."""
-        mcp = getattr(app.state, "mcp_client", None)
-        tools = mcp.get_registered_tool_names() if mcp else []
+        client = getattr(app.state, "mcp_client", None)
+        tools = client.get_registered_tool_names() if client else []
         llm_configured = getattr(app.state, "llm_configured", False)
         return JSONResponse(
             content={"tools": tools, "llm_configured": llm_configured}

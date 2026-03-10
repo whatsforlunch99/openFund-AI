@@ -8,7 +8,7 @@ import os
 import sys
 
 from config.config import load_config
-from mcp.tools import kg_tool, sql_tool, vector_tool
+from openfund_mcp.tools import kg_tool, sql_tool, vector_tool
 
 
 def run_populate() -> int:

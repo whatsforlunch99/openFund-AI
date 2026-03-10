@@ -47,6 +47,9 @@ class Config:
     analyst_api_url: str = ""
     analyst_api_key: Optional[str] = None
     mcp_server_endpoint: str = ""
+    mcp_server_command: str = "python"
+    mcp_server_args: tuple = ("-m", "openfund_mcp")
+    mcp_server_cwd: str = ""
     llm_api_key: Optional[str] = None
     llm_model: Optional[str] = None
     llm_base_url: Optional[str] = None
@@ -116,6 +119,13 @@ def load_config() -> Config:
         analyst_api_url=os.getenv("ANALYST_API_URL", ""),
         analyst_api_key=os.getenv("ANALYST_API_KEY") or None,
         mcp_server_endpoint=os.getenv("MCP_SERVER_ENDPOINT", ""),
+        mcp_server_command=os.getenv("MCP_SERVER_COMMAND", "python"),
+        mcp_server_args=(
+            tuple(s.strip() for s in os.getenv("MCP_SERVER_ARGS", "").split(",") if s.strip())
+            if os.getenv("MCP_SERVER_ARGS")
+            else ("-m", "openfund_mcp")
+        ),
+        mcp_server_cwd=os.getenv("MCP_SERVER_CWD", ""),
         llm_api_key=os.getenv("LLM_API_KEY") or None,
         llm_model=os.getenv("LLM_MODEL") or None,
         llm_base_url=os.getenv("LLM_BASE_URL") or None,

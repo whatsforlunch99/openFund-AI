@@ -95,8 +95,8 @@ def run(
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.librarian_agent import LibrarianAgent
-        from mcp.mcp_client import MCPClient
-        from mcp.mcp_server import MCPServer
+from openfund_mcp.mcp_client import MCPClient
+from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         print(f"FAIL: Import error: {e}")
         return 1

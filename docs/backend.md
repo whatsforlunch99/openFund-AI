@@ -8,6 +8,7 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 
 - **A2A:** FIPA-ACL messages over a message bus (in-memory or pluggable). Agents communicate via performatives (REQUEST, INFORM, STOP, etc.).
 - **Layers:** User Interaction (API), Safety, Orchestration (Planner), Research Execution (Librarian, WebSearcher, Analyst), Tool/Data (MCP), Output Review (OutputRail).
+- **Tool/Data (MCP):** All tool access goes through **FastMCP** (MCP protocol). The OpenFund API uses **MCPClient** to spawn the FastMCP server as a subprocess and connect over stdio; external clients (e.g. Claude Desktop) can run the same server via `python -m openfund_mcp`. Tool implementations live in `openfund_mcp/tools/`; the FastMCP server is in `openfund_mcp/fastmcp_server.py`. See [agent-tools-reference.md](agent-tools-reference.md).
 - **Orchestration:** The Planner (orchestrator) decides **which** agents to call (one or more of Librarian, WebSearcher, Analyst) and **decomposes** the user query into **agent-specific sub-queries**. Decomposition is **LLM-driven**: the LLM selects which agents to use and what query to pass to each; the planner parses the LLM response as a list of steps (TaskSteps: agent + params) and dispatches REQUESTs only for those steps. Each REQUEST to a specialist carries that agent's decomposed query (and any shared context). When the LLM is unavailable or returns an empty list, the planner uses a fallback (fixed three steps or a single analyst step). After the planner sufficiency check passes, Planner sends consolidated data to Responder.
 - **Termination:** Only the Responder may signal conversation complete (broadcast STOP); all agent threads exit on STOP.
 - **Hub-and-spoke:** Planner is the sole orchestrator; specialists reply only to Planner. Planner sends consolidated data to Responder when the planner sufficiency check passes.
@@ -120,5 +121,7 @@ Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). Al
 **MCP market/indicator vendor switching:** Set `MCP_MARKET_VENDOR=alpha_vantage` to use Alpha Vantage for market tools (stock data, fundamentals, news, insider transactions). Set `MCP_INDICATOR_VENDOR=alpha_vantage` for technical indicators. Default for both is `alpha_vantage`. Invalid or unset values fall back to `alpha_vantage`. Finnhub is supported for market data when `MCP_MARKET_VENDOR=finnhub` and FINNHUB_API_KEY is set.
 
 **Interaction log:** INTERACTION_LOG (env, default true) or config.interaction_log_enabled enables systematic function-call logging during user interactions (POST /chat, /ws). Each log line is one JSON object: ts, conversation_id, function, params, result, duration_ms, sequence. Logger name: openfund.interaction. Logical flow logged matches [use-case-trace-beginner.md](use-case-trace-beginner.md); see [file-structure.md](file-structure.md) (util/interaction_log.py) for API.
+
+**MCP server (FastMCP):** All tool access uses the FastMCP server. The API spawns it automatically when needed. For external clients (e.g. Claude Desktop), see [mcp-server.md](mcp-server.md).
 
 Work breakdown and runnable checkpoints: [progress.md](progress.md).

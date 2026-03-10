@@ -74,6 +74,7 @@ python -m data_manager sql "SELECT * FROM fund_info LIMIT 5"
 
 - [docs/prd.md](docs/prd.md)
 - [docs/backend.md](docs/backend.md)
+- [docs/mcp-server.md](docs/mcp-server.md)
 - [docs/data-manager-agent.md](docs/data-manager-agent.md)
 - [docs/fund-data-schema.md](docs/fund-data-schema.md)
 - [docs/user-flow.md](docs/user-flow.md)

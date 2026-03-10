@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from mcp.tools import sql_tool, kg_tool, vector_tool
+from openfund_mcp.tools import sql_tool, kg_tool, vector_tool
 from data_manager.classifier import DataClassifier
 from data_manager.transformer import DataTransformer
 from data_manager.schemas import POSTGRES_DDL, POSTGRES_UPSERT_TEMPLATES, NEO4J_CYPHER_TEMPLATES

@@ -84,7 +84,7 @@ def _function_to_category_component(function_name: str) -> tuple[str, str]:
         return ("MANAGER", part.split(".")[0] if "." in part else part)
     if fn.startswith("safety.safety_gateway."):
         return ("SAFETY", "process_user_input")
-    if fn.startswith("mcp.mcp_client."):
+    if fn.startswith("openfund_mcp.mcp_client."):
         return ("MCP", "call_tool")
     parts = fn.split(".")
     if len(parts) >= 2:

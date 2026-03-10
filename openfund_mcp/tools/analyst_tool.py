@@ -11,7 +11,7 @@ from datetime import datetime
 
 from dateutil.relativedelta import relativedelta
 
-from mcp.tools.market_tool import (
+from openfund_mcp.tools.market_tool import (
     AlphaVantageRateLimitError,
     _make_api_request,
     _now_iso,

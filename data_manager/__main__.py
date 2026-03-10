@@ -15,7 +15,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import warnings
 from datetime import datetime
+
+# Suppress urllib3/OpenSSL warning before imports that load it (e.g. requests in collector).
+warnings.filterwarnings("ignore", message=".*urllib3 v2 only supports OpenSSL.*")
+warnings.filterwarnings("ignore", message=".*LibreSSL.*")
 
 from config.config import load_config
 from data_manager.backend_cli import add_backend_subcommands

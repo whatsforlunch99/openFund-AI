@@ -639,9 +639,9 @@ def _route_insider_transactions(symbol: str) -> dict:
 TOOL_SPECS: list[tuple[str, str, list[str], list, str | None]] = [
     ("market_tool.get_fundamentals", "_route_fundamentals", [], [("symbol", ["symbol", "ticker"], "", None)], None),
     ("market_tool.get_stock_data", "_route_stock_data", [], [("symbol", ["symbol", "ticker"], "", None), ("start_date", ["start_date"], "", None), ("end_date", ["end_date"], "", None)], None),
-    ("market_tool.get_balance_sheet", "_route_balance_sheet", [], [("ticker", ["ticker", "symbol"], "", None), ("freq", ["freq"], "quarterly", None)], None),
-    ("market_tool.get_cashflow", "_route_cashflow", [], [("ticker", ["ticker", "symbol"], "", None), ("freq", ["freq"], "quarterly", None)], None),
-    ("market_tool.get_income_statement", "_route_income_statement", [], [("ticker", ["ticker", "symbol"], "", None), ("freq", ["freq"], "quarterly", None)], None),
+    ("market_tool.get_balance_sheet", "_route_balance_sheet", [], [("symbol", ["symbol", "ticker"], "", None), ("freq", ["freq"], "quarterly", None)], None),
+    ("market_tool.get_cashflow", "_route_cashflow", [], [("symbol", ["symbol", "ticker"], "", None), ("freq", ["freq"], "quarterly", None)], None),
+    ("market_tool.get_income_statement", "_route_income_statement", [], [("symbol", ["symbol", "ticker"], "", None), ("freq", ["freq"], "quarterly", None)], None),
     ("market_tool.get_news", "_route_news", [], [
         ("symbol", ["symbol", "ticker"], "", None),
         ("limit", ["limit", "count"], None, None),
@@ -653,5 +653,5 @@ TOOL_SPECS: list[tuple[str, str, list[str], list, str | None]] = [
         ("look_back_days", ["look_back_days"], 7, int),
         ("limit", ["limit"], 10, int),
     ], None),
-    ("market_tool.get_insider_transactions", "_route_insider_transactions", [], [("ticker", ["ticker", "symbol"], "", None)], None),
+    ("market_tool.get_insider_transactions", "_route_insider_transactions", [], [("symbol", ["symbol", "ticker"], "", None)], None),
 ]

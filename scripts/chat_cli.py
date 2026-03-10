@@ -7,12 +7,9 @@ import argparse
 import getpass
 import warnings
 
-warnings.filterwarnings(
-    "ignore",
-    message=".*urllib3 v2 only supports OpenSSL",
-    category=UserWarning,
-    module="urllib3",
-)
+# NotOpenSSLWarning is not UserWarning; match by message.
+warnings.filterwarnings("ignore", message=".*urllib3 v2 only supports OpenSSL.*")
+warnings.filterwarnings("ignore", message=".*LibreSSL.*")
 
 import requests
 
@@ -20,6 +17,7 @@ VALID_PROFILES = ("beginner", "long_term", "analyst")
 DEFAULT_PORT = 8000
 REQUEST_TIMEOUT = 120
 LOGIN_TIMEOUT = 15
+MAX_LOGIN_ATTEMPTS = 3
 
 
 def login_or_register(base_url: str) -> str | None:
@@ -30,59 +28,40 @@ def login_or_register(base_url: str) -> str | None:
         return None
     if not username:
         return None
-    try:
-        password = getpass.getpass("Password: ")
-    except EOFError:
-        return None
-    try:
-        resp = requests.post(
-            f"{base_url}/login",
-            json={"username": username, "password": password},
-            timeout=LOGIN_TIMEOUT,
-        )
-    except requests.exceptions.ConnectionError:
-        print("[Error] Could not connect to the API. Continuing as anonymous.")
-        return None
-    except requests.exceptions.Timeout:
-        print("[Error] Login request timed out. Continuing as anonymous.")
-        return None
-    except requests.exceptions.RequestException as e:
-        print(f"[Error] {e}. Continuing as anonymous.")
-        return None
-    data = resp.json() if resp.content else {}
-    if resp.status_code == 200:
-        return data.get("user_id") or username
-    if resp.status_code == 401:
+    for attempt in range(1, MAX_LOGIN_ATTEMPTS + 1):
         try:
-            reg = input("Invalid credentials. Register? (y/n): ").strip().lower()
+            password = getpass.getpass("Password: " if attempt == 1 else f"Invalid credentials. Try again (attempt {attempt}/{MAX_LOGIN_ATTEMPTS}): ")
         except EOFError:
             return None
-        if reg != "y":
-            return None
-        if len(password) < 8:
-            try:
-                password = getpass.getpass("Password (min 8 characters): ")
-            except EOFError:
-                return None
-            if len(password) < 8:
-                print("[Error] Password must be at least 8 characters. Continuing as anonymous.")
-                return None
         try:
-            rresp = requests.post(
-                f"{base_url}/register",
-                json={"username": username, "password": password, "display_name": username},
+            resp = requests.post(
+                f"{base_url}/login",
+                json={"username": username, "password": password},
                 timeout=LOGIN_TIMEOUT,
             )
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        except requests.exceptions.ConnectionError:
             print("[Error] Could not connect to the API. Continuing as anonymous.")
             return None
-        rdata = rresp.json() if rresp.content else {}
-        if rresp.status_code == 200:
-            return rdata.get("user_id") or username
-        if rresp.status_code == 409:
-            print(f"[Error] Username '{username}' is already taken. Continuing as anonymous.")
+        except requests.exceptions.Timeout:
+            print("[Error] Login request timed out. Continuing as anonymous.")
             return None
-        print("[Error]", rdata.get("detail", rresp.text or "Registration failed. Continuing as anonymous."))
+        except requests.exceptions.RequestException as e:
+            print(f"[Error] {e}. Continuing as anonymous.")
+            return None
+        try:
+            data = resp.json() if resp.content else {}
+        except Exception:
+            data = {"detail": resp.text[:500] if getattr(resp, "text", None) else "Invalid response"}
+        if resp.status_code == 200:
+            return data.get("user_id") or username
+        if resp.status_code == 401:
+            if attempt < MAX_LOGIN_ATTEMPTS:
+                continue
+            print("Too many failed attempts. Continuing as anonymous.")
+            return None
+        if resp.status_code >= 500:
+            print("[Error] Server error:", data.get("detail", resp.text or "Unknown error"), "Continuing as anonymous.")
+            return None
         return None
     return None
 
@@ -101,6 +80,9 @@ def run(port: int, profile: str, skip_login: bool = False) -> None:
         try:
             line = input("You: ").strip()
         except EOFError:
+            print()
+            break
+        except KeyboardInterrupt:
             print()
             break
         if not line:
@@ -135,16 +117,22 @@ def run(port: int, profile: str, skip_login: bool = False) -> None:
             conversation_id = data.get("conversation_id") or conversation_id
             text = data.get("response") or ""
             print("Assistant:", text)
+            print()
+            print("You can ask a follow-up or type a new question (or 'quit' to exit).")
         elif resp.status_code == 408:
             conversation_id = data.get("conversation_id") or conversation_id
-            print("Assistant: [Timeout] The request took too long. You can try again.")
+            msg = data.get("message") or "The request took too long. You can try again."
+            print("Assistant: [Timeout]", msg)
+            print("You can retry or ask something else (or 'quit' to exit).")
         elif resp.status_code in (400, 422, 404, 500):
             detail = data.get("detail", resp.text or "Unknown error")
             if isinstance(detail, list):
                 detail = "; ".join(str(d) for d in detail)
             print("Assistant: [Error]", detail)
+            print("You can try again or type 'quit' to exit.")
         else:
             print("Assistant: [Error]", resp.status_code, (resp.text[:200] if resp.text else ""))
+            print("You can try again or type 'quit' to exit.")
     print("Goodbye.")
 
 

@@ -7,12 +7,9 @@ import argparse
 import sys
 import warnings
 
-warnings.filterwarnings(
-    "ignore",
-    message=".*urllib3 v2 only supports OpenSSL",
-    category=UserWarning,
-    module="urllib3",
-)
+# NotOpenSSLWarning is not UserWarning; match by message.
+warnings.filterwarnings("ignore", message=".*urllib3 v2 only supports OpenSSL.*")
+warnings.filterwarnings("ignore", message=".*LibreSSL.*")
 
 import requests
 

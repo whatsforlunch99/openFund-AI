@@ -5,6 +5,17 @@ import os
 import sys
 import warnings
 
+# Suppress urllib3/OpenSSL warning (NotOpenSSLWarning) before any imports that load it.
+# Match by message only: category is urllib3.exceptions.NotOpenSSLWarning, not UserWarning.
+warnings.filterwarnings("ignore", message=".*urllib3 v2 only supports OpenSSL.*")
+warnings.filterwarnings("ignore", message=".*LibreSSL.*")
+# Suppress multiprocessing resource_tracker "leaked semaphore" on shutdown.
+warnings.filterwarnings(
+    "ignore",
+    message=".*leaked semaphore.*",
+    module="multiprocessing.resource_tracker",
+)
+
 from config.config import load_config
 from util.log_format import OpenFundFormatter
 
@@ -25,7 +36,7 @@ UVICORN_LOG_CONFIG = {
     },
     "loggers": {
         "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
-        "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+        "uvicorn.error": {"handlers": ["default"], "level": "WARNING", "propagate": False},
         "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
     },
 }
@@ -53,7 +64,7 @@ def _run_e2e_once() -> None:
     from llm.factory import get_llm_client
     from mcp.mcp_client import MCPClient
     from mcp.mcp_server import MCPServer
-    from output.output_rail import OutputRail
+    from safety.safety_gateway import OutputRail
 
     cfg = load_config()
     bus = InMemoryMessageBus()
@@ -143,23 +154,25 @@ def main() -> None:
     - --serve: run FastAPI via uvicorn (same as default).
     - --no-serve: load config/situation memory only and exit.
     """
-    warnings.filterwarnings(
-        "ignore",
-        message=".*urllib3 v2 only supports OpenSSL",
-        category=UserWarning,
-        module="urllib3",
-    )
+    warnings.filterwarnings("ignore", message=".*urllib3 v2 only supports OpenSSL.*")
+    warnings.filterwarnings("ignore", message=".*LibreSSL.*")
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     root = logging.getLogger()
     for h in root.handlers:
         h.setFormatter(OpenFundFormatter())
     if os.environ.get("LOG_LEVEL", "").strip().upper() == "DEBUG":
         logging.getLogger("openfund.interaction").setLevel(logging.INFO)
     else:
-        logging.getLogger("openfund.interaction").setLevel(logging.WARNING)
+        # When interaction logging is enabled, show INFO so log_call() is visible
+        _cfg = load_config()
+        if _cfg.interaction_log_enabled:
+            logging.getLogger("openfund.interaction").setLevel(logging.INFO)
+        else:
+            logging.getLogger("openfund.interaction").setLevel(logging.WARNING)
     try:
         import ssl
         if "LibreSSL" in getattr(ssl, "OPENSSL_VERSION_STRING", ""):

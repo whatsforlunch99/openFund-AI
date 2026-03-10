@@ -1,6 +1,21 @@
-"""Layer 2: Safety gateway."""
+"""Layer 2: Safety gateway (input + output screening and formatting)."""
 
-# Re-export the primary safety entry points for API-layer imports.
-from safety.safety_gateway import SafetyError, SafetyGateway  # noqa: F401
+from safety.safety_gateway import (
+    ComplianceResult,
+    GuardrailViolation,
+    OutputRail,
+    SafetyError,
+    SafetyGateway,
+    check_output_compliance,
+    output_guardrail,
+)
 
-__all__ = ["SafetyError", "SafetyGateway"]
+__all__ = [
+    "SafetyError",
+    "SafetyGateway",
+    "GuardrailViolation",
+    "ComplianceResult",
+    "OutputRail",
+    "check_output_compliance",
+    "output_guardrail",
+]

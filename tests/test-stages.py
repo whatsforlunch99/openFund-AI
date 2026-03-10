@@ -994,7 +994,7 @@ def test_stage_7_1() -> None:
 
 def test_stage_8_1() -> None:
     """Stage 8.1: OutputRail format_for_user and check_compliance."""
-    from output.output_rail import OutputRail
+    from safety.safety_gateway import OutputRail
 
     rail = OutputRail()
     text = "Fund X returned 5%."
@@ -1142,7 +1142,7 @@ def test_stage_10_2_responder_llm_prompt() -> None:
     from a2a.acl_message import ACLMessage, Performative
     from a2a.message_bus import InMemoryMessageBus
     from agents.responder_agent import ResponderAgent
-    from output.output_rail import OutputRail
+    from safety.safety_gateway import OutputRail
 
     bus = InMemoryMessageBus()
     bus.register_agent("responder")

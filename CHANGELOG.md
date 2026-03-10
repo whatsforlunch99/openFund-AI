@@ -6,6 +6,7 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ### Removed
 
+- **Output package:** The `output/` package was removed. `OutputRail` and response formatting (`format_for_user`, compliance/guardrail) now live in `safety/safety_gateway.py`; import from `safety` (e.g. `from safety import OutputRail`).
 - **StaticLLMClient and llm/static_client.py:** The static mock LLM client and module were removed. E2E (`main.py --e2e-once`) uses **llm_client=None** when get_llm_client fails; planner and agents use built-in fallbacks. Tests that need a no-API client use a local **MockLLMClient** in tests/test-stages.py.
 
 ### Added

@@ -12,8 +12,7 @@ Current high-level structure of the repository.
 - `data_manager/`: collection/distribution/maintenance CLI
 - `memory/`: situation memory + persisted conversation data
 - `llm/`: LLM client factory + prompt assets
-- `output/`: output formatting/compliance rail
-- `safety/`: input validation, guardrails, PII masking
+- `safety/`: input and output screening (validation, guardrails, PII masking, output guardrail pipeline) and response formatting (`OutputRail.format_for_user`)
 - `util/`: logging and interaction tracing helpers
 
 ## Scripts

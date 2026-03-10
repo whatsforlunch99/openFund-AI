@@ -1,7 +1,9 @@
-"""Safety gateway: input validation, guardrails, PII masking (Layer 2)."""
+"""Safety gateway: input validation, guardrails, PII masking, and output screening (Layer 2)."""
 
+import json
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Optional
 
@@ -11,12 +13,66 @@ logger = logging.getLogger(__name__)
 # Max input length enforced so very long payloads are rejected before processing (backend contract).
 MAX_INPUT_LENGTH = 10_000
 
-# Phrases that indicate illegal investment advice (case-insensitive).
+# Shared blocked phrases for both input guardrails and output compliance (case-insensitive).
 BLOCKED_PHRASES: tuple[str, ...] = (
     "guaranteed return",
     "buy this stock now",
     "insider tip",
+    "sell immediately",
 )
+
+# Extended blocklist for output_guardrail harmful-content step only.
+FINANCIAL_ADVICE_BLOCKLIST: tuple[str, ...] = (
+    "you should buy",
+    "you should sell",
+    "you should short",
+    "you should go long",
+    "you should open a position",
+    "you should close your position",
+    "you should invest in",
+    "buy this stock",
+    "sell this stock",
+    "purchase shares of",
+    "dump your shares",
+    "i strongly recommend buying",
+    "i strongly recommend selling",
+    "this is a must buy",
+    "this is a guaranteed winner",
+    "this stock will definitely go up",
+    "this stock will definitely go down",
+    "guaranteed profit",
+    "guaranteed returns",
+    "risk free profit",
+    "cannot lose money",
+    "surefire investment",
+    "guaranteed to double",
+    "buy now",
+    "sell immediately",
+    "enter the trade now",
+    "exit the trade now",
+    "act immediately",
+    "don't miss this opportunity",
+    "you should allocate your portfolio",
+    "put your savings into",
+    "invest your retirement money in",
+    "move your portfolio into",
+)
+
+TOXICITY_THRESHOLD = 0.5
+
+# Regex patterns for secret detection in output.
+AWS_KEY_REGEX = re.compile(
+    r"(?<![A-Za-z0-9/+=])(A3T[A-Z0-9]|ABIA|ACCA|AROA|AIDA|APKA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9/+=])",
+    re.IGNORECASE,
+)
+PRIVATE_KEY_REGEX = re.compile(
+    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+)
+API_TOKEN_REGEX = re.compile(
+    r"\b(?:api[_-]?key|apikey|api[_-]?secret|token)['\"]?\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{20,}['\"]?",
+    re.IGNORECASE,
+)
+SECRET_PATTERNS: tuple[re.Pattern, ...] = (AWS_KEY_REGEX, PRIVATE_KEY_REGEX, API_TOKEN_REGEX)
 
 
 class SafetyError(Exception):
@@ -51,6 +107,170 @@ class ProcessedInput:
     text: str
     raw_length: int
     masked: bool = False
+
+
+@dataclass
+class ComplianceResult:
+    """Result of check_output_compliance (output phrase scan)."""
+
+    passed: bool
+    reason: Optional[str] = None
+
+
+class GuardrailViolation(Exception):
+    """Raised when output guardrail rejects content (e.g. toxic or harmful topic)."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+def normalize_unicode(text: str) -> str:
+    """Normalize to NFC."""
+    if not text:
+        return text
+    return unicodedata.normalize("NFC", text)
+
+
+def trim_whitespace(text: str) -> str:
+    """Strip and collapse internal runs of whitespace to single space."""
+    if not text:
+        return text
+    return " ".join(text.split())
+
+
+def _redact_secrets(text: str) -> str:
+    """Replace secret pattern matches with [REDACTED]."""
+    out = text
+    for pattern in SECRET_PATTERNS:
+        out = pattern.sub("[REDACTED]", out)
+    return out
+
+
+def _semantic_or_substring_match(text: str, item: str) -> bool:
+    """True if text matches blocklist item. Uses guardrails_ai if available, else substring."""
+    try:
+        from guardrails import Guard
+        from guardrails.hub import Detect
+
+        guard = Guard().use(Detect(item), item)
+        result = guard.validate(text)
+        return not result.validation_passed
+    except Exception:
+        pass
+    return item.lower() in text.lower()
+
+
+def check_output_compliance(text: str) -> ComplianceResult:
+    """
+    Ensure output does not contain blocked phrases (same list as input guardrails).
+
+    Args:
+        text: Proposed response text.
+
+    Returns:
+        ComplianceResult with passed flag and optional reason.
+    """
+    if not text or not text.strip():
+        return ComplianceResult(passed=True)
+    lower = text.lower()
+    for phrase in BLOCKED_PHRASES:
+        if phrase in lower:
+            return ComplianceResult(
+                passed=False,
+                reason=f"Output contains disallowed phrase: {phrase!r}",
+            )
+    return ComplianceResult(passed=True)
+
+
+def output_guardrail(
+    llm_output: str,
+    expected_format: Optional[str] = None,
+) -> str:
+    """
+    Run the output guardrail pipeline: normalize, profanity, toxicity, PII, blocklist, secrets, schema.
+
+    Args:
+        llm_output: Raw LLM output text.
+        expected_format: If "json", validate that text is valid JSON after other steps.
+
+    Returns:
+        Sanitized text.
+
+    Raises:
+        GuardrailViolation: If toxicity exceeds threshold or harmful topic detected.
+    """
+    if llm_output is None:
+        return ""
+    text = normalize_unicode(llm_output)
+    text = trim_whitespace(text)
+
+    # Profanity filtering
+    try:
+        import better_profanity
+
+        better_profanity.load_censor_words()
+        if better_profanity.contains_profanity(text):
+            text = better_profanity.censor(text)
+    except ImportError:
+        pass
+
+    # Toxicity detection
+    try:
+        from detoxify import Detoxify
+
+        model = Detoxify("original")
+        scores = model.predict(text)
+        toxicity = scores.get("toxicity") or scores.get("identity_attack") or 0.0
+        if isinstance(toxicity, (list, tuple)):
+            toxicity = max(toxicity) if toxicity else 0.0
+        if toxicity > TOXICITY_THRESHOLD:
+            raise GuardrailViolation("toxic output detected")
+    except ImportError:
+        pass
+    except GuardrailViolation:
+        raise
+    except Exception:
+        pass
+
+    # PII: use presidio when available, else regex mask_pii
+    try:
+        from presidio_analyzer import AnalyzerEngine
+        from presidio_anonymizer import AnonymizerEngine
+
+        analyzer = AnalyzerEngine()
+        pii_entities = analyzer.analyze(
+            text=text,
+            language="en",
+            entities=["PHONE_NUMBER", "EMAIL_ADDRESS", "CREDIT_CARD", "US_SSN", "SG_NRIC_FIN"],
+        )
+        if pii_entities:
+            anonymizer = AnonymizerEngine()
+            anonymized = anonymizer.anonymize(text=text, analyzer_results=pii_entities)
+            text = anonymized.text
+    except ImportError:
+        gateway = SafetyGateway()
+        text = gateway.mask_pii(text)
+    except Exception:
+        gateway = SafetyGateway()
+        text = gateway.mask_pii(text)
+
+    # Harmful content (financial advice blocklist)
+    for item in FINANCIAL_ADVICE_BLOCKLIST:
+        if _semantic_or_substring_match(text, item):
+            raise GuardrailViolation("harmful topic detected")
+
+    # Secret redaction
+    text = _redact_secrets(text)
+
+    # Schema validation
+    if expected_format == "json":
+        try:
+            json.loads(text)
+        except json.JSONDecodeError as e:
+            raise GuardrailViolation(f"Invalid JSON: {e}") from e
+
+    return text
 
 
 def _is_printable_or_whitespace(text: str) -> bool:
@@ -190,3 +410,46 @@ class SafetyGateway:
             },
         )
         return result
+
+
+class OutputRail:
+    """
+    Response formatting by user profile. Screening (compliance, guardrail) in same module.
+    """
+
+    def run_output_guardrail(
+        self,
+        text: str,
+        expected_format: Optional[str] = None,
+    ) -> str:
+        """Run the output guardrail pipeline. Raises GuardrailViolation if rejected."""
+        return output_guardrail(text, expected_format=expected_format)
+
+    def check_compliance(self, text: str) -> ComplianceResult:
+        """Check output for blocked phrases."""
+        return check_output_compliance(text)
+
+    def format_for_user(self, text: str, user_profile: str) -> str:
+        """
+        Adapt tone and disclaimers to user type.
+
+        Args:
+            text: Draft response text.
+            user_profile: User type (e.g. beginner, long_term, analyst).
+
+        Returns:
+            Formatted string for the user.
+        """
+        profile = (user_profile or "").strip().lower()
+        if profile not in ("beginner", "long_term", "analyst"):
+            profile = "beginner"
+
+        if profile == "beginner":
+            disclaimer = "This is not investment advice."
+            return f"{text.strip()}\n\n{disclaimer}"
+        if profile == "long_term":
+            line = "Consider a long-term horizon and disciplined rebalancing."
+            return f"{text.strip()}\n\n{line}"
+        if profile == "analyst":
+            return f"Analysis: {text.strip()}"
+        return text.strip()

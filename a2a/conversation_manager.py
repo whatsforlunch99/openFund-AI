@@ -169,6 +169,9 @@ class ConversationManager:
             if isinstance(created_raw, str) and created_raw.strip():
                 try:
                     created_at = datetime.fromisoformat(created_raw)
+                    # Normalize to UTC-aware so sort in get_user_memory_context never mixes naive/aware
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
                 except ValueError:
                     pass
 
@@ -221,7 +224,11 @@ class ConversationManager:
             return ""
 
         # sort the history by created_at in descending order and return most recent ones
-        history.sort(key=lambda s: s.created_at or datetime.now(timezone.utc), reverse=True)
+        def _sort_key(s: ConversationState) -> datetime:
+            dt = s.created_at or datetime.now(timezone.utc)
+            return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+        history.sort(key=_sort_key, reverse=True)
         selected = history[: max(1, max_conversations)]
 
         # Build compact Q/A memory blocks until char budget (default 3000) is reached.
@@ -387,9 +394,19 @@ class ConversationManager:
             sender="conversation_manager",
             receiver="*",
             content={"conversation_id": conversation_id},
+            conversation_id=conversation_id,
         )
         self._bus.broadcast(msg)
+        state = self._conversations.get(conversation_id)
+        result: dict = {"sent": True}
+        if state and getattr(state, "final_response", None):
+            conclusion = (state.final_response or "").strip()
+            if conclusion:
+                preview = conclusion.replace("\n", " ")[:300]
+                if len(conclusion) > 300:
+                    preview += "..."
+                result["conclusion_preview"] = preview
         interaction_log.log_call(
             "a2a.conversation_manager.ConversationManager.broadcast_stop",
-            result={"sent": True},
+            result=result,
         )

@@ -24,7 +24,7 @@ Trace of one beginner request through current code.
 6. Planner decomposes and dispatches specialist requests.
 7. Librarian/WebSearcher/Analyst return `INFORM` payloads.
 8. Planner consolidates and sends to responder.
-9. Responder formats via `OutputRail`, registers reply, broadcasts STOP.
+9. Responder formats via `OutputRail` (from safety), registers reply, broadcasts STOP.
 10. API unblocks on `completion_event` and returns response payload.
 
 ## Success Response Shape

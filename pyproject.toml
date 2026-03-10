@@ -55,7 +55,7 @@ exclude = '''
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["a2a*", "agents*", "api*", "safety*", "output*", "mcp*", "config*", "memory*", "llm*", "util*", "data*"]
+include = ["a2a*", "agents*", "api*", "safety*", "mcp*", "config*", "memory*", "llm*", "util*", "data*"]
 
 [tool.mypy]
 python_version = "3.9"

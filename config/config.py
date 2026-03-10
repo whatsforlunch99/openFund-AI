@@ -25,7 +25,7 @@ class Config:
         llm_model: Optional model name (e.g. gpt-4o-mini or deepseek-chat).
         llm_base_url: Optional base URL for LLM API (e.g. https://api.deepseek.com for DeepSeek).
         memory_store_path: Root dir for conversation persistence (default memory/).
-        e2e_timeout_seconds: E2E timeout in seconds (default 30).
+        e2e_timeout_seconds: E2E timeout in seconds (default 120).
         database_url: PostgreSQL connection URL for sql_tool.
         embedding_model: Model name for embeddings.
         embedding_dim: Embedding dimension.
@@ -51,7 +51,7 @@ class Config:
     llm_model: Optional[str] = None
     llm_base_url: Optional[str] = None
     memory_store_path: str = "memory"
-    e2e_timeout_seconds: int = 30
+    e2e_timeout_seconds: int = 120
     database_url: str = ""
     embedding_model: str = ""
     embedding_dim: int = 0
@@ -120,7 +120,7 @@ def load_config() -> Config:
         llm_model=os.getenv("LLM_MODEL") or None,
         llm_base_url=os.getenv("LLM_BASE_URL") or None,
         memory_store_path=os.getenv("MEMORY_STORE_PATH", "memory"),
-        e2e_timeout_seconds=_int("E2E_TIMEOUT_SECONDS", 30),
+        e2e_timeout_seconds=_int("E2E_TIMEOUT_SECONDS", 120),
         database_url=os.getenv("DATABASE_URL", ""),
         embedding_model=os.getenv("EMBEDDING_MODEL", ""),
         embedding_dim=_int("EMBEDDING_DIM", 0),

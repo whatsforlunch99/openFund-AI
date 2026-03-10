@@ -13,6 +13,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Suppress urllib3 OpenSSL (NotOpenSSLWarning) and resource_tracker warnings in all Python child processes.
+# Message-based filter: NotOpenSSLWarning is not UserWarning, so match by message.
+export PYTHONWARNINGS="ignore:.*OpenSSL.*::,ignore:.*leaked semaphore.*::"
+
 PORT=8000
 START_BACKENDS=1
 SEED_DEMO=1
@@ -245,6 +249,28 @@ if [[ $SEED_DEMO -eq 1 ]]; then
 fi
 
 if [[ "$LOAD_FUNDS" != "skip" ]] && [[ -f "$ROOT/datasets/combined_funds.json" ]]; then
+  # When --funds existing and backend already has fund data, skip loading to avoid redundant work.
+  SKIP_FUND_LOAD=0
+  if [[ "$LOAD_FUNDS" == "existing" ]] && [[ -n "${DATABASE_URL:-}" ]]; then
+    if "$PYTHON" -c "
+import os, sys
+try:
+    import psycopg2
+    conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
+    cur = conn.cursor()
+    cur.execute('SELECT 1 FROM fund_info LIMIT 1')
+    if cur.fetchone():
+        sys.exit(0)
+    sys.exit(1)
+except Exception:
+    sys.exit(2)
+" 2>/dev/null; then
+      SKIP_FUND_LOAD=1
+    fi
+  fi
+  if [[ $SKIP_FUND_LOAD -eq 1 ]]; then
+    echo "==> Skipping fund load (backend already has fund data)"
+  else
   echo "==> Loading fund dataset (${LOAD_FUNDS})"
   case "$LOAD_FUNDS" in
     existing)
@@ -257,6 +283,7 @@ if [[ "$LOAD_FUNDS" != "skip" ]] && [[ -f "$ROOT/datasets/combined_funds.json" ]
       echo "Unknown --funds mode: $LOAD_FUNDS" >&2
       exit 1 ;;
   esac
+  fi
 fi
 
 echo "==> Starting live API on port ${PORT}"

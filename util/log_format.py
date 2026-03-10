@@ -13,6 +13,8 @@ class OpenFundFormatter(logging.Formatter):
     """Format log records as [ISO8601Z] LEVEL  category   message (multiline indented)."""
 
     def format(self, record: logging.LogRecord) -> str:
+        if record.name == "openfund.interaction":
+            return record.getMessage()
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         level = "WARN" if record.levelno == logging.WARNING else record.levelname
         category = getattr(record, "openfund_category", None) or record.name

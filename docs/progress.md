@@ -14,7 +14,7 @@ Snapshot aligned to current codebase.
 - Username-based auth with uniqueness checks and password hashing
 - Conversation persistence and memory context loading
 - Multi-agent orchestration (planner/librarian/websearcher/analyst/responder)
-- SafetyGateway and OutputRail integration
+- SafetyGateway and OutputRail in safety; output screening and response formatting consolidated in `safety/` (output package removed)
 - Data manager CLI for populate/collect/distribute/backend operations
 - Single operational runner script with backend + data + API + chat options
 

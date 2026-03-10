@@ -106,7 +106,7 @@ Fund tables:
 
 Stock/company tables:
 - stock_ohlcv: id, symbol, trade_date, open, high, low, close, volume, collected_at
-- company_fundamentals: id, symbol, as_of_date, name, sector, industry, market_cap, pe_ratio, forward_pe, dividend_yield, beta, etc.
+- company_fundamentals: id, symbol, as_of_date, name, sector, industry, market_cap, pe_ratio, forward_pe, peg_ratio, price_to_book, eps_ttm, dividend_yield, beta, fifty_two_week_high, fifty_two_week_low, collected_at  (standard_deviation is NOT in this table; it is only in fund_risk_metrics)
 - financial_statements: id, symbol, statement_type, report_date, fiscal_period, line_item, value, collected_at
 - insider_transactions: id, symbol, insider_name, relation, transaction_type, shares, value, transaction_date, collected_at
 - technical_indicators: id, symbol, indicator_name, indicator_date, value, collected_at

@@ -87,6 +87,7 @@ class AnalystAgent(BaseAgent):
                 "sender": message.sender,
                 "content_keys": list(content.keys()) if content else [],
                 "conversation_id": conversation_id,
+                **interaction_log.content_preview_for_log(content),
             },
         )
         if message.performative == Performative.REQUEST:

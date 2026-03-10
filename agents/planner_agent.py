@@ -99,6 +99,7 @@ class PlannerAgent(BaseAgent):
                 "sender": message.sender,
                 "content_keys": list(content.keys()) if content else [],
                 "conversation_id": conversation_id,
+                **interaction_log.content_preview_for_log(content),
             },
         )
 
@@ -191,6 +192,13 @@ class PlannerAgent(BaseAgent):
                                 req.conversation_id = conversation_id
                                 req.reply_to = self.name
                                 self.bus.send(req)
+                                interaction_log.log_call(
+                                    "agents.planner_agent.PlannerAgent.handle_message",
+                                    result={
+                                        "sent_to": step.agent,
+                                        **interaction_log.content_preview_for_log(req.content),
+                                    },
+                                )
                                 if self._conversation_manager:
                                     q = step.params.get("query", original_query)
                                     q_display = q if len(q) <= 120 else (q[:100] + "...")
@@ -329,6 +337,13 @@ class PlannerAgent(BaseAgent):
             req.conversation_id = conversation_id
             req.reply_to = self.name
             self.bus.send(req)
+            interaction_log.log_call(
+                "agents.planner_agent.PlannerAgent.handle_message",
+                result={
+                    "sent_to": step.agent,
+                    **interaction_log.content_preview_for_log(req.content),
+                },
+            )
         interaction_log.log_call(
             "agents.planner_agent.PlannerAgent.handle_message",
             result={"REQUEST": "sent to specialists", "agents": [s.agent for s in steps]},

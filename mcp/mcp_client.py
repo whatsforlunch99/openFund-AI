@@ -1,5 +1,6 @@
 """MCP client: invoke tools on the MCP server."""
 
+import json
 import time
 from typing import TYPE_CHECKING
 
@@ -42,20 +43,35 @@ class MCPClient:
         start = time.perf_counter()
         result = self._server.dispatch(tool_name, payload)
         duration_ms = (time.perf_counter() - start) * 1000.0
-        
-        # Build result summary for logging (keys, size, error if present)
+
         result_summary: dict = {}
+        _max_preview = 300
 
         if isinstance(result, dict):
             result_summary["result_keys"] = list(result.keys())
             if "error" in result:
                 result_summary["error"] = str(result.get("error", ""))[:200]
-            # build the result summary
-            for k in ("documents", "rows", "content"):
+            for k in ("documents", "rows", "content", "data", "plan"):
                 if k in result and result[k] is not None:
                     val = result[k]
                     result_summary[f"{k}_size"] = len(val) if isinstance(val, (list, str)) else 1
                     break
+            # Preview of result content (up to 300 chars) when any payload key has content
+            preview_parts = []
+            for key in ("rows", "data", "content", "documents", "plan", "schema"):
+                if key not in result or result[key] is None:
+                    continue
+                raw = result[key]
+                try:
+                    s = json.dumps(raw, default=str) if not isinstance(raw, str) else raw
+                except (TypeError, ValueError):
+                    s = str(raw)
+                s = (s[: _max_preview] + "...") if len(s) > _max_preview else s
+                if s.strip():
+                    preview_parts.append(s)
+                    break
+            if preview_parts:
+                result_summary["result_preview"] = preview_parts[0]
         else:
             result_summary["result_type"] = type(result).__name__
         interaction_log.log_call(

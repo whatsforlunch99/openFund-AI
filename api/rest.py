@@ -275,7 +275,7 @@ def create_app(
         from agents.responder_agent import ResponderAgent
         from agents.websearch_agent import WebSearcherAgent
         from llm.factory import get_llm_client
-        from output.output_rail import OutputRail
+        from safety.safety_gateway import OutputRail
 
         # Resolve LLM client so planner and specialists can decompose queries and select tools
         if llm_client is None:
@@ -402,34 +402,38 @@ def create_app(
     @app.post("/login")
     def post_login_endpoint(body: LoginRequest) -> JSONResponse:
         """POST /login: verify password by username/user_id and preload memory."""
-        # load the users from the users.json file
-        users = _load_users()
-        login_name = body.username or body.user_id
-        user_key = _resolve_user_key(users, login_name)
+        try:
+            users = _load_users()
+            login_name = body.username or body.user_id
+            user_key = _resolve_user_key(users, login_name)
 
-        # if the user is not found or the password is incorrect, return a 401 error
-        record = users.get(user_key or "")
-        if not record or not _verify_password(body.password, str(record.get("password_hash") or "")):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid username/user_id or password"},
+            record = users.get(user_key or "")
+            if not record or not _verify_password(body.password, str(record.get("password_hash") or "")):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid username/user_id or password"},
+                )
+
+            loaded = manager.load_user_conversations(user_key or "")
+            memory_context = manager.get_user_memory_context(
+                user_key or "", max_conversations=3, max_chars=1000
             )
-
-        # load the user's conversations
-        loaded = manager.load_user_conversations(user_key or "")
-        memory_context = manager.get_user_memory_context(
-            user_key or "", max_conversations=3, max_chars=1000
-        )
-        return JSONResponse(
-            status_code=200,
-            content={
-                "user_id": user_key,
-                "username": user_key,
-                "message": f"Welcome back, {record.get('display_name') or user_key}.",
-                "loaded_conversations": loaded,
-                "has_memory_context": bool(memory_context),
-            },
-        )
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "user_id": user_key,
+                    "username": user_key,
+                    "message": f"Welcome back, {record.get('display_name') or user_key}.",
+                    "loaded_conversations": loaded,
+                    "has_memory_context": bool(memory_context),
+                },
+            )
+        except Exception as e:
+            logger.exception("Login failed")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": str(e)},
+            )
 
     @app.post("/chat")
     def post_chat_endpoint(body: ChatRequest) -> JSONResponse:
@@ -470,7 +474,31 @@ def create_app(
             # Resume existing conversation (reload from persistence when user is logged in).
             state = manager.get_conversation(conversation_id)
             interaction_log.set_conversation_id(conversation_id)
-
+            # If this conversation already completed (e.g. after a prior 408), return the cached response immediately.
+            if state and (state.status == "complete" or state.final_response):
+                if not (query and str(query).strip()):
+                    flow = manager.get_flow_events(conversation_id)
+                    return JSONResponse(
+                        status_code=200,
+                        content={
+                            "conversation_id": conversation_id,
+                            "status": state.status,
+                            "response": state.final_response or "",
+                            "flow": flow,
+                        },
+                    )
+                # Multi-turn: non-empty follow-up -> new conversation
+                conversation_id = manager.create_conversation(user_id, query)
+                state = manager.get_conversation(conversation_id)
+                interaction_log.set_conversation_id(conversation_id)
+                manager.append_flow(
+                    conversation_id,
+                    {
+                        "step": "new_turn",
+                        "message": "Follow-up question. Running new research.",
+                        "detail": {"query_preview": query[:100]},
+                    },
+                )
             manager.append_flow(
                 conversation_id,
                 {
@@ -544,6 +572,7 @@ def create_app(
                     "status": "timeout",
                     "conversation_id": conversation_id,
                     "response": None,
+                    "message": "The request took too long. Your question may still be processing. Send the same message again in a moment to get the answer when ready.",
                     "flow": manager.get_flow_events(conversation_id),
                 },
             )

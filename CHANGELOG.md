@@ -62,6 +62,8 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ### Removed
 
+- **docs from-gpt legacy files:** Removed `docs/websearcher-from-gpt` and `docs/websearcher-update-from-gpt` from the repo. Use [docs/websearcher-design.md](docs/websearcher-design.md) and [docs/news-searcher-design.md](docs/news-searcher-design.md) instead.
+
 - **News sources (unusable):** Removed Reuters RSS, NewsAPI.org, and Marketaux from verification script and docs. Reuters RSS returns 401; NewsAPI and Marketaux require API keys and were never implemented. Only Google News RSS, Yahoo Finance RSS, GDELT API, and market_tool remain as documented/verified sources.
 
 ## [0.2.0] - 2025-02-21

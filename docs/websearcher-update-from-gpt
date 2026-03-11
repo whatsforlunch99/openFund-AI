@@ -1,8 +1,0 @@
-# WebSearcher / News Searcher reference (legacy)
-
-Authoritative design docs:
-
-- **[websearcher-design.md](websearcher-design.md)** — WebSearcher agent: parallel data sources, schema, Planner contract, conflict resolution.
-- **[news-searcher-design.md](news-searcher-design.md)** — News Search: RSS/GDELT/market_tool, citations, verification.
-
-Implementation: `agents/websearch_agent.py`, `mcp/tools/news_tool.py`. Tool contracts: [agent-tools-reference.md](agent-tools-reference.md).

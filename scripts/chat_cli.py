@@ -54,6 +54,50 @@ def login_or_register(base_url: str) -> str | None:
             data = {"detail": resp.text[:500] if getattr(resp, "text", None) else "Invalid response"}
         if resp.status_code == 200:
             return data.get("user_id") or username
+        if resp.status_code == 404:
+            # User does not exist yet; offer to create an account so the same username
+            # can be used going forward.
+            print(f"User '{username}' not found.")
+            try:
+                choice = input("Create a new user with this name? (y/N): ").strip().lower()
+            except EOFError:
+                return None
+            if choice not in ("y", "yes"):
+                return None
+            # Ask the user to set a password (with confirmation) before calling /register.
+            while True:
+                try:
+                    pw1 = getpass.getpass("Set password (min 8 chars): ")
+                    pw2 = getpass.getpass("Confirm password: ")
+                except EOFError:
+                    return None
+                if pw1 != pw2:
+                    print("Passwords do not match. Try again.")
+                    continue
+                if len(pw1.strip()) < 8:
+                    print("Password must be at least 8 characters. Try again.")
+                    continue
+                password = pw1
+                break
+            try:
+                reg = requests.post(
+                    f"{base_url}/register",
+                    json={"username": username, "display_name": username, "password": password},
+                    timeout=LOGIN_TIMEOUT,
+                )
+            except requests.exceptions.RequestException as e:
+                print(f"[Error] Failed to create user: {e}. Continuing as anonymous.")
+                return None
+            try:
+                reg_data = reg.json() if reg.content else {}
+            except Exception:
+                reg_data = {"detail": reg.text[:500] if getattr(reg, "text", None) else "Invalid response"}
+            if reg.status_code == 200:
+                print(reg_data.get("message") or f"New user '{username}' created.")
+                return reg_data.get("user_id") or username
+            detail = reg_data.get("detail", reg.text or "Unknown error")
+            print(f"[Error] Could not create user: {detail}. Continuing as anonymous.")
+            return None
         if resp.status_code == 401:
             if attempt < MAX_LOGIN_ATTEMPTS:
                 continue

@@ -263,10 +263,13 @@ def create_app(
     if mcp_client is None:
         from openfund_mcp.mcp_client import MCPClient
 
+        # Pass current process env so the MCP subprocess sees .env vars (e.g. ALPHA_VANTAGE_API_KEY).
+        # load_config() above already loaded .env into os.environ.
         mcp_client = MCPClient(
             command=cfg.mcp_server_command,
             args=tuple(cfg.mcp_server_args),
             cwd=cfg.mcp_server_cwd or None,
+            env=dict(os.environ),
         )
 
     if agents is None:
@@ -408,8 +411,18 @@ def create_app(
             login_name = body.username or body.user_id
             user_key = _resolve_user_key(users, login_name)
 
-            record = users.get(user_key or "")
-            if not record or not _verify_password(body.password, str(record.get("password_hash") or "")):
+            # Distinguish between "user not found" and "wrong password" so clients
+            # (e.g. CLI) can offer a registration flow for unknown users.
+            if not user_key or user_key not in users:
+                return JSONResponse(
+                    status_code=404,
+                    content={"detail": "User not found"},
+                )
+
+            record = users.get(user_key, {})
+            if not _verify_password(
+                body.password, str(record.get("password_hash") or "")
+            ):
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "Invalid username/user_id or password"},

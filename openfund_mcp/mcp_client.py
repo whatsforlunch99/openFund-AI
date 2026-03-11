@@ -28,8 +28,15 @@ def _ensure_sdk() -> None:
         _StdioServerParameters = StdioServerParameters
         _stdio_client = stdio_client
     except ImportError as e:
+        import sys
+
+        py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+        hint = (
+            "MCP SDK requires Python 3.10+. This environment is Python "
+            f"{py_ver}. Recreate the venv with Python 3.11+ and run: pip install -e ."
+        )
         raise RuntimeError(
-            "MCP SDK not installed or not importable. Run: pip install mcp"
+            f"MCP SDK not installed or not importable ({e}). {hint}"
         ) from e
 
 
@@ -122,7 +129,7 @@ class MCPClient:
                                     name = req["name"]
                                     arguments = req.get("arguments") or {}
                                     tool_result = await session.call_tool(name, arguments=arguments)
-                                    if tool_result.is_error:
+                                    if getattr(tool_result, "isError", getattr(tool_result, "is_error", False)):
                                         future.set_result({"error": str(tool_result.content or "unknown error")})
                                     else:
                                         out = self._parse_tool_result(tool_result)

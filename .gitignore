@@ -34,6 +34,12 @@ ENV/
 *.swo
 *~
 
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tmp_milvus_cfg/
+
 # Project-specific (docs)
 memory/
 volumes/

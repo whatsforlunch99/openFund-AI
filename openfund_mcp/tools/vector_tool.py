@@ -74,7 +74,10 @@ def _get_embedding_model():
     model_name = os.environ.get("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
     dim = int(os.environ.get("EMBEDDING_DIM", DEFAULT_EMBEDDING_DIM))
     try:
-        _embedding_model = SentenceTransformer(model_name)
+        try:
+            _embedding_model = SentenceTransformer(model_name, local_files_only=True)
+        except Exception:
+            _embedding_model = SentenceTransformer(model_name)
         # Actual dim may differ; use config for collection schema
         return _embedding_model, dim
     except Exception as e:

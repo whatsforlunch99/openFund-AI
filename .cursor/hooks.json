@@ -22,7 +22,7 @@
         "matcher": "Write",
         "hooks": [{
           "type": "command",
-          "command": "node -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const i=JSON.parse(d);const p=i.tool_input?.file_path||'';if(/\\.(md|txt)$/.test(p)&&!/(README|CLAUDE|AGENTS|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\\.md$/i.test(p)&&!/\\.claude[\\/\\\\]plans[\\/\\\\]/.test(p)&&!/(^|[\\/\\\\])(docs|skills)[\\/\\\\]/.test(p)){console.error('[Hook] WARNING: Non-standard documentation file detected');console.error('[Hook] File: '+p);console.error('[Hook] Consider consolidating into README.md or docs/ directory')}}catch{}console.log(d)})\""
+          "command": "node -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const i=JSON.parse(d);const p=i.tool_input?.file_path||'';if(/\\.(md|txt)$/.test(p)&&!/(README|CLAUDE|AGENTS|CONTRIBUTING|CHANGELOG|LICENSE|SKILL)\\.md$/i.test(p)&&!/\\.cursor[\\/\\\\]plans[\\/\\\\]/.test(p)&&!/(^|[\\/\\\\])(docs|skills)[\\/\\\\]/.test(p)){console.error('[Hook] WARNING: Non-standard documentation file detected');console.error('[Hook] File: '+p);console.error('[Hook] Consider consolidating into README.md or docs/ directory')}}catch{}console.log(d)})\""
         }],
         "description": "Doc file warning: warn about non-standard documentation files (exit code 0; warns only)"
       },
@@ -30,7 +30,7 @@
         "matcher": "Edit|Write",
         "hooks": [{
           "type": "command",
-          "command": "node .claude/scripts/hooks/suggest-compact.js"
+          "command": "node .cursor/scripts/hooks/suggest-compact.js"
         }],
         "description": "Suggest manual compaction at logical intervals"
       }
@@ -60,7 +60,7 @@
         "matcher": "*",
         "hooks": [{
           "type": "command",
-          "command": "node .claude/scripts/hooks/pre-compact.js"
+          "command": "node .cursor/scripts/hooks/pre-compact.js"
         }],
         "description": "Save state before context compaction"
       }
@@ -70,7 +70,7 @@
         "matcher": "*",
         "hooks": [{
           "type": "command",
-          "command": "node .claude/scripts/hooks/session-start.js"
+          "command": "node .cursor/scripts/hooks/session-start.js"
         }],
         "description": "Load previous context and detect package manager on new session"
       }
@@ -80,7 +80,7 @@
         "matcher": "*",
         "hooks": [{
           "type": "command",
-          "command": "node .claude/scripts/hooks/session-end.js"
+          "command": "node .cursor/scripts/hooks/session-end.js"
         }],
         "description": "Persist session state on end"
       },
@@ -88,7 +88,7 @@
         "matcher": "*",
         "hooks": [{
           "type": "command",
-          "command": "node .claude/scripts/hooks/evaluate-session.js"
+          "command": "node .cursor/scripts/hooks/evaluate-session.js"
         }],
         "description": "Evaluate session for extractable patterns"
       }

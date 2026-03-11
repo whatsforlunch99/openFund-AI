@@ -122,8 +122,9 @@ class MCPClient:
                                     name = req["name"]
                                     arguments = req.get("arguments") or {}
                                     tool_result = await session.call_tool(name, arguments=arguments)
-                                    if tool_result.is_error:
-                                        future.set_result({"error": str(tool_result.content or "unknown error")})
+                                    if MCPClient._tool_result_is_error(tool_result):
+                                        err_text = MCPClient._tool_result_error_text(tool_result)
+                                        future.set_result({"error": err_text})
                                     else:
                                         out = self._parse_tool_result(tool_result)
                                         future.set_result(out)
@@ -138,6 +139,42 @@ class MCPClient:
             anyio.run(run)
         except Exception as e:
             self._response_queue.put(e)
+
+    @staticmethod
+    def _tool_result_is_error(tool_result: Any) -> bool:
+        """MCP SDK CallToolResult: is_error may be missing in newer SDKs; support isError or content heuristics."""
+        if tool_result is None:
+            return True
+        if getattr(tool_result, "is_error", None) is True:
+            return True
+        if getattr(tool_result, "isError", None) is True:
+            return True
+        # Some versions expose structured content only
+        content = getattr(tool_result, "content", None) or []
+        if not content:
+            return False
+        first = content[0] if isinstance(content, list) else content
+        if first is None:
+            return False
+        # Typed content blocks may carry isError on the block
+        if getattr(first, "isError", None) is True or getattr(first, "is_error", None) is True:
+            return True
+        if isinstance(first, dict) and first.get("isError") is True:
+            return True
+        return False
+
+    @staticmethod
+    def _tool_result_error_text(tool_result: Any) -> str:
+        """Best-effort error string from CallToolResult when is_error."""
+        content = getattr(tool_result, "content", None) or []
+        if isinstance(content, list) and content:
+            first = content[0]
+            text = getattr(first, "text", None) if first is not None else None
+            if text:
+                return str(text)[:2000]
+            if isinstance(first, dict) and first.get("text"):
+                return str(first["text"])[:2000]
+        return str(getattr(tool_result, "content", None) or "unknown error")[:2000]
 
     @staticmethod
     def _parse_tool_result(tool_result: Any) -> dict:

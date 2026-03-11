@@ -6,6 +6,8 @@ Run with: python -m openfund_mcp
 
 from __future__ import annotations
 
+import importlib.util
+import os
 from typing import Any, Optional
 
 try:
@@ -395,6 +397,106 @@ def _create_app() -> Any:
         pass
 
     # ---------------------------------------------------------------------------
+    # WebSearcher parallel sources (Yahoo, stooq, ETFdb)
+    # Local implementations live under mcp/tools/ but the PyPI package "mcp" shadows
+    # the project folder name; load by file path so subprocess stdio server exposes them.
+    # ---------------------------------------------------------------------------
+    _has_websearcher_sources = False
+    _websearcher_tool_names: list[str] = []
+
+    def _load_tool_module(unique_name: str, relpath: str) -> Any | None:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(root, relpath)
+        if not os.path.isfile(path):
+            return None
+        spec = importlib.util.spec_from_file_location(unique_name, path)
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    try:
+        # P1 FinanceDatabase search — same path-load pattern (PyPI mcp shadows local mcp package).
+        fc = _load_tool_module("openfund_fund_catalog_tool", os.path.join("mcp", "tools", "fund_catalog_tool.py"))
+        if fc is not None and hasattr(fc, "search"):
+            @mcp.tool(
+                name="fund_catalog_tool.search",
+                description="Search ETFs/funds by name or query. query or name (string), limit (optional int).",
+            )
+            def fund_catalog_tool_search(
+                query: str = "",
+                name: str = "",
+                limit: int = 10,
+            ) -> dict:
+                payload = {"limit": limit}
+                if query.strip():
+                    payload["query"] = query
+                elif name.strip():
+                    payload["name"] = name
+                else:
+                    payload["query"] = query or name
+                return fc.search(payload)
+
+            _has_websearcher_sources = True
+            _websearcher_tool_names.append("fund_catalog_tool.search")
+    except Exception:
+        pass
+
+    try:
+        yft = _load_tool_module("openfund_yahoo_finance_tool", os.path.join("mcp", "tools", "yahoo_finance_tool.py"))
+        if yft is not None and hasattr(yft, "get_fundamental") and hasattr(yft, "get_price"):
+            @mcp.tool(
+                name="yahoo_finance_tool.get_fundamental",
+                description="Yahoo quoteSummary: price, ETF stats, holdings when available. symbol (string).",
+            )
+            def yahoo_finance_tool_get_fundamental(symbol: str = "") -> dict:
+                return yft.get_fundamental({"symbol": symbol})
+
+            @mcp.tool(
+                name="yahoo_finance_tool.get_price",
+                description="Yahoo chart API: latest price. symbol (string).",
+            )
+            def yahoo_finance_tool_get_price(symbol: str = "") -> dict:
+                return yft.get_price({"symbol": symbol})
+            _has_websearcher_sources = True
+            _websearcher_tool_names.extend([
+                "yahoo_finance_tool.get_fundamental",
+                "yahoo_finance_tool.get_price",
+            ])
+    except Exception:
+        pass
+
+    try:
+        # Name must not be `st` — sql_tool is imported as st above; reusing st breaks sql_tool.* closures.
+        stooq_mod = _load_tool_module("openfund_stooq_tool", os.path.join("mcp", "tools", "stooq_tool.py"))
+        if stooq_mod is not None and hasattr(stooq_mod, "get_price"):
+            @mcp.tool(
+                name="stooq_tool.get_price",
+                description="Latest price from stooq. symbol (string); .US appended if missing.",
+            )
+            def stooq_tool_get_price(symbol: str = "") -> dict:
+                return stooq_mod.get_price({"symbol": symbol})
+            _has_websearcher_sources = True
+            _websearcher_tool_names.append("stooq_tool.get_price")
+    except Exception:
+        pass
+
+    try:
+        et = _load_tool_module("openfund_etfdb_tool", os.path.join("mcp", "tools", "etfdb_tool.py"))
+        if et is not None and hasattr(et, "get_fund_data"):
+            @mcp.tool(
+                name="etfdb_tool.get_fund_data",
+                description="ETFdb expense ratio, AUM, holdings. symbol (string).",
+            )
+            def etfdb_tool_get_fund_data(symbol: str = "") -> dict:
+                return et.get_fund_data({"symbol": symbol})
+            _has_websearcher_sources = True
+            _websearcher_tool_names.append("etfdb_tool.get_fund_data")
+    except Exception:
+        pass
+
+    # ---------------------------------------------------------------------------
     # get_capabilities
     # ---------------------------------------------------------------------------
     from openfund_mcp.tools import capabilities as cap
@@ -433,6 +535,8 @@ def _create_app() -> Any:
         ])
     if _has_analyst:
         _tool_names.append("analyst_tool.get_indicators")
+    if _websearcher_tool_names:
+        _tool_names.extend(_websearcher_tool_names)
 
     @mcp.tool(
         name="get_capabilities",

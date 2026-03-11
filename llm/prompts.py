@@ -184,6 +184,52 @@ Guidelines:
 
 Output only JSON array. If no tools are needed, output []."""
 
+# When all news/RSS/MCP news tools fail, WebSearcher calls LLM once to synthesize
+# headline lines. Parser in websearch_agent._llm_news_fallback expects one item per line:
+#   "Headline | short summary"
+# or a single line as title only (no pipe). Max ~10 lines; no markdown or numbering.
+WEBSEARCHER_NEWS_FALLBACK_SYSTEM = """You are assisting with a fallback when live news APIs are unavailable.
+Given a user query and symbol/topic, output up to 10 lines of recent-relevant news headlines.
+
+Format (strict):
+- One headline per line.
+- Prefer "Headline | one-sentence summary" when you can; otherwise output the headline only.
+- No markdown, no bullets, no numbering, no JSON.
+- If you have no relevant items, output a single line: No recent items available.
+Hard constraints: Do not fabricate URLs or claim you fetched live feeds; this is a best-effort textual fallback only."""
+
+# When all MCP/market tools fail (no price, no fundamentals), WebSearcher calls LLM once.
+# _llm_data_search_fallback parses optional price from text via _extract_price_from_text and
+# stores full text in llm_fallback_content. Keep output concise and plain text.
+WEBSEARCHER_LLM_FALLBACK_SYSTEM = """You are assisting when live market data APIs are unavailable.
+Given the user query and symbol/topic, provide a short factual-style paragraph that could help
+the planner: current context, typical price range if known from training, and key risks.
+Include a line with a dollar amount if you can cite a plausible recent level (e.g. "Recent levels around $450.")
+Do not claim real-time data; prefix with "Approximate context only:" if giving numbers.
+No JSON, no markdown fences. Max ~800 words."""
+
+# When stooq and Yahoo both return a price but differ by >1%, WebSearcher calls LLM once.
+# _resolve_conflict_with_llm parses lines (case-insensitive) starting with:
+#   CHOSEN: STOWQ | YAHOO
+#   VALUE: <number>
+#   REASON: <short text>
+WEBSEARCHER_CONFLICT_RESOLUTION_SYSTEM = """Two price sources disagree for the same symbol.
+You must pick exactly one source as more credible for the displayed price.
+
+Output exactly these three lines (uppercase keys as shown):
+CHOSEN: STOWQ
+or
+CHOSEN: YAHOO
+
+VALUE: <single number only, no currency symbol, use dot decimal>
+
+REASON: <one short sentence, e.g. recency, typical reliability, or agreement with close>
+
+Rules:
+- Choose STOWQ or YAHOO only.
+- If unsure, prefer the source that matches regular market close convention or the more recent quote if stated in the payload.
+- No extra lines, no markdown."""
+
 
 # --- Analyst: quantitative analysis and confidence ---
 # Used when/if Analyst uses LLM to generate analysis summary from structured_data + market_data.

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import logging
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -144,6 +146,61 @@ class MCPServer:
             self.register_tool("news_tool.search_yahoo_rss", lambda p: news_tool.search_yahoo_rss(p))
             self.register_tool("news_tool.search_gdelt", lambda p: news_tool.search_gdelt(p))
         except ImportError:
+            pass
+
+        # WebSearcher sources under mcp/tools/ — load by path (PyPI mcp shadows package name mcp).
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        def _load(relpath: str) -> Any | None:
+            path = os.path.join(root, relpath)
+            if not os.path.isfile(path):
+                return None
+            spec = importlib.util.spec_from_file_location("_ws_" + relpath.replace("/", "_"), path)
+            if spec is None or spec.loader is None:
+                return None
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+
+        try:
+            yft = _load(os.path.join("mcp", "tools", "yahoo_finance_tool.py"))
+            if yft:
+                self.register_tool(
+                    "yahoo_finance_tool.get_fundamental",
+                    lambda p: yft.get_fundamental(p if isinstance(p, dict) else {}),
+                )
+                self.register_tool(
+                    "yahoo_finance_tool.get_price",
+                    lambda p: yft.get_price(p if isinstance(p, dict) else {}),
+                )
+        except Exception:
+            pass
+        try:
+            fc = _load(os.path.join("mcp", "tools", "fund_catalog_tool.py"))
+            if fc and hasattr(fc, "search"):
+                self.register_tool(
+                    "fund_catalog_tool.search",
+                    lambda p: fc.search(p if isinstance(p, dict) else {}),
+                )
+        except Exception:
+            pass
+        try:
+            stooq_mod = _load(os.path.join("mcp", "tools", "stooq_tool.py"))
+            if stooq_mod:
+                self.register_tool(
+                    "stooq_tool.get_price",
+                    lambda p: stooq_mod.get_price(p if isinstance(p, dict) else {}),
+                )
+        except Exception:
+            pass
+        try:
+            et = _load(os.path.join("mcp", "tools", "etfdb_tool.py"))
+            if et:
+                self.register_tool(
+                    "etfdb_tool.get_fund_data",
+                    lambda p: et.get_fund_data(p if isinstance(p, dict) else {}),
+                )
+        except Exception:
             pass
 
         from openfund_mcp.tools import capabilities

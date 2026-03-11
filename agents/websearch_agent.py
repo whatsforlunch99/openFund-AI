@@ -24,6 +24,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Uppercase words that match [A-Z]{1,5} but are not tickers (English question words, etc.).
+# If the planner passes fund="WHAT" from "What is the price of SPY?", we must not query WHAT.US.
+_TICKER_BLOCKLIST = frozenset({
+    "WHAT", "WHEN", "WHERE", "WHICH", "WHO", "WHOM", "WHOSE", "WHY", "HOW",
+    "IS", "ARE", "WAS", "WERE", "BE", "BEEN", "BEING", "HAVE", "HAS", "HAD", "DO", "DOES", "DID",
+    "THE", "A", "AN", "AND", "OR", "BUT", "IF", "THEN", "ELSE", "FOR", "TO", "OF", "IN", "ON", "AT",
+    "BY", "FROM", "AS", "INTO", "THROUGH", "DURING", "BEFORE", "AFTER", "ABOVE", "BELOW",
+    "NOT", "NO", "YES", "ALL", "ANY", "BOTH", "EACH", "FEW", "MORE", "MOST", "OTHER", "SOME", "SUCH",
+    "ONLY", "OWN", "SAME", "SO", "THAN", "TOO", "VERY", "CAN", "WILL", "JUST", "SHOULD", "NOW",
+    "THERE", "HERE", "THIS", "THAT", "THESE", "THOSE", "WITH", "WITHOUT", "ABOUT", "AGAINST",
+    "CURRENT", "RECENT", "LATEST", "PRICE", "NEWS", "STOCK", "FUND", "ETF", "DATA", "INFO",
+})
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -120,10 +133,16 @@ class WebSearcherAgent(BaseAgent):
         text = (raw or "").strip()
         if not text:
             return "AAPL"
-        # Prefer explicit uppercase ticker tokens (1-5 chars) in query text.
-        tokens = re.findall(r"\b[A-Z]{1,5}\b", text.upper())
-        if tokens:
-            return tokens[0]
+        upper = text.upper()
+        # Prefer known multi-letter tickers mentioned in text (avoid WHAT, IS, etc.).
+        for sym in ("SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "NVDA", "AAPL", "MSFT", "GOOGL", "TSLA", "AMZN", "META"):
+            if re.search(r"\b" + re.escape(sym) + r"\b", upper):
+                return sym
+        # Explicit uppercase tokens 1-5 chars — skip English/stopwords that look like tickers.
+        tokens = re.findall(r"\b[A-Z]{1,5}\b", upper)
+        for t in tokens:
+            if t not in _TICKER_BLOCKLIST:
+                return t
         known = {
             "nvidia": "NVDA",
             "apple": "AAPL",
@@ -150,9 +169,17 @@ class WebSearcherAgent(BaseAgent):
         """
         query = (content.get("query") or "").strip()
         fund = (content.get("fund") or content.get("symbol") or "").strip()
-        # Explicit ticker (1-5 uppercase letters, optional .US)
-        if fund and re.match(r"^[A-Z]{1,5}(\.[A-Z]{2})?$", fund.upper()):
-            return [fund.upper().split(".")[0]], []
+        fund_upper = fund.upper().split(".")[0] if fund else ""
+        # Explicit ticker only if not a blocklisted word (e.g. WHAT from "What is the price of SPY?")
+        if (
+            fund
+            and re.match(r"^[A-Z]{1,5}(\.[A-Z]{2})?$", fund.upper())
+            and fund_upper not in _TICKER_BLOCKLIST
+        ):
+            return [fund_upper], []
+        # Blocklisted or empty fund: try catalog + query first
+        if fund_upper in _TICKER_BLOCKLIST:
+            fund = ""
 
         # Try fund_catalog
         if self.mcp_client and query:
@@ -511,10 +538,26 @@ class WebSearcherAgent(BaseAgent):
             tasks.append(("etfdb", "etfdb_tool.get_fund_data", {"symbol": symbol}))
         if "market_tool.get_fundamentals" in reg:
             tasks.append(("market", "market_tool.get_fundamentals", {"ticker": symbol, "symbol": symbol}))
+        # market_tool news paths require dates for Alpha Vantage; empty payload caused
+        # "time data '' does not match format" for get_global_news in logs.
+        today = date.today().isoformat()
+        start = (date.today() - timedelta(days=7)).isoformat()
         if "market_tool.get_news" in reg:
-            tasks.append(("sentiment", "market_tool.get_news", {"symbol": symbol, "limit": 3}))
+            tasks.append(
+                (
+                    "sentiment",
+                    "market_tool.get_news",
+                    {"symbol": symbol, "start_date": start, "end_date": today, "limit": 5},
+                )
+            )
         if "market_tool.get_global_news" in reg:
-            tasks.append(("regulatory", "market_tool.get_global_news", {}))
+            tasks.append(
+                (
+                    "regulatory",
+                    "market_tool.get_global_news",
+                    {"as_of_date": today, "look_back_days": 7, "limit": 5},
+                )
+            )
 
         results: dict[str, Any] = {}
         with ThreadPoolExecutor(max_workers=max(6, len(tasks))) as ex:

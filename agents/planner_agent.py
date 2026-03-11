@@ -358,6 +358,37 @@ class PlannerAgent(BaseAgent):
             return s
         return s[:max_len] + "..."
 
+    def _websearcher_price_line(self, w: dict[str, Any]) -> str:
+        """One-line price summary from websearcher normalized_fund so Responder always sees numbers."""
+        nf = w.get("normalized_fund")
+        if not isinstance(nf, list) or not nf:
+            return ""
+        parts: list[str] = []
+        for rec in nf[:3]:
+            if not isinstance(rec, dict):
+                continue
+            sym = rec.get("symbol") or "?"
+            pr = rec.get("price")
+            py = rec.get("price_yahoo")
+            src = rec.get("source") if isinstance(rec.get("source"), dict) else {}
+            price_src = src.get("price") if isinstance(src, dict) else None
+            if pr is not None:
+                try:
+                    line = f"{sym} ${float(pr):.2f}"
+                    if price_src:
+                        line += f" ({price_src})"
+                    elif py is not None:
+                        line += f" (Yahoo ${float(py):.2f})"
+                    parts.append(line)
+                except (TypeError, ValueError):
+                    pass
+            elif py is not None:
+                try:
+                    parts.append(f"{sym} ${float(py):.2f} (Yahoo)")
+                except (TypeError, ValueError):
+                    pass
+        return "; ".join(parts) if parts else ""
+
     def _format_final(self, collected: dict[str, Any]) -> str:
         """Turn collected agent outputs into a single string for Responder.
 
@@ -415,14 +446,27 @@ class PlannerAgent(BaseAgent):
 
         if "websearcher" in collected:
             w = collected["websearcher"]
-            if w.get("market_data") or w.get("sentiment"):
+            # Include websearcher block if we have any structured payload (not only errors).
+            has_ws_payload = bool(
+                w.get("market_data")
+                or w.get("sentiment")
+                or w.get("normalized_fund")
+                or w.get("summary")
+            )
+            if has_ws_payload:
                 bits_ws: list[str] = []
+                # Always inject price line first when normalized_fund has prices (summary may be
+                # long LLM text whose first 120 chars omit the number; market_data may be error-only).
+                price_line = self._websearcher_price_line(w)
+                if price_line:
+                    bits_ws.append(f"price: {price_line}")
                 summary_ws = w.get("summary")
 
-                # if there is a summary, add a snippet of the summary
+                # if there is a summary, add a snippet of the summary (longer cap when price already set)
                 if isinstance(summary_ws, str) and summary_ws.strip():
-                    bits_ws.append(f'"{self._snippet(summary_ws, 120)}"')
-                else:
+                    cap = 280 if price_line else 120
+                    bits_ws.append(f'"{self._snippet(summary_ws, cap)}"')
+                elif not price_line:
                     # if there is no summary, add a summary of the market data and sentiment data
                     for key, label in (("market_data", "market data"), ("sentiment", "sentiment")):
                         val = w.get(key)

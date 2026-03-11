@@ -78,6 +78,51 @@ def test_all_documented_tools_registered_and_callable(mcp_client: MCPClient) -> 
         )
 
 
+def test_mcp_client_tool_result_error_detection_no_attribute_error() -> None:
+    """CallToolResult shape varies by mcp SDK; _tool_result_is_error must not assume .is_error only."""
+    # No attribute is_error / isError -> treat as success path (parse content)
+    class OkResult:
+        content = []
+
+    assert MCPClient._tool_result_is_error(OkResult()) is False
+    assert MCPClient._tool_result_is_error(None) is True
+
+    class ErrSnake:
+        is_error = True
+
+    assert MCPClient._tool_result_is_error(ErrSnake()) is True
+
+    class ErrCamel:
+        isError = True
+
+    assert MCPClient._tool_result_is_error(ErrCamel()) is True
+
+
+def test_websearcher_conflict_resolution_prompt_defined() -> None:
+    """WebSearcherAgent._resolve_conflict_with_llm imports WEBSEARCHER_CONFLICT_RESOLUTION_SYSTEM."""
+    from llm.prompts import WEBSEARCHER_CONFLICT_RESOLUTION_SYSTEM
+
+    assert "CHOSEN:" in WEBSEARCHER_CONFLICT_RESOLUTION_SYSTEM
+    assert "VALUE:" in WEBSEARCHER_CONFLICT_RESOLUTION_SYSTEM
+    assert "REASON:" in WEBSEARCHER_CONFLICT_RESOLUTION_SYSTEM
+
+
+def test_websearcher_llm_fallback_prompt_defined() -> None:
+    """WebSearcherAgent._llm_data_search_fallback imports WEBSEARCHER_LLM_FALLBACK_SYSTEM."""
+    from llm.prompts import WEBSEARCHER_LLM_FALLBACK_SYSTEM
+
+    assert isinstance(WEBSEARCHER_LLM_FALLBACK_SYSTEM, str)
+    assert len(WEBSEARCHER_LLM_FALLBACK_SYSTEM) > 50
+
+
+def test_websearcher_news_fallback_prompt_defined() -> None:
+    """WebSearcherAgent._llm_news_fallback imports WEBSEARCHER_NEWS_FALLBACK_SYSTEM."""
+    from llm.prompts import WEBSEARCHER_NEWS_FALLBACK_SYSTEM
+
+    assert isinstance(WEBSEARCHER_NEWS_FALLBACK_SYSTEM, str)
+    assert len(WEBSEARCHER_NEWS_FALLBACK_SYSTEM) > 50
+
+
 def test_documented_tool_names_match_tool_descriptions() -> None:
     """TOOL_DESCRIPTIONS_BY_NAME and SAMPLE_PAYLOADS cover the same set (except get_capabilities)."""
     desc_names = set(TOOL_DESCRIPTIONS_BY_NAME)

@@ -61,6 +61,10 @@ OpenFund-AI/
 │       ├── file_tool.py
 │       ├── vector_tool.py
 │       ├── kg_tool.py
+│       ├── fund_catalog_tool.py   # P1: FinanceDatabase search
+│       ├── stooq_tool.py          # P2: stooq price
+│       ├── yahoo_finance_tool.py  # P2 fallback: query1.finance.yahoo.com price
+│       ├── etfdb_tool.py          # P3: ETFdb fundamentals
 │       ├── market_tool.py
 │       ├── analyst_tool.py
 │       ├── sql_tool.py
@@ -92,6 +96,7 @@ OpenFund-AI/
     ├── data-manager-agent.md     # Data Manager Agent design: data collection + distribution to DBs
     ├── demo.md                   # How to run full stack; no separate demo mode
     ├── fund-data-schema.md       # Fund data schema: JSON field definitions and DB mapping
+    ├── websearcher-design.md     # WebSearcher agent design: parallel sources, schema, Planner contract
     ├── test_plan.md
     ├── progress.md
     ├── project-status.md
@@ -646,7 +651,7 @@ combined = agent.combine_results(docs, graph_data)
 
 # agents/websearch_agent.py
 
-**Purpose:** Fetch real-time market, sentiment, and regulatory data via MCP market_tool. Tool selection may use LLM (see [backend.md](backend.md)); otherwise content-based dispatch. All returned data includes a timestamp. Tool list: [agent-tools-reference.md](agent-tools-reference.md).
+**Purpose:** Fetch real-time market and fund data via MCP. Queries all sources in parallel (fund_catalog, stooq, Yahoo, ETFdb, market_tool, news_tool) per [websearcher-design.md](websearcher-design.md) and [news-searcher-design.md](news-searcher-design.md); returns `normalized_fund`, `market_data`, `sentiment`, `regulatory`, and `news`/`citations`. Tool list: [agent-tools-reference.md](agent-tools-reference.md).
 
 ---
 
@@ -654,7 +659,7 @@ combined = agent.combine_results(docs, graph_data)
 
 **Purpose:** Fetches real-time market and regulatory information via MCP. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](agent-tools-reference.md).
 
-**Docstring:** `Fetches real-time market and regulatory information. Uses MCP market_tool (Alpha Vantage / Finnhub; Tavily path is currently stubbed via search_web). All returned data must include a timestamp.`
+**Docstring:** `Fetches real-time market and fund information. Queries all sources in parallel; merges into normalized_fund, market_data, sentiment, regulatory, news/citations. All returned data includes a timestamp.`
 
 ---
 

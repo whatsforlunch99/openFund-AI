@@ -6,14 +6,11 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ### Added
 
-- **FastMCP as single path:** All MCP tool access (OpenFund API/agents and external clients like Claude Desktop) goes through the FastMCP server. Run the server with `python -m openfund_mcp`; the API spawns it automatically via MCPClient over stdio. Config: `MCP_SERVER_COMMAND`, `MCP_SERVER_ARGS`, `MCP_SERVER_CWD`. New doc [docs/mcp-server.md](docs/mcp-server.md) (run server, Claude Desktop example). Test `test_fastmcp_discovery` verifies tool discovery via FastMCP subprocess (skipped when MCP SDK not installed).
+- **News Searcher: Yahoo and GDELT sources:** New MCP tools `news_tool.search_yahoo_rss` (Yahoo Finance fixed feed) and `news_tool.search_gdelt` (GDELT API with retry on 429). WebSearcher `_fetch_news_sources` now queries all four news sources in parallel: `news_tool.search_rss`, `news_tool.search_yahoo_rss`, `news_tool.search_gdelt`, plus `market_tool.get_news` and `market_tool.get_global_news`. Results are merged and deduped by URL. See [docs/news-searcher-design.md](docs/news-searcher-design.md) and [docs/agent-tools-reference.md](docs/agent-tools-reference.md).
 
-### Removed
+- **News Searcher (WebSearcher):** News Search runs in parallel with Financial Data Search. New MCP tool `news_tool.search_rss` (Google News RSS). WebSearcher aggregates news from RSS, `market_tool.get_news`, and `market_tool.get_global_news`, normalizes to standard schema, assigns citation IDs (NEWS1, NEWS2, …), and adds `news` and `citations` to INFORM. See [docs/news-searcher-design.md](docs/news-searcher-design.md).
 
-- **Output package:** The `output/` package was removed. `OutputRail` and response formatting (`format_for_user`, compliance/guardrail) now live in `safety/safety_gateway.py`; import from `safety` (e.g. `from safety import OutputRail`).
-- **StaticLLMClient and llm/static_client.py:** The static mock LLM client and module were removed. E2E (`main.py --e2e-once`) uses **llm_client=None** when get_llm_client fails; planner and agents use built-in fallbacks. Tests that need a no-API client use a local **MockLLMClient** in tests/test-stages.py.
-
-### Added
+- **WebSearcher P1→P2→P3 flow:** New MCP tools: `fund_catalog_tool.search` (P1, FinanceDatabase; optional `pip install openfund-ai[websearcher]`), `stooq_tool.get_price` (P2), `etfdb_tool.get_fund_data` (P3). WebSearcherAgent resolves symbols via P1 or heuristics, fetches stooq + ETFdb in parallel, normalises to standard schema, and returns `normalized_fund` plus backward-compat `market_data`, `sentiment`, `regulatory`. See [docs/websearcher-design.md](docs/websearcher-design.md).
 
 - **Chat CLI login step:** The interactive chat client (`scripts/chat_cli.py`) now prompts for username and password before the chat loop when started via `./scripts/run.sh`. Enter a username and password to log in (POST /login); on 401 you can register (POST /register) with the same credentials (password min 8 chars). Successful login sends `user_id` with every POST /chat request. Press Enter at "Username" to skip and run as anonymous. Use `--no-login` to skip the prompt (e.g. for scripts or tests). docs/user-flow.md and docs/demo.md updated.
 - **Tools and LLM diagnostics:** Startup now logs which MCP tools are registered and logs LLM model and base_url (no key). `market_tool` and `analyst_tool` log at INFO when skipped due to ImportError (e.g. missing pandas). GET `/health` returns `tools` (registered MCP tool names) and `llm_configured` for quick verification. Librarian, WebSearcher, and Analyst only see and suggest tools that are actually registered (tool descriptions and allowed sets are filtered by `mcp_client.get_registered_tool_names()`), avoiding "Unknown tool" when optional tools are skipped. MCPClient has `get_registered_tool_names()`. docs/demo.md: Setup checklist (LLM, market/analyst tools, how to verify) and expanded troubleshooting; README points to demo.md for setup checklist.
@@ -43,12 +40,6 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ### Changed
 
-- **MCP package and production path:** The app’s MCP package was renamed from `mcp` to `openfund_mcp` so the official `mcp` SDK can be used. Production no longer uses MCPServer for tool dispatch: api/rest, main, and data_manager create MCPClient with config (command/args/cwd) only; MCPServer is used only in tests (MCPClient(server)). docs/backend.md and docs/agent-tools-reference.md describe the single-path FastMCP design.
-
-- **Struct and trace logging removed; interaction_log only:** All uses of `struct_log` and `trace()` have been removed. Structured call logging is now done only via `util/interaction_log` (`log_call` with conversation_id, params, result, duration_ms, sequence). Root log formatting remains via `util/log_format.OpenFundFormatter`. Removed `util/trace_log.py`. Docs (file-structure.md, demo.md) and CHANGELOG updated.
-
-- **File-as-data support removed:** The project no longer uses file reading as a data source. Planner no longer forwards `path` or handles librarian `file` content in _format_final, _conversation_state_snippet, or _format_aggregated_for_sufficiency. Librarian no longer calls `file_tool.read_file` or returns `file` in INFORM content; it uses only vector_query, fund, and sql_query. MCP `file_tool.read_file` is no longer registered; `file_tool` removed from Librarian tool lists in llm/tool_descriptions.py and docs/agent-tools-reference.md. POST /chat and WebSocket /ws no longer document or use `path`. Tests and docs updated (Stage 2.1 uses vector_tool.search; Stage 3.2 uses vector_query; E2E tests no longer pass path).
-
 - **LLM-driven planner decomposition:** The planner now treats the LLM as the single source of truth for which agents to call and what query to pass to each. The PLANNER_DECOMPOSE prompt explicitly instructs the LLM to choose zero, one, two, or three agents and to supply a dedicated query per action. LiveLLMClient._parse_steps accepts per-step query from params.query or a top-level "query" key and only falls back to the user query when neither is present; it returns None on parse failure and [] when the LLM returns a valid empty array. When the LLM returns an empty list, the planner uses a single analyst step so the pipeline does not stall; when the LLM is absent or parse fails, the planner keeps the existing fixed three-step fallback. Tests: test_stage_10_2_live_client_parse_steps_per_agent_query (skipped when openai not installed), test_stage_10_2_planner_empty_list_single_analyst_fallback. docs/backend.md and docs/file-structure.md updated.
 
 - **Market tools: Alpha Vantage default with yfinance fallback:** Default vendor is now **Alpha Vantage** (`MCP_MARKET_VENDOR` and `MCP_INDICATOR_VENDOR` default to `alpha_vantage`; unset or invalid falls back to `yfinance`). All `_route_*` functions catch any Alpha Vantage failure (not only rate limit), log at debug, and fall back to yfinance (or Finnhub where applicable). `get_stock_data_yf` and `get_news_yf` are wired through the same routers (`_route_stock_data`, `_route_news`) so both generic and `_yf` tool names try AV first, then yfinance. `.env.example` and docs/agent-tools-reference.md updated.
@@ -65,9 +56,13 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 - **PlannerAgent.create_research_request:** Parameter `_context` renamed to `context` so callers can pass `context=None` by keyword (fixes TypeError in tests and agent flow).
 - **MCP server:** `register_default_tools()` now imports `file_tool` first and registers optional tools (`market_tool`, `analyst_tool`) only when their imports succeed, so stage 2.1/2.2 tests pass in environments where pandas (or other optional deps) are not installed.
 
+### Changed
+
+- **WebSearcher code and docs consolidated:** Removed dead code from `agents/websearch_agent.py` (`_execute_tool_calls_web`, `_ensure_timestamp`, `_send_inform_web`). Replaced `docs/websearcher-update-from-gpt` and `docs/websearcher-from-gpt` with short pointers to `websearcher-design.md` and `news-searcher-design.md`. Updated `news-searcher-design.md` and `file-structure.md` to match current implementation (parallel flow, no P1/P2/P3). Removed P1/P2/P3 labels from `llm/tool_descriptions.py` and `docs/agent-tools-reference.md`. Test `test_stage_10_2_websearcher_tool_selection_when_llm_returns_tool_calls` updated for parallel-flow behaviour.
+
 ### Removed
 
-- **file_tool as data source:** `file_tool.read_file` is no longer registered in MCP or offered to the Librarian. The file_tool module remains in the repo but is unused in the agent flow.
+- **News sources (unusable):** Removed Reuters RSS, NewsAPI.org, and Marketaux from verification script and docs. Reuters RSS returns 401; NewsAPI and Marketaux require API keys and were never implemented. Only Google News RSS, Yahoo Finance RSS, GDELT API, and market_tool remain as documented/verified sources.
 
 ## [0.2.0] - 2025-02-21
 

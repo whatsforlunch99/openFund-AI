@@ -1,9 +1,8 @@
-"""Tool descriptions per agent for LLM tool selection.
+"""Tool descriptions per agent for LLM tool selection. Mirrors docs/agent-tools-reference.md.
 
-Tools and payload parameters are derived from mcp/tools/*.py and
-mcp/mcp_server.py register_default_tools(). Kept in sync with
-docs/agent-tools-reference.md. Only tools actually registered in
-MCPServer are listed here (file_tool is not registered).
+The allowed tool sets and descriptions here are the single source of truth in code.
+Any change to the "Summary: tools available per agent" table in docs/agent-tools-reference.md
+should be reflected here (and vice versa).
 """
 
 from __future__ import annotations
@@ -12,52 +11,63 @@ from typing import Any
 
 # ---------------------------------------------------------------------------
 # Single flat dict of all tools: tool_name -> short description.
-# Payload keys match mcp_server lambdas and tool function signatures.
+# Used to build per-agent prompt strings from the allowed sets below.
 # ---------------------------------------------------------------------------
 TOOL_DESCRIPTIONS_BY_NAME: dict[str, str] = {
-    # vector_tool (mcp/tools/vector_tool.py)
-    "vector_tool.search": "Semantic search over documents. Payload: query (required), top_k (optional int, default 5), filter (optional dict, e.g. fund_id, source).",
+    # file_tool
+    "file_tool.read_file": "Read file content. Payload: path (string).",
+    # vector_tool
+    "vector_tool.search": "Semantic search over documents. Payload: query (string), top_k (optional int, default 5), filter (optional dict, e.g. fund_id, source).",
     "vector_tool.get_by_ids": "Retrieve entities by IDs. Payload: ids (list of strings), collection_name (optional). Returns entities.",
-    "vector_tool.upsert_documents": "Insert or update documents in vector collection. Payload: docs (list of dicts with 'id' and 'content'; optional fund_id, source).",
+    "vector_tool.upsert_documents": "Insert or update documents in vector collection. Payload: docs (list of dicts with 'id' and 'content').",
     "vector_tool.health_check": "Check Milvus connectivity. Payload: {}.",
-    "vector_tool.create_collection_from_config": "Create a new Milvus collection. Payload: name (string), dimension (optional int, default 384), primary_key_field (optional), scalar_fields (optional), index_params (optional).",
-    # kg_tool (mcp/tools/kg_tool.py)
+    "vector_tool.create_collection_from_config": "Create a new Milvus collection. Payload: name (string), dimension (optional int), primary_key_field (optional), scalar_fields (optional), index_params (optional).",
+    # kg_tool
     "kg_tool.query_graph": "Run Cypher query. Payload: cypher (string), params (optional dict).",
     "kg_tool.get_relations": "Get relationships for an entity (fund/company). Payload: entity (string).",
-    "kg_tool.get_node_by_id": "Look up a node by property. Payload: id_val or id (string), id_key (optional, default 'id').",
-    "kg_tool.get_neighbors": "Get neighbors of a node. Payload: node_id or id (string), id_key, direction ('in'|'out'|'both'), relationship_type (optional), limit (optional int, default 100).",
+    "kg_tool.get_node_by_id": "Look up a node by property. Payload: id_val (string), id_key (optional, default 'id').",
+    "kg_tool.get_neighbors": "Get neighbors of a node. Payload: node_id (string), id_key, direction ('in'|'out'|'both'), relationship_type (optional), limit (optional int).",
     "kg_tool.get_graph_schema": "List node labels and relationship types. Payload: {}.",
-    "kg_tool.shortest_path": "Find shortest path between two nodes. Payload: start_id (string), end_id (string), id_key (optional), relationship_type (optional), max_depth (optional int, default 15).",
-    "kg_tool.get_similar_nodes": "Find structurally similar nodes by shared neighbors. Payload: node_id or id (string), id_key (optional), limit (optional int, default 10).",
-    "kg_tool.fulltext_search": "Full-text search via Neo4j index. Payload: index_name (string), query_string (string), limit (optional int, default 50).",
-    "kg_tool.bulk_export": "Read-only Cypher export as JSON or CSV. Payload: cypher (string), params (optional), format ('json'|'csv'), row_limit (optional int, default 1000).",
-    "kg_tool.bulk_create_nodes": "Create/merge nodes. Payload: nodes (list of dicts), label (optional string), id_key (optional string, default 'id').",
-    # sql_tool (mcp/tools/sql_tool.py)
-    "sql_tool.run_query": "Execute SQL on PostgreSQL. Use only tables/columns from the schema in your instructions. Payload: query (string), params (optional).",
+    "kg_tool.shortest_path": "Find shortest path between two nodes. Payload: start_id (string), end_id (string), id_key (optional), relationship_type (optional), max_depth (optional int).",
+    "kg_tool.get_similar_nodes": "Find structurally similar nodes by shared neighbors. Payload: node_id (string), id_key (optional), limit (optional int).",
+    "kg_tool.fulltext_search": "Full-text search via Neo4j index. Payload: index_name (string), query_string (string), limit (optional int).",
+    "kg_tool.bulk_export": "Read-only Cypher export as JSON or CSV. Payload: cypher (string), params (optional), format ('json'|'csv'), row_limit (optional int).",
+    "kg_tool.bulk_create_nodes": "Create/merge nodes. Payload: nodes (list of dicts), label (optional string), id_key (optional string).",
+    # sql_tool
+    "sql_tool.run_query": "Execute SQL on PostgreSQL. Use only tables/columns from the schema in your instructions (e.g. fund_info, fund_performance, fund_holdings with fund_symbol, fund_sector_allocation). Payload: query (string), params (optional).",
     "sql_tool.explain_query": "Return SQL query plan. Payload: query (string), params (optional), analyze (optional bool).",
-    "sql_tool.export_results": "Run read-only SQL and return JSON or CSV. Payload: query (string), params (optional), format ('json'|'csv'), row_limit (optional int, default 1000).",
+    "sql_tool.export_results": "Run SQL and return JSON/CSV. Use only schema from instructions. Payload: query (string), params (optional), format ('json'|'csv'), row_limit (optional int).",
     "sql_tool.connection_health_check": "Test PostgreSQL connectivity. Payload: {}.",
-    # market_tool (mcp/tools/market_tool.py; optional)
+    # market_tool
     "market_tool.get_fundamentals": "Company fundamentals/overview (vendor-routed). Payload: symbol or ticker (string).",
-    "market_tool.get_stock_data": "OHLCV historical data (vendor-routed). Payload: symbol or ticker (string), start_date (yyyy-mm-dd), end_date (yyyy-mm-dd).",
-    "market_tool.get_balance_sheet": "Balance sheet (vendor-routed). Payload: ticker or symbol (string), freq (optional 'quarterly'|'annual').",
-    "market_tool.get_cashflow": "Cash flow statement (vendor-routed). Payload: ticker or symbol (string), freq (optional).",
-    "market_tool.get_income_statement": "Income statement (vendor-routed). Payload: ticker or symbol (string), freq (optional).",
-    "market_tool.get_insider_transactions": "Insider transactions (vendor-routed). Payload: ticker or symbol (string).",
-    "market_tool.get_news": "Recent ticker news (vendor-routed). Payload: symbol or ticker (string), limit (optional), start_date, end_date.",
-    "market_tool.get_global_news": "Global/macro financial news (vendor-routed). Payload: as_of_date or curr_date (optional yyyy-mm-dd), look_back_days (optional int, default 7), limit (optional int, default 10).",
-    # analyst_tool (mcp/tools/analyst_tool.py; optional)
-    "analyst_tool.get_indicators": "Technical indicators (SMA, RSI, MACD, etc.). Payload: symbol or ticker (string), indicator (e.g. close_50_sma, rsi, macd, boll, atr), as_of_date or curr_date (yyyy-mm-dd), look_back_days (optional int, default 30).",
-    # capabilities (mcp/tools/capabilities.py)
+    "market_tool.get_stock_data": "OHLCV historical data (vendor-routed). Payload: symbol (string), start_date (yyyy-mm-dd), end_date (yyyy-mm-dd).",
+    "market_tool.get_balance_sheet": "Balance sheet (vendor-routed). Payload: ticker (string), freq (optional 'quarterly'|'annual').",
+    "market_tool.get_cashflow": "Cash flow statement (vendor-routed). Payload: ticker (string), freq (optional).",
+    "market_tool.get_income_statement": "Income statement (vendor-routed). Payload: ticker (string), freq (optional).",
+    "market_tool.get_insider_transactions": "Insider transactions (vendor-routed). Payload: ticker (string).",
+    "market_tool.get_news": "Recent ticker news (vendor-routed). Payload: symbol (string), limit (optional int), start_date, end_date.",
+    "market_tool.get_global_news": "Global/macro financial news (vendor-routed). Payload: as_of_date (optional yyyy-mm-dd), look_back_days (optional int), limit (optional int).",
+    "fund_catalog_tool.search": "Search ETFs/mutual funds by name or query. Payload: query or name (string), limit (optional int, default 10). Returns matches with symbol, name, asset_class.",
+    "stooq_tool.get_price": "Latest price from stooq. Payload: symbol (string). Returns price, close, date, timestamp.",
+    "yahoo_finance_tool.get_price": "Latest price from Yahoo Finance. Payload: symbol (string). Returns price, close, date, timestamp.",
+    "yahoo_finance_tool.get_fundamental": "Yahoo quoteSummary fundamentals: price + ETF/fund stats (expense ratio, AUM, holdings/sector when available). Payload: symbol (string). Returns parsed fields plus raw modules.",
+    "etfdb_tool.get_fund_data": "ETF fundamentals from ETFdb: expense ratio, AUM, holdings. Payload: symbol (string). Returns expense_ratio, aum, holdings_top10.",
+    "news_tool.search_rss": "Search news via Google News RSS. Payload: query (required string), days (optional int, default 7). Returns items with title, link, published, source.",
+    "news_tool.search_yahoo_rss": "Fetch finance news from Yahoo Finance RSS (fixed feed, no query). Payload: limit (optional int, default 20). Returns items with title, link, published, source.",
+    "news_tool.search_gdelt": "Search news via GDELT API (free, no key; may 429). Payload: query (required string), limit (optional int, default 10). Returns items with title, link, published, source.",
+    # analyst_tool
+    "analyst_tool.get_indicators": "Technical indicators (SMA, RSI, MACD, etc.). Payload: symbol (string), indicator (e.g. close_50_sma, rsi, macd, boll, atr), as_of_date (yyyy-mm-dd), look_back_days (int).",
+    # capabilities
     "get_capabilities": "List registered MCP tools and backend status (neo4j, postgres, milvus). Payload: {}.",
 }
 
 
 # ---------------------------------------------------------------------------
-# Allowed tool name sets per agent. Must match tools registered in
-# mcp/mcp_server.py register_default_tools() and mcp/tools/*.py.
+# Allowed tool name sets per agent — derived from docs/agent-tools-reference.md
+# "Summary: tools available per agent" table.
 # ---------------------------------------------------------------------------
 LIBRARIAN_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
+    "file_tool.read_file",
     "vector_tool.search",
     "vector_tool.get_by_ids",
     "vector_tool.upsert_documents",
@@ -81,6 +91,14 @@ LIBRARIAN_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
 ])
 
 WEBSEARCHER_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
+    "fund_catalog_tool.search",
+    "news_tool.search_rss",
+    "news_tool.search_yahoo_rss",
+    "news_tool.search_gdelt",
+    "stooq_tool.get_price",
+    "yahoo_finance_tool.get_fundamental",
+    "yahoo_finance_tool.get_price",
+    "etfdb_tool.get_fund_data",
     "market_tool.get_fundamentals",
     "market_tool.get_stock_data",
     "market_tool.get_balance_sheet",
@@ -103,6 +121,7 @@ ANALYST_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
 # Each list contains tool names; descriptions are fetched from TOOL_DESCRIPTIONS_BY_NAME.
 # ---------------------------------------------------------------------------
 _LIBRARIAN_TOOL_ORDER: list[str] = [
+    "file_tool.read_file",
     "vector_tool.search",
     "vector_tool.get_by_ids",
     "vector_tool.upsert_documents",
@@ -126,6 +145,13 @@ _LIBRARIAN_TOOL_ORDER: list[str] = [
 ]
 
 _WEBSEARCHER_TOOL_ORDER: list[str] = [
+    "fund_catalog_tool.search",
+    "news_tool.search_rss",
+    "news_tool.search_yahoo_rss",
+    "news_tool.search_gdelt",
+    "stooq_tool.get_price",
+    "yahoo_finance_tool.get_price",
+    "etfdb_tool.get_fund_data",
     "market_tool.get_fundamentals",
     "market_tool.get_stock_data",
     "market_tool.get_news",

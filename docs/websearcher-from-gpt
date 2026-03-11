@@ -1,0 +1,8 @@
+# WebSearcher design reference (legacy)
+
+See the authoritative docs:
+
+- **[websearcher-design.md](websearcher-design.md)** — Agent design, parallel sources, schema, Planner contract.
+- **[news-searcher-design.md](news-searcher-design.md)** — News Search subsystem.
+
+Implementation: `agents/websearch_agent.py`; tools: [agent-tools-reference.md](agent-tools-reference.md).

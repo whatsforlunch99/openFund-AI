@@ -342,5 +342,5 @@ Milvus is designed for vector similarity search on text-based data. Currently no
 ## References
 
 - [data-manager-agent.md](data-manager-agent.md) — Data Manager Agent design and CLI commands
-- [backend.md](backend.md) — System architecture
-- [file-structure.md](file-structure.md) — Code structure
+- [backend.md](../workflow/02_planning/backend.md) — System architecture
+- [file-structure.md](../workflow/02_planning/file-structure.md) — Code structure

@@ -1,6 +1,6 @@
 # Product Requirements Document (PRD)
 
-What the system must do and why. No API or implementation details; see [backend.md](backend.md) and [file-structure.md](file-structure.md) for those.
+What the system must do and why. No API or implementation details; see [backend.md](../02_planning/backend.md) and [file-structure.md](../02_planning/file-structure.md) for those.
 
 ---
 

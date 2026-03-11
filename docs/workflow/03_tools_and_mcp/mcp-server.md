@@ -1,6 +1,6 @@
 # MCP Server (FastMCP)
 
-OpenFund-AI exposes all tools through a single **FastMCP** server. Both the OpenFund API/agents and external MCP clients (e.g. Claude Desktop) use this server.
+OpenFund-AI exposes all tools through a single **MCP server** (FastMCP over stdio). The server is implemented in `openfund_mcp/mcp_server.py`. Both the OpenFund API/agents and external MCP clients (e.g. Claude Desktop) use this server.
 
 ## Running the server
 
@@ -14,7 +14,7 @@ The server runs over **stdio**: it reads JSON-RPC messages from stdin and writes
 
 ## Internal usage (OpenFund API)
 
-When you start the API (`python main.py --serve` or `./scripts/run.sh`), the app creates an **MCPClient** that spawns the FastMCP server as a subprocess and connects to it over stdio. No extra step is required: the same server is used automatically for all tool calls (vector, SQL, KG, market, analyst, file, capabilities).
+When you start the API (`python main.py --serve` or `./scripts/run.sh`), the app creates an **MCPClient** that spawns the MCP server as a subprocess and connects to it over stdio. No extra step is required: the same server is used automatically for all tool calls (vector, SQL, KG, market, analyst, file, capabilities).
 
 Configuration (see `config/config.py`):
 
@@ -24,7 +24,7 @@ Configuration (see `config/config.py`):
 
 ## External usage (e.g. Claude Desktop)
 
-To use OpenFund tools from Claude Desktop or another MCP client, configure the client to start the FastMCP server with stdio.
+To use OpenFund tools from Claude Desktop or another MCP client, configure the client to start the server with stdio.
 
 **Example Claude Desktop config** (add to your Claude Desktop MCP config file):
 

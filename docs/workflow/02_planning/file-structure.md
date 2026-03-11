@@ -1,6 +1,6 @@
 # File-Structure Document
 
-Directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). See [backend.md](backend.md) for API and architecture, [prd.md](prd.md) for product intent, [user-flow.md](user-flow.md) for user flow. This document covers the main application code only; the `data_prep/` folder is not included.
+Directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). See [backend.md](backend.md) for API and architecture, [prd.md](../90_product/prd.md) for product intent, [user-flow.md](../00_overview/user-flow.md) for user flow. This document covers the main application code only; the `data_prep/` folder is not included.
 
 ---
 
@@ -83,19 +83,31 @@ OpenFund-AI/
 ├── tests/
 │   └── test-stages.py
 └── docs/
-    ├── user-flow.md
-    ├── prd.md
-    ├── backend.md
-    ├── frontend.md
-    ├── file-structure.md
-    ├── agent-tools-reference.md   # MCP tool payloads and per-agent tool lists
-    ├── data-manager-agent.md     # Data Manager Agent design: data collection + distribution to DBs
-    ├── demo.md                   # How to run full stack; no separate demo mode
-    ├── fund-data-schema.md       # Fund data schema: JSON field definitions and DB mapping
-    ├── test_plan.md
-    ├── progress.md
-    ├── project-status.md
-    └── use-case-trace-beginner.md   # Step-by-step function trace for one beginner request
+    ├── shared/
+    │   ├── ENV.md
+    │   └── test_plan.md
+    ├── workflow/
+    │   ├── 00_overview/
+    │   │   ├── user-flow.md
+    │   │   └── use-case-trace-beginner.md   # Step-by-step function trace for one beginner request
+    │   ├── 02_planning/
+    │   │   ├── backend.md
+    │   │   ├── file-structure.md
+    │   │   └── frontend.md
+    │   ├── 03_tools_and_mcp/
+    │   │   ├── agent-tools-reference.md   # MCP tool payloads and per-agent tool lists
+    │   │   └── mcp-server.md
+    │   └── 90_product/
+    │       ├── prd.md
+    │       ├── progress.md
+    │       └── project-status.md
+    ├── data_prep/
+    │   ├── data-manager-agent.md     # Data Manager Agent design; collection + distribution to DBs
+    │   └── fund-data-schema.md       # Fund data schema: JSON fields and DB mapping
+    └── rl_pipeline/
+        ├── README.md
+        ├── plan_a_reranking/         # idea.md, data_collection.md, dag_and_schemas.md, execution.md
+        └── plan_b_planner_tools/     # idea.md, data_collection.md, dag_and_schemas.md, execution.md
 ```
 
 ---
@@ -177,7 +189,7 @@ print(msg.conversation_id)  # UUID string
 
 # util/interaction_log.py
 
-**Purpose:** Systematic interaction call logging: every significant function visited during a user interaction (POST /chat or WebSocket /ws), with function name, sanitized params, and result in one JSON object per line. Used for debugging and auditing; filterable by conversation_id. See [use-case-trace-beginner.md](use-case-trace-beginner.md) for the logical flow that is logged.
+**Purpose:** Systematic interaction call logging: every significant function visited during a user interaction (POST /chat or WebSocket /ws), with function name, sanitized params, and result in one JSON object per line. Used for debugging and auditing; filterable by conversation_id. See [use-case-trace-beginner.md](../00_overview/use-case-trace-beginner.md) for the logical flow that is logged.
 
 **Context:** `set_conversation_id(cid)` sets the current conversation id in a contextvar so API, agents, and MCP client can attach logs without passing the id. `get_conversation_id()` returns the current value.
 
@@ -587,13 +599,13 @@ result = planner.resolve_conflicts({"librarian": d1, "analyst": d2})
 
 # agents/librarian_agent.py
 
-**Purpose:** Retrieve structured data from knowledge graph, vector DB, SQL, and files via MCP. Tool selection may use LLM (see [backend.md](backend.md)); otherwise content-key dispatch. Tool list: [agent-tools-reference.md](agent-tools-reference.md).
+**Purpose:** Retrieve structured data from knowledge graph, vector DB, SQL, and files via MCP. Tool selection may use LLM (see [backend.md](backend.md)); otherwise content-key dispatch. Tool list: [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md).
 
 ---
 
 ## Class: `LibrarianAgent(BaseAgent)`
 
-**Purpose:** Retrieve documents and knowledge-graph data via MCP only; no direct DB access. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](agent-tools-reference.md).
+**Purpose:** Retrieve documents and knowledge-graph data via MCP only; no direct DB access. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md).
 
 **Docstring:** `Retrieves structured data from knowledge graph and vector database. Uses MCP vector_tool (Milvus) and kg_tool (Neo4j); does not access databases directly.`
 
@@ -646,13 +658,13 @@ combined = agent.combine_results(docs, graph_data)
 
 # agents/websearch_agent.py
 
-**Purpose:** Fetch real-time market, sentiment, and regulatory data via MCP market_tool. Tool selection may use LLM (see [backend.md](backend.md)); otherwise content-based dispatch. All returned data includes a timestamp. Tool list: [agent-tools-reference.md](agent-tools-reference.md).
+**Purpose:** Fetch real-time market, sentiment, and regulatory data via MCP market_tool. Tool selection may use LLM (see [backend.md](backend.md)); otherwise content-based dispatch. All returned data includes a timestamp. Tool list: [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md).
 
 ---
 
 ## Class: `WebSearcherAgent(BaseAgent)`
 
-**Purpose:** Fetches real-time market and regulatory information via MCP. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](agent-tools-reference.md).
+**Purpose:** Fetches real-time market and regulatory information via MCP. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md).
 
 **Docstring:** `Fetches real-time market and regulatory information. Uses MCP market_tool (Alpha Vantage / Finnhub; Tavily path is currently stubbed via search_web). All returned data must include a timestamp.`
 
@@ -698,13 +710,13 @@ assert "timestamp" in data
 
 # agents/analyst_agent.py
 
-**Purpose:** Run quantitative analysis (e.g. Sharpe, max drawdown, Monte Carlo) using MCP analyst_tool or local helpers. Tool selection may use LLM (see [backend.md](backend.md)); otherwise uses structured_data and market_data from message. Sends INFORM to Planner. Tool list: [agent-tools-reference.md](agent-tools-reference.md).
+**Purpose:** Run quantitative analysis (e.g. Sharpe, max drawdown, Monte Carlo) using MCP analyst_tool or local helpers. Tool selection may use LLM (see [backend.md](backend.md)); otherwise uses structured_data and market_data from message. Sends INFORM to Planner. Tool list: [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md).
 
 ---
 
 ## Class: `AnalystAgent(BaseAgent)`
 
-**Purpose:** Performs quantitative reasoning and uncertainty estimation via MCP and local helpers. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](agent-tools-reference.md).
+**Purpose:** Performs quantitative reasoning and uncertainty estimation via MCP and local helpers. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md).
 
 **Docstring:** `Performs quantitative reasoning and uncertainty estimation. Uses MCP analyst_tool (custom API) for heavy quant; may use local helpers for sharpe_ratio, max_drawdown, monte_carlo_simulation.`
 
@@ -940,7 +952,7 @@ state = get_conversation("uuid-here")
 
 # data_manager/
 
-**Purpose:** Data collection, distribution, and backend CLI entrypoint. Includes both direct backend commands (`populate`, `sql`, `neo4j`, `milvus`) and collection/distribution commands (`collect`, `distribute`, `distribute-funds`, `status`, `list`, `global-news`). See [data-manager-agent.md](data-manager-agent.md) for full design.
+**Purpose:** Data collection, distribution, and backend CLI entrypoint. Includes both direct backend commands (`populate`, `sql`, `neo4j`, `milvus`) and collection/distribution commands (`collect`, `distribute`, `distribute-funds`, `status`, `list`, `global-news`). See [data-manager-agent.md](../../data_prep/data-manager-agent.md) for full design.
 
 ---
 
@@ -1765,7 +1777,7 @@ result = run_query("SELECT * FROM funds WHERE id = :id", {"id": "X"})
 
 # tests/test-stages.py
 
-**Purpose:** Single test file for staged implementation. Tests are **standalone functions** named `test_stage_X_Y` (e.g. `test_stage_1_1`, `test_stage_1_2`, `test_stage_2_1`). Run full suite: `pytest tests/test-stages.py -v`. Run a subset: `pytest tests/test-stages.py -k stage_1_2 -v`. Per-stage assertions and commands: see [progress.md](progress.md) and [test_plan.md](test_plan.md). Additional unit tests for community-common tools: tests/test_kg_tool.py, tests/test_sql_tool.py, tests/test_vector_tool.py, tests/test_capabilities.py.
+**Purpose:** Single test file for staged implementation. Tests are **standalone functions** named `test_stage_X_Y` (e.g. `test_stage_1_1`, `test_stage_1_2`, `test_stage_2_1`). Run full suite: `pytest tests/test-stages.py -v`. Run a subset: `pytest tests/test-stages.py -k stage_1_2 -v`. Per-stage assertions and commands: see [progress.md](../90_product/progress.md) and [test_plan.md](../../shared/test_plan.md). Additional unit tests for community-common tools: tests/test_kg_tool.py, tests/test_sql_tool.py, tests/test_vector_tool.py, tests/test_capabilities.py.
 
 ---
 
@@ -1775,4 +1787,4 @@ result = run_query("SELECT * FROM funds WHERE id = :id", {"id": "X"})
 - All external data (Milvus, Neo4j, market tools, Analyst API) is accessed **only via MCP** (no direct DB/API access from agents).
 - **Termination** is decided only by **Responder**; it calls `conversation_manager.broadcast_stop(conversation_id)`.
 - **Planner** decides who to call (Librarian, WebSearcher, Analyst or combination), runs the planner sufficiency check, and either sends consolidated data to Responder or starts refined planner round(s).
-- **Tests:** One file `tests/test-stages.py`; tests are functions named `test_stage_X_Y` (see [test_plan.md](test_plan.md)).
+- **Tests:** One file `tests/test-stages.py`; tests are functions named `test_stage_X_Y` (see [test_plan.md](../../shared/test_plan.md)).

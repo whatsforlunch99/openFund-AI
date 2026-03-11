@@ -14,7 +14,7 @@ When **Librarian**, **WebSearcher**, or **Analyst** receive a request from the P
 
 **Code sync:** The allowed tool sets for each agent are maintained in `llm/tool_descriptions.py` (`LIBRARIAN_ALLOWED_TOOL_NAMES`, `WEBSEARCHER_ALLOWED_TOOL_NAMES`, `ANALYST_ALLOWED_TOOL_NAMES`). The LLM prompt for each agent is injected with only that agent's tool descriptions, and any tool name the LLM returns outside the allowed set is discarded at runtime by `filter_tool_calls_to_allowed()` before execution. Keep this document and `llm/tool_descriptions.py` in sync when adding or removing tools.
 
-All tools are registered in the **FastMCP** server (`openfund_mcp/fastmcp_server.py`) and in `MCPServer.register_default_tools()` for in-process tests (`openfund_mcp/mcp_server.py`). The API and agents use **MCPClient** to call the FastMCP server over stdio. `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed.
+All tools are registered in the **MCP server** (`openfund_mcp/mcp_server.py`): FastMCP stdio app for production and `MCPServer.register_default_tools()` for in-process tests. The API and agents use **MCPClient** to call the server over stdio. `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed.
 
 ---
 
@@ -198,7 +198,7 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls return mock data.
 
-**Schema:** Use only the tables and columns defined in [fund-data-schema.md](fund-data-schema.md). Key tables: `fund_info`, `fund_performance`, `fund_risk_metrics`, `fund_holdings` (use `fund_symbol`, not `fund_id`), `fund_sector_allocation`, `fund_flows`; for stocks: `stock_ohlcv`, `company_fundamentals`, `financial_statements`. Do not use: `financials`, `revenue_segments`, `fund_returns`, `fund_sector_exposures`, or column `fund_id` in `fund_holdings`.
+**Schema:** Use only the tables and columns defined in [fund-data-schema.md](../../data_prep/fund-data-schema.md). Key tables: `fund_info`, `fund_performance`, `fund_risk_metrics`, `fund_holdings` (use `fund_symbol`, not `fund_id`), `fund_sector_allocation`, `fund_flows`; for stocks: `stock_ohlcv`, `company_fundamentals`, `financial_statements`. Do not use: `financials`, `revenue_segments`, `fund_returns`, `fund_sector_exposures`, or column `fund_id` in `fund_holdings`.
 
 #### sql_tool.run_query
 

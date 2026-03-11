@@ -20,6 +20,11 @@
       "source": "obra/superpowers",
       "sourceType": "github",
       "computedHash": "93a837ba79c3c3f0b3e503fd9d8b54c638337d73d200c1af3bca9607264bf0e0"
+    },
+    "update-oo-component-documentation": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "computedHash": "ca29d36886425a2d5e60ef5a7fd82e029d2e6a013ebaf2586b11c424b1b71727"
     }
   }
 }

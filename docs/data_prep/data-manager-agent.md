@@ -59,7 +59,7 @@ Data management is unified under `python -m data_manager`, including both:
 - collection/distribution flows (`collect`, `distribute`, `status`, `list`, `global-news`, `distribute-funds`)
 - backend maintenance commands (`populate`, `sql`, `neo4j`, `milvus`)
 
-DataManager components call MCP tool interfaces and follow the public tool names documented in [agent-tools-reference.md](agent-tools-reference.md). Deprecated/undocumented API names are rejected.
+DataManager components call MCP tool interfaces and follow the public tool names documented in [agent-tools-reference.md](../workflow/03_tools_and_mcp/agent-tools-reference.md). Deprecated/undocumented API names are rejected.
 
 ### Trigger Mechanisms
 
@@ -1073,6 +1073,6 @@ Fund files in `datasets/` have this structure:
 
 ## References
 
-- [backend.md](backend.md) — System architecture and MCP tool interfaces
-- [file-structure.md](file-structure.md) — Code structure
-- [agent-tools-reference.md](agent-tools-reference.md) — MCP tool payloads and per-agent tool lists
+- [backend.md](../workflow/02_planning/backend.md) — System architecture and MCP tool interfaces
+- [file-structure.md](../workflow/02_planning/file-structure.md) — Code structure
+- [agent-tools-reference.md](../workflow/03_tools_and_mcp/agent-tools-reference.md) — MCP tool payloads and per-agent tool lists

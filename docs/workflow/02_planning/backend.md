@@ -1,6 +1,6 @@
 # Backend Document
 
-Server-side system behavior and architecture. See [prd.md](prd.md) for product intent and [file-structure.md](file-structure.md) for code organization (main application code; data_prep folder not covered there). For a step-by-step function trace of one beginner request through the system, see [use-case-trace-beginner.md](use-case-trace-beginner.md).
+Server-side system behavior and architecture. See [prd.md](../90_product/prd.md) for product intent and [file-structure.md](file-structure.md) for code organization (main application code; data_prep folder not covered there). For a step-by-step function trace of one beginner request through the system, see [use-case-trace-beginner.md](../00_overview/use-case-trace-beginner.md).
 
 ---
 
@@ -8,11 +8,11 @@ Server-side system behavior and architecture. See [prd.md](prd.md) for product i
 
 - **A2A:** FIPA-ACL messages over a message bus (in-memory or pluggable). Agents communicate via performatives (REQUEST, INFORM, STOP, etc.).
 - **Layers:** User Interaction (API), Safety, Orchestration (Planner), Research Execution (Librarian, WebSearcher, Analyst), Tool/Data (MCP), Output Review (OutputRail).
-- **Tool/Data (MCP):** All tool access goes through **FastMCP** (MCP protocol). The OpenFund API uses **MCPClient** to spawn the FastMCP server as a subprocess and connect over stdio; external clients (e.g. Claude Desktop) can run the same server via `python -m openfund_mcp`. Tool implementations live in `openfund_mcp/tools/`; the FastMCP server is in `openfund_mcp/fastmcp_server.py`. See [agent-tools-reference.md](agent-tools-reference.md).
+- **Tool/Data (MCP):** All tool access goes through **FastMCP** (MCP protocol). The OpenFund API uses **MCPClient** to spawn the MCP server as a subprocess and connect over stdio; external clients (e.g. Claude Desktop) can run the same server via `python -m openfund_mcp`. Tool implementations live in `openfund_mcp/tools/`; the server (MCPServer + FastMCP stdio) is in `openfund_mcp/mcp_server.py`. See [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md).
 - **Orchestration:** The Planner (orchestrator) decides **which** agents to call (one or more of Librarian, WebSearcher, Analyst) and **decomposes** the user query into **agent-specific sub-queries**. Decomposition is **LLM-driven**: the LLM selects which agents to use and what query to pass to each; the planner parses the LLM response as a list of steps (TaskSteps: agent + params) and dispatches REQUESTs only for those steps. Each REQUEST to a specialist carries that agent's decomposed query (and any shared context). When the LLM is unavailable or returns an empty list, the planner uses a fallback (fixed three steps or a single analyst step). After the planner sufficiency check passes, Planner sends consolidated data to Responder.
 - **Termination:** Only the Responder may signal conversation complete (broadcast STOP); all agent threads exit on STOP.
 - **Hub-and-spoke:** Planner is the sole orchestrator; specialists reply only to Planner. Planner sends consolidated data to Responder when the planner sufficiency check passes.
-- **Background data management:** Data-manager workflows handle data collection (from market_tool/analyst_tool) and distribution (to PostgreSQL/Neo4j/Milvus). This is not part of real-time query flow; primarily triggered via CLI/scheduler. See [data-manager-agent.md](data-manager-agent.md).
+- **Background data management:** Data-manager workflows handle data collection (from market_tool/analyst_tool) and distribution (to PostgreSQL/Neo4j/Milvus). This is not part of real-time query flow; primarily triggered via CLI/scheduler. See [data-manager-agent.md](../../data_prep/data-manager-agent.md).
 
 ---
 
@@ -105,7 +105,7 @@ All external data via MCP tools only:
 
 Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). All MCP tools accept a **payload** dict; required parameters (e.g. **symbol**, path, **as_of_date**, start_date, end_date, **limit**) must be passed in by the caller—no UI or client-side defaults. Payload keys: use **symbol** for the security identifier (ticker accepted for backward compatibility); **limit** for max items (e.g. get_news, get_global_news); **as_of_date** for reference date (curr_date accepted for backward compatibility). Analyst API stub: request `{ "returns", "horizon" }`; response `{ "sharpe", "max_drawdown", "distribution" }`. analyst_tool.get_indicators: symbol, indicator, as_of_date, look_back_days (routes to Alpha Vantage via MCP_INDICATOR_VENDOR). **Vendor-agnostic tools** (route by config): market_tool.get_stock_data, market_tool.get_fundamentals, market_tool.get_balance_sheet, market_tool.get_cashflow, market_tool.get_income_statement, market_tool.get_news, market_tool.get_global_news, market_tool.get_insider_transactions; analyst_tool.get_indicators. Embedding: sentence-transformers/all-MiniLM-L6-v2, 384 dims; config: EMBEDDING_MODEL, EMBEDDING_DIM.
 
-**Research execution — specialist tool selection:** Specialist agents (Librarian, WebSearcher, Analyst) determine **which MCP tools to call and with what parameters** via an **LLM call**: they receive the planner's request (including the decomposed query), are given a **prompt** and **tool descriptions** (see [agent-tools-reference.md](agent-tools-reference.md)), and the LLM returns tool calls (tool name + payload); the agent then executes those tool calls and returns results (e.g. INFORM to Planner). If no LLM is available, behavior may fall back to content-key-based dispatch.
+**Research execution — specialist tool selection:** Specialist agents (Librarian, WebSearcher, Analyst) determine **which MCP tools to call and with what parameters** via an **LLM call**: they receive the planner's request (including the decomposed query), are given a **prompt** and **tool descriptions** (see [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md)), and the LLM returns tool calls (tool name + payload); the agent then executes those tool calls and returns results (e.g. INFORM to Planner). If no LLM is available, behavior may fall back to content-key-based dispatch.
 
 ---
 
@@ -120,8 +120,8 @@ Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). Al
 
 **MCP market/indicator vendor switching:** Set `MCP_MARKET_VENDOR=alpha_vantage` to use Alpha Vantage for market tools (stock data, fundamentals, news, insider transactions). Set `MCP_INDICATOR_VENDOR=alpha_vantage` for technical indicators. Default for both is `alpha_vantage`. Invalid or unset values fall back to `alpha_vantage`. Finnhub is supported for market data when `MCP_MARKET_VENDOR=finnhub` and FINNHUB_API_KEY is set.
 
-**Interaction log:** INTERACTION_LOG (env, default true) or config.interaction_log_enabled enables systematic function-call logging during user interactions (POST /chat, /ws). Each log line is one JSON object: ts, conversation_id, function, params, result, duration_ms, sequence. Logger name: openfund.interaction. Logical flow logged matches [use-case-trace-beginner.md](use-case-trace-beginner.md); see [file-structure.md](file-structure.md) (util/interaction_log.py) for API.
+**Interaction log:** INTERACTION_LOG (env, default true) or config.interaction_log_enabled enables systematic function-call logging during user interactions (POST /chat, /ws). Each log line is one JSON object: ts, conversation_id, function, params, result, duration_ms, sequence. Logger name: openfund.interaction. Logical flow logged matches [use-case-trace-beginner.md](../00_overview/use-case-trace-beginner.md); see [file-structure.md](file-structure.md) (util/interaction_log.py) for API.
 
-**MCP server (FastMCP):** All tool access uses the FastMCP server. The API spawns it automatically when needed. For external clients (e.g. Claude Desktop), see [mcp-server.md](mcp-server.md).
+**MCP server (FastMCP):** All tool access uses the FastMCP server. The API spawns it automatically when needed. For external clients (e.g. Claude Desktop), see [mcp-server.md](../03_tools_and_mcp/mcp-server.md).
 
-Work breakdown and runnable checkpoints: [progress.md](progress.md).
+Work breakdown and runnable checkpoints: [progress.md](../90_product/progress.md).

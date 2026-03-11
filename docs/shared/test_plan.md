@@ -1,6 +1,6 @@
 # Test Plan Document
 
-Stage-by-stage validation matrix for the implementation described in [progress.md](progress.md). This document tracks how to verify behavior and includes a lightweight docs-consistency checklist so `/docs` stays aligned.
+Stage-by-stage validation matrix for the implementation described in [progress.md](../workflow/90_product/progress.md). This document tracks how to verify behavior and includes a lightweight docs-consistency checklist so `/docs` stays aligned.
 
 ---
 

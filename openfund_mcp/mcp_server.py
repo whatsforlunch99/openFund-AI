@@ -137,6 +137,15 @@ class MCPServer:
         if analyst_tool is not None:
             self._register_specs(analyst_tool, analyst_tool.TOOL_SPECS)
 
+        try:
+            from openfund_mcp.tools import news_tool
+
+            self.register_tool("news_tool.search_rss", lambda p: news_tool.search_rss(p))
+            self.register_tool("news_tool.search_yahoo_rss", lambda p: news_tool.search_yahoo_rss(p))
+            self.register_tool("news_tool.search_gdelt", lambda p: news_tool.search_gdelt(p))
+        except ImportError:
+            pass
+
         from openfund_mcp.tools import capabilities
 
         self.register_tool(

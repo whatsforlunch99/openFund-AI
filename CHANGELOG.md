@@ -4,6 +4,21 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Fixed
+
+- **WebSearcher `market_tool.get_global_news` empty payload:** Parallel financial fetch called `get_global_news` with `{}`, causing `time data '' does not match format '%Y-%m-%d'`. `_fetch_all_sources_for_symbol` now passes `as_of_date`, `look_back_days`, and `limit`; `get_news` uses `start_date`/`end_date` for Alpha Vantage compatibility.
+
+- **Planner final_response omitted WebSearcher price:** Stooq/Yahoo often succeed while `market_data`/`sentiment` remain error dicts (e.g. no Alpha Vantage). `_format_final` only took a 120-char snippet of `summary`, so if the LLM summary started with generic prose the numeric price never reached the Responder. Planner now prepends a `price:` line from `normalized_fund` when available and uses a longer summary cap when price is already injected.
+
+- **WebSearcher symbol WHAT:** When planner content had `fund`/`symbol` like WHAT (from "What is..."), all price APIs were called with ticker WHAT and returned empty/errors. Agent now uses a ticker blocklist and prefers explicit tickers (SPY, QQQ, …) found in the query text; blocklisted funds fall through to `fund_catalog_tool.search` + heuristics.
+
+- **fastmcp_server sql_tool broken by variable reuse:** Loading stooq as `st` overwrote `sql_tool as st`, so `sql_tool.run_query` called stooq module → `has no attribute run_query`. Stooq loader now uses `stooq_mod`. **Conflict resolution prompt:** `WEBSEARCHER_CONFLICT_RESOLUTION_SYSTEM` added for `_resolve_conflict_with_llm` when stooq/Yahoo prices differ. **fund_catalog_tool.search** registered via path-load in `fastmcp_server` and `mcp_server` (P1). Docs: `docs/websearcher-design.md`.
+
+- **WebSearcher LLM data fallback prompt:** `WEBSEARCHER_LLM_FALLBACK_SYSTEM` added to `llm/prompts.py` for `_llm_data_search_fallback` when all tools fail (was ImportError → 408).
+- **Yahoo/stooq/ETFdb missing from stdio MCP server:** PyPI package `mcp` shadows the project `mcp/` folder, so `yahoo_finance_tool` / `stooq_tool` / `etfdb_tool` were never registered on `python -m openfund_mcp`. `openfund_mcp/fastmcp_server.py` and `openfund_mcp/mcp_server.py` now load `mcp/tools/*.py` by file path and register the four tools so WebSearcher parallel flow can fetch price/fundamentals again.
+
+- **MCPClient + WebSearcher news fallback:** `session.call_tool` CallToolResult no longer assumes `.is_error` (removed/renamed in newer `mcp` SDK); `openfund_mcp/mcp_client.py` detects errors via `is_error` / `isError` / content-block flags and extracts error text safely so market/news tools return parsed JSON instead of a blanket AttributeError. **WebSearcher:** `WEBSEARCHER_NEWS_FALLBACK_SYSTEM` added to `llm/prompts.py` for `_llm_news_fallback` when all news sources fail — prevents ImportError and 408 timeout. Docs: `docs/backend.md`, `docs/websearcher-design.md`, `docs/file-structure.md`, `docs/progress.md`.
+
 ### Added
 
 - **News Searcher: Yahoo and GDELT sources:** New MCP tools `news_tool.search_yahoo_rss` (Yahoo Finance fixed feed) and `news_tool.search_gdelt` (GDELT API with retry on 429). WebSearcher `_fetch_news_sources` now queries all four news sources in parallel: `news_tool.search_rss`, `news_tool.search_yahoo_rss`, `news_tool.search_gdelt`, plus `market_tool.get_news` and `market_tool.get_global_news`. Results are merged and deduped by URL. See [docs/news-searcher-design.md](docs/news-searcher-design.md) and [docs/agent-tools-reference.md](docs/agent-tools-reference.md).

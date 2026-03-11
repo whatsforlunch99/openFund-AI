@@ -1,6 +1,6 @@
 # WebSearcher Agent Design
 
-Design for the WebSearcher specialist agent: parallel multi-source query, normalized output schema, and integration with the Planner and MCP tool layer. Implementation lives in `agents/websearch_agent.py` and MCP tools; see [backend.md](backend.md) for orchestration and [agent-tools-reference.md](agent-tools-reference.md) for tool contracts.
+Design for the WebSearcher specialist agent: parallel multi-source query, normalized output schema, and integration with the Planner and MCP tool layer. **Implementation:** `agents/websearch_agent.py` and MCP tools under `mcp/tools/` loaded by path in `openfund_mcp/fastmcp_server.py`. See [backend.md](backend.md) for orchestration and [agent-tools-reference.md](agent-tools-reference.md) for tool contracts.
 
 ---
 
@@ -9,14 +9,14 @@ Design for the WebSearcher specialist agent: parallel multi-source query, normal
 ### Role in the pipeline
 
 - **Planner** sends a **REQUEST** to WebSearcher with a **decomposed sub-query** (and optional `fund` / `symbol`) in the message content.
-- **WebSearcher** resolves symbols, **queries all data sources in parallel** (FinanceDatabase, Stooq, Yahoo, ETFdb, market_tool, and optionally LLM when configured), normalizes to a standard schema, **merges all returned data**, and sends a single **INFORM** back to the Planner.
+- **WebSearcher** resolves symbols, runs **Financial Data Search** and **News Search** in parallel (two top-level threads), merges into `normalized_fund` plus backward-compat `market_data` / `sentiment` / `regulatory`, and sends a single **INFORM** back to the Planner.
 - All external data access is **only via MCP tools**; no direct HTTP or DB access from the agent.
 
 ### Design goals
 
-1. **Query all sources in parallel** — No priority order; FinanceDatabase (FinDB), Stooq, Yahoo, ETFdb, market_tool (Alpha Vantage / Finnhub), and LLM API (when available) are called concurrently.
-2. **Merge and return all results** — Every source that returns usable data is included in the reply; no source is discarded based on priority.
-3. **Output structured, traceable data** for the Decision path: every payload has a **source** map and **timestamp**.
+1. **Query applicable sources in parallel** — Per symbol, stooq, Yahoo, ETFdb, and market_tool are invoked concurrently via `ThreadPoolExecutor`. News RSS/GDELT and market news run in parallel with the financial bundle.
+2. **Merge and return all usable results** — Non-error fields are merged into one normalised record per symbol; `source` records provenance per field.
+3. **Structured, traceable data** — Every payload includes **timestamp** and **source**; optional `conflict_resolution` when stooq vs Yahoo price differs.
 
 ---
 
@@ -26,235 +26,171 @@ Design for the WebSearcher specialist agent: parallel multi-source query, normal
 
 - **Performative:** `REQUEST`
 - **Content:** At least one of:
-  - `query` (string) — decomposed sub-query for this agent (e.g. “current price and expense ratio for ”).
+  - `query` (string) — decomposed sub-query.
   - `fund` or `symbol` (string) — explicit identifier when the Planner has already resolved it.
-- **Other:** `conversation_id`, `reply_to` (Planner), `sender` (e.g. `"planner"`).
-
-The agent may derive a **symbol** from `query` via heuristics or by calling a search/catalog tool (e.g. FinanceDatabase-backed MCP tool) when `fund`/`symbol` is not provided.
+- **Optional:** `days` / `look_back_days` (int, clamped 1–30) for news lookback.
+- **Other:** `conversation_id`, `reply_to`, `sender`.
 
 ### Response (WebSearcher → Planner)
 
 - **Performative:** `INFORM`
-- **Receiver:** `reply_to` from the REQUEST (typically Planner).
-- **Content:** A structured payload that the Planner can merge with Librarian and Analyst results and pass to the Responder. Required shape:
-  - **Timestamp:** All returned data must include a `timestamp` (e.g. ISO 8601). Existing behaviour uses `market_data`, `sentiment`, and `regulatory` each with their own `timestamp`; a future unified shape can use a single top-level `timestamp` and a `source` map (see below).
-  - **Source attribution:** Either per-field (e.g. `source.static`, `source.price`, `source.fundamentals`) or per-section so that the Decision path can trace provenance.
+- **Content (current implementation):**
 
-This contract aligns with [backend.md](backend.md) (TaskStep with `agent: "websearcher"`, params with decomposed query; Planner aggregates INFORMs and runs the planner sufficiency check before sending consolidated data to the Responder).
+| Key | Purpose |
+|-----|--------|
+| `normalized_fund` | **Primary.** List of per-symbol records (see schema below). Planner and `_format_final` use this for price lines when `market_data`/`sentiment` are error-only. |
+| `market_data` | Backward compat; first symbol’s `market_tool.get_fundamentals` result or `{timestamp}` placeholder. |
+| `sentiment` | Backward compat; from `market_tool.get_news` when configured, else `{error}` or `{timestamp}`. |
+| `regulatory` | Backward compat; from `market_tool.get_global_news` with **required** `as_of_date` / `look_back_days` (empty payload caused parse errors before fix). |
+| `news` | Normalised list `{title, source, date, url, summary, id?}` with citation ids `NEWS1`… |
+| `citations` | Map `NEWSn` → URL. |
+| `news_timestamp` | ISO time of news aggregation. |
+| `summary` | Optional LLM narrative; if LLM fails, replaced by `_fallback_summary_from_normalized(normalized_fund)`. |
+| `llm_fallback` | True when all-tools-fail path used LLM for data. |
+
+**Planner aggregation:** `agents/planner_agent.py` `_format_final` prepends a **`price: SYMBOL $x.xx (source)`** line from `normalized_fund` when present so the Responder always receives numeric price even when `summary` is long or `market_data` only contains errors.
+
+---
+
+## Symbol resolution (implementation detail)
+
+- **`_resolve_symbols(content)`** — If `fund`/`symbol` is a 1–5 letter ticker **and not blocklisted**, use it. Otherwise calls `fund_catalog_tool.search(query)` when registered; else `_normalize_symbol(query|fund)`.
+- **Blocklist** (`_TICKER_BLOCKLIST`): English words that look like tickers (e.g. `WHAT`, `IS`, `PRICE`) so Planner passing `fund="WHAT"` from “What is the price of SPY?” does not query `WHAT.US`. Known tickers **SPY**, **QQQ**, etc. are detected in free text via regex before blocklist tokens.
+- **Default symbol** when nothing matches: `AAPL` (legacy behaviour).
 
 ---
 
 ## Data sources (parallel query)
 
-All sources are queried **in parallel**; there is no priority order. Each source that returns usable data is merged into the output.
+### Financial bundle (per symbol, `_fetch_all_sources_for_symbol`)
 
-| Data source        | MCP tool                     | Typical data                          |
-|--------------------|------------------------------|----------------------------------------|
-| FinanceDatabase    | `fund_catalog_tool.search`   | ETF/Fund list, symbol resolution, static metadata |
-| stooq              | `stooq_tool.get_price`       | Latest price                           |
-| Yahoo Finance      | `yahoo_finance_tool.get_fundamental` / `get_price` | Price, fundamentals, holdings, sector |
-| ETFdb              | `etfdb_tool.get_fund_data`   | Expense ratio, AUM, holdings, sector breakdown |
-| market_tool        | `get_fundamentals`, `get_news`, `get_global_news` | Fundamentals, news (Alpha Vantage / Finnhub) |
-| LLM API            | (optional)                   | Data search; all-tools-fail and news fallback |
-| **News**           | `news_tool.search_rss`, `search_yahoo_rss`, `search_gdelt` | See [news-searcher-design.md](news-searcher-design.md). |
+| Source | MCP tool | Notes |
+|--------|----------|--------|
+| Stooq | `stooq_tool.get_price` | Latest price/close; primary price source when OK. |
+| Yahoo | `yahoo_finance_tool.get_fundamental` (or `get_price`) | Price, AUM, holdings, sector_exposure; `price_yahoo` stored when both stooq and Yahoo OK. |
+| ETFdb | `etfdb_tool.get_fund_data` | Often 403; omitted from merge if error. |
+| market_tool | `get_fundamentals`, `get_news`, `get_global_news` | Requires API keys/vendor; **get_news** must include `start_date`/`end_date` for Alpha Vantage; **get_global_news** must include `as_of_date` and `look_back_days` (never call with `{}`). |
 
-- **Symbol resolution:** If `fund`/`symbol` is not provided, symbol(s) are derived from the query via FinanceDatabase search or heuristics.
-- **Parallel invocation:** For each resolved symbol, all applicable tools are called concurrently.
-- **Merge:** All non-error responses are merged into the normalised schema; the `source` map records which backend supplied which field.
+### News bundle (`_fetch_news_sources`, parallel with financial)
+
+| Source | MCP tool |
+|--------|----------|
+| RSS | `news_tool.search_rss` |
+| Yahoo RSS | `news_tool.search_yahoo_rss` |
+| GDELT | `news_tool.search_gdelt` |
+| market_tool | `get_news` / `get_global_news` with dates as above |
+
+See [news-searcher-design.md](news-searcher-design.md) for citation schema.
 
 ---
 
-## Standard output schema
+## Standard output schema (`normalized_fund` entry)
 
-A single fund/ETF result should be normalised to a common shape so the Planner and Analyst can consume it regardless of the underlying source. All returned data must include a **timestamp** and **source** attribution.
-
-**Example normalised payload (per symbol):**
+Single fund/ETF record shape produced by `_normalise_to_schema`:
 
 ```json
 {
-  "symbol": "VTI",
-  "name": "Vanguard Total Stock Market ETF",
+  "symbol": "SPY",
+  "name": "State Street SPDR S&P 500 ETF Trust",
   "asset_class": "Equity",
-  "expense_ratio": 0.03,
-  "aum": 350000000000,
-  "price": 245.31,
+  "expense_ratio": null,
+  "aum": 698270220288.0,
+  "price": 677.18,
+  "price_yahoo": 678.27,
   "sector_exposure": {},
   "holdings_top10": [],
   "source": {
-    "static": "FinanceDatabase",
     "price": "stooq",
     "price_yahoo": "yahoo",
-    "fundamentals": "ETFdb",
     "fundamentals_yahoo": "yahoo"
   },
-  "timestamp": "2026-03-04T12:00:00Z"
+  "timestamp": "2026-03-11T08:50:08Z",
+  "yahoo_fundamentals_raw": {}
 }
 ```
 
-- **source** documents which backend supplied which part of the data; multiple sources can contribute (e.g. both stooq and Yahoo for price).
-
-Current implementation returns `market_data`, `sentiment`, and `regulatory` with per-section timestamps; evolving toward this schema should preserve backward compatibility with existing Planner aggregation (e.g. by adding a `normalized_fund` key or by gradually replacing the inner shape).
+- **`price`** — After conflict resolution, may be chosen from stooq or Yahoo; `source.price` updated accordingly.
+- **`conflict_resolution`** — Optional `{chosen_source, chosen_value, reason}` when LLM resolves stooq vs Yahoo discrepancy (>1% relative).
 
 ---
 
-## Functional flow (high level)
+## Functional flow (code-aligned)
 
-1. **Parse request** — Read `query`, `fund`, or `symbol` from REQUEST content; set `conversation_id` for logging and flow.
-2. **Resolve symbol(s)** — If no symbol: call FinanceDatabase (or heuristics) to derive symbol(s). If symbol given, use it directly.
-3. **Fetch from all sources in parallel** — For each symbol, invoke **all** applicable tools concurrently: fund_catalog, stooq, Yahoo Finance, ETFdb, market_tool; optionally LLM API when configured. No priority; all are called at once (e.g. `ThreadPoolExecutor` or `asyncio.gather`).
-4. **Merge and normalise** — Combine all non-error responses into the standard output schema; fill `source` for each field; set `timestamp`.
-5. **Return** — Send one INFORM to Planner with the merged payload (and optional LLM summary when `llm_client` is set).
+1. **handle_message** — Trace + flow UI; `_run_parallel_flow(content)`.
+2. **_run_parallel_flow** — `_resolve_symbols` → **parallel** `do_financial` (per-symbol `_fetch_all_sources_for_symbol` + `_merge_financial_results`) and `do_news` (`_fetch_news_sources`) → merge news → optional `_llm_news_fallback`.
+3. **All-tools-fail** — If `_all_tools_failed(reply_content)` and `llm_client` set, replace with `_llm_data_search_fallback` (`llm_fallback` on record).
+4. **Conflict resolution** — For each `normalized_fund` record with `_has_price_conflict`, `_resolve_conflict_with_llm` updates `price` and `source.price`.
+5. **Summary** — `WEBSEARCHER_SYSTEM` + `get_websearcher_user_content`; on failure or empty, `_fallback_summary_from_normalized`.
+6. **INFORM** — `reply_content` sent to Planner; status `limited_data` if any of market_data/sentiment/regulatory has `error`.
 
 ---
 
 ## FinanceDatabase integration
 
-- **Reference:** [FinanceDatabase](https://github.com/JerBouma/FinanceDatabase) (ETF/Mutual Fund catalog).
-- **Integration:** Via an MCP tool (e.g. `fund_catalog_tool.search` or similar) that wraps the library so the agent never imports it directly in the research path. Example tool contract:
-  - **Input:** `query` (string) or `name` (string) for search.
-  - **Output:** List of matches with at least `symbol`, `name`, and optional classification (sector/country/exchange).
-- **Usage:** WebSearcher calls this tool when the REQUEST contains a textual query and no `symbol`; results drive symbol resolution and optional static metadata for the normalised schema.
-
----
-
-## Data source tools (all invoked in parallel)
-
-### stooq
-
-- **Purpose:** Latest and historical price.
-- **Exposure:** As an MCP tool (e.g. `market_tool.get_stooq_price` or a dedicated `stooq_tool`) with payload `symbol` (and optional date range). Response must include `timestamp`.
-- **Implementation detail:** Use a stable URL pattern (e.g. `https://stooq.com/q/l/?s={symbol}.us&i=d`) and parse CSV/text; handle errors and return `{"error": "..."}` so the agent can fall back to cache or other sources.
-
-### Yahoo Finance
-
-- **Purpose:** Price, fundamentals (expense ratio, AUM, holdings, sector) via quoteSummary or chart API fallback.
-- **Exposure:** `yahoo_finance_tool.get_fundamental` (preferred) or `get_price`; payload `symbol`. Response includes `timestamp` and normalised fields.
-- **Implementation detail:** `query1.finance.yahoo.com` quoteSummary (with 401 fallback to chart); User-Agent, crumb session; host fallback (query1→query2).
-
-### ETFdb
-
-- **Purpose:** Expense ratio, AUM, holdings, sector breakdown.
-- **Exposure:** `etfdb_tool.get_fund_data` with payload `symbol`. Response includes `timestamp` and normalised fields (`expense_ratio`, `aum`, etc.).
-- **Implementation detail:** HTTP request with browser-like headers; parse HTML; may return 403 in some regions.
-
----
-
-## Data normalisation
-
-- Different sources use different field names and units. A **normaliser** (inside the agent or inside a dedicated MCP tool) should:
-  - Map all identifiers to a single **symbol** (and optional **name**).
-  - Express **expense_ratio** as a decimal (e.g. 0.03 for 3 bp).
-  - Express **aum** in a consistent unit (e.g. dollars).
-  - Express **price** as a number with consistent currency.
-  - Populate **source** for each logical field (static, price, fundamentals).
-- The agent (or tool) must set **timestamp** on every returned structure.
-
----
-
-## Caching
-
-- **Rationale:** Reduce load on external sites, avoid rate limits, and improve latency.
-- **Placement:** Cache can live inside MCP tools (e.g. Redis or local SQLite) or in a small cache layer used by the agent; all access remains behind the MCP boundary.
-- **Suggested TTLs:**
-
-| Data type     | Suggested TTL |
-|---------------|---------------|
-| Real-time price | 5 min       |
-| AUM           | 24 h          |
-| Expense ratio | 7 d           |
-| Holdings      | 24 h          |
-
-- On cache hit, the tool returns cached data with a **timestamp** indicating when it was fetched; the normaliser and agent behaviour stay unchanged.
+- **Tool:** `fund_catalog_tool.search` — query/name + limit; returns `matches` with `symbol`, `name`, etc.
+- **Registration:** Loaded by **file path** in `fastmcp_server` / `mcp_server` because PyPI package `mcp` shadows the local `mcp/` package.
 
 ---
 
 ## Fact conflict resolution
 
-When different data sources return **conflicting factual data** (e.g. stooq and Yahoo report different prices for the same symbol, or ETFdb AUM disagrees with another source):
-
-1. WebSearcher does **not** arbitrarily discard or prefer one source.
-2. WebSearcher passes **all conflicting data** to the LLM (when `llm_client` is set).
-3. The LLM decides which source is **more credible** and returns both the chosen value and the **reasoning** (e.g. recency, source reputation, data freshness).
-4. The reply to the Planner includes the LLM’s chosen value, the `source` attribution (e.g. `source.price = "stooq"` or `"yahoo"`), and an optional `conflict_resolution` field with the reasoning.
-
-This keeps traceability and allows the Planner and Responder to surface the choice and rationale when relevant.
+- When stooq and Yahoo prices differ by **>1%**, `_resolve_conflict_with_llm` uses `WEBSEARCHER_CONFLICT_RESOLUTION_SYSTEM`; parser expects lines `CHOSEN:`, `VALUE:`, `REASON:`.
+- On parse failure defaults to **stooq**.
 
 ---
 
 ## All-tools-fail fallback
 
-When **all** WebSearcher tools fail to return usable data (e.g. stooq, Yahoo, ETFdb, market_tool all error or return empty):
-
-1. WebSearcher does **not** return an empty or error-only payload.
-2. WebSearcher directly calls the **LLM** to perform a **data search** (e.g. “find the current price of SPY”).
-3. The LLM’s response (facts, numbers, or structured text it infers from its knowledge) is returned to the Planner.
-4. The reply is **explicitly annotated** that the data comes from the LLM, e.g. `source.price = "llm"` or a top-level `source: {"primary": "llm"}` and optional `llm_fallback: true`.
-5. The Planner can treat this as lower-confidence data and, if desired, surface a disclaimer in the final answer.
-
-This ensures a best-effort answer even when external APIs and tools are unavailable, while preserving provenance and allowing downstream logic to adjust presentation.
+- `_all_tools_failed` — No price in `normalized_fund` and no usable content in market_data/sentiment/regulatory.
+- `_llm_data_search_fallback` — `WEBSEARCHER_LLM_FALLBACK_SYSTEM`; record gets `llm_fallback`, `llm_fallback_content`, `source.primary` / `source.price` = `llm`.
 
 ---
 
 ## Error handling
 
-| Situation              | Behaviour |
-|------------------------|-----------|
-| Individual source fails | Omit that source’s fields; keep data from other sources. No fallback chain; all sources are queried in parallel. |
-| FinanceDatabase no hit | Use heuristics or other sources for symbol; return whatever data other sources provide. |
-| **All tools fail**     | See [All-tools-fail fallback](#all-tools-fail-fallback): call LLM for data search and return with `source: "llm"` annotation. |
-| **Conflicting facts**  | See [Fact conflict resolution](#fact-conflict-resolution): pass all data to LLM for credibility decision and reasoning. |
-
-All MCP tools should return a dict with either a normal payload (including `timestamp`) or `{"error": "..."}` so the agent can detect failure and apply fallbacks without raising.
+| Situation | Behaviour |
+|-----------|------------|
+| Single source fails | Field omitted or filled from another source; `error` dict only for that tool’s slot in parallel fetch. |
+| ETFdb 403 | etfdb omitted; Yahoo/stooq still populate. |
+| market_tool without API key | `market_data`/`sentiment`/`regulatory` carry `error`; **normalized_fund** still has price from stooq/Yahoo. |
+| LLM unavailable | Summary falls back to `_fallback_summary_from_normalized`; conflict resolution skipped. |
 
 ---
 
-## Concurrency and performance
+## Stdio server and tool registration
 
-- **Parallel fetches:** All data sources (FinanceDatabase, stooq, Yahoo, ETFdb, market_tool, optionally LLM) are invoked **in parallel** for each symbol. No sequential priority; total latency is dominated by the slowest source (e.g. 0.5–2 s).
-- **Batching:** If the Planner sends multiple symbols in one REQUEST, the agent may batch or parallelise per-symbol fetches within timeout and rate-limit constraints.
-
----
-
-## Extensibility
-
-Future sources (Yahoo Finance, Alpha Vantage, SEC, Morningstar) should be:
-
-- Wrapped as **MCP tools** with a clear payload and response contract.
-- Documented in [agent-tools-reference.md](agent-tools-reference.md).
-- Wired into WebSearcher’s allowed tool list in `llm/tool_descriptions.py` so that LLM-based tool selection can use them when appropriate.
-
-The existing **market_tool** (Alpha Vantage / Finnhub) already provides fundamentals, news, and global news; the WebSearcher continues to use it. New tools (FinanceDatabase, stooq, ETFdb) extend the data surface without changing the Planner–WebSearcher REQUEST/INFORM contract.
+- **Path load:** `openfund_mcp/fastmcp_server.py` uses `importlib.util.spec_from_file_location` for `mcp/tools/fund_catalog_tool.py`, `yahoo_finance_tool.py`, `stooq_tool.py`, `etfdb_tool.py`.
+- **Critical:** Do **not** bind stooq module as `st` after `sql_tool` is imported as `st` — use `stooq_mod` so `sql_tool.run_query` closures stay correct.
+- **Capabilities:** `_websearcher_tool_names` appended to `get_capabilities` only for tools actually registered.
 
 ---
 
 ## File and module layout
 
-- **Agent:** `agents/websearch_agent.py` — handles REQUEST, symbol resolution, tool calls, normalisation, INFORM. See [file-structure.md](file-structure.md).
-- **MCP tools:** Existing: `mcp/tools/market_tool.py`. New or extended tools (e.g. FinanceDatabase wrapper, stooq, ETFdb) live under `mcp/tools/` and are registered in `MCPServer.register_default_tools()`.
-- **Prompts / tool list:** `llm/prompts.py` (e.g. `WEBSEARCHER_SYSTEM`, `WEBSEARCHER_TOOL_SELECTION`), `llm/tool_descriptions.py` (`WEBSEARCHER_ALLOWED_TOOL_NAMES`, tool descriptions). Keep [agent-tools-reference.md](agent-tools-reference.md) in sync when adding tools.
-
-Optional internal structure for a richer WebSearcher stack (e.g. parsers, normaliser, cache) can live under `agents/` or a dedicated package; the external boundary remains REQUEST/INFORM and MCP only.
+| Piece | Location |
+|-------|----------|
+| Agent | `agents/websearch_agent.py` |
+| Parallel financial fetch | `_fetch_all_sources_for_symbol`, `_merge_financial_results`, `_normalise_to_schema` |
+| News | `_fetch_news_sources`, `_normalize_and_merge_news`, `_build_news_with_citations` |
+| Planner price line | `agents/planner_agent.py` — `_websearcher_price_line`, `_format_final` |
+| Prompts | `llm/prompts.py` — `WEBSEARCHER_SYSTEM`, `WEBSEARCHER_NEWS_FALLBACK_SYSTEM`, `WEBSEARCHER_LLM_FALLBACK_SYSTEM`, `WEBSEARCHER_CONFLICT_RESOLUTION_SYSTEM` |
+| Tool allowlist | `llm/tool_descriptions.py` — `WEBSEARCHER_ALLOWED_TOOL_NAMES` |
 
 ---
 
-## Summary
+## Caching
 
-- WebSearcher receives a **decomposed query** (and optional symbol) from the **Planner** via REQUEST and returns a single INFORM with **structured, timestamped, source-attributed** data.
-- Data is sourced by **parallel query** of all APIs: FinanceDatabase, Stooq, Yahoo, ETFdb, market_tool, and optionally LLM API. No priority order; all sources are invoked concurrently; all returned data is merged and passed to the Planner.
-- **Fact conflict:** When sources disagree, all conflicting data is sent to the LLM; the LLM picks the more credible value and returns reasoning.
-- **All tools fail:** When no tool returns data, WebSearcher calls the LLM for a data search and returns the result with `source: "llm"` annotation.
-- Output is **normalised** to a common schema and can be **cached** with configurable TTLs; **errors** from individual sources are omitted while keeping data from others.
-- This design aligns with [backend.md](backend.md), [prd.md](prd.md), and [file-structure.md](file-structure.md) and allows the Planner to aggregate WebSearcher results with Librarian and Analyst before passing consolidated data to the Responder.
+- Not implemented in-agent; design intent remains: cache inside MCP tools with TTLs as in previous revision if added later.
 
 ---
 
 ## Related design
 
-- [news-searcher-design.md](news-searcher-design.md) — News Search subsystem: parallel aggregation, structured output, citation system.
+- [news-searcher-design.md](news-searcher-design.md) — News aggregation and citations.
 
 ---
 
 ## Future work
 
-- **Permission tags:** Inject `access_control` block (e.g. classification, roles_allowed) into INFORM content before returning to Planner; allow downstream components (Responder, compliance) to enforce access rules.
-- **Security and robustness:** Rate limiting in MCP tools (stooq, ETFdb) to avoid bans; enforce secrets via env/config only; sanitise user input in tool payloads; respect robots.txt and terms of use for scraped sites.
+- Permission tags / access_control on INFORM.
+- Rate limiting in stooq/ETFdb tools; robots/terms compliance.

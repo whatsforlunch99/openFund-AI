@@ -1,1 +1,3 @@
-"""MCP client and server (openfund_mcp.mcp_server). Tool implementations live under openfund_mcp.tools."""
+"""MCP tools: file, market, vector, kg, analyst, sql."""
+
+# Each tool module exposes plain functions that mcp_server binds to tool names.

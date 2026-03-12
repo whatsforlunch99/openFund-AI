@@ -6,9 +6,7 @@ for production/external clients. Run with: python -m openfund_mcp
 
 from __future__ import annotations
 
-import importlib.util
 import logging
-import os
 from collections.abc import Callable
 from typing import Any, Optional
 
@@ -159,59 +157,47 @@ class MCPServer:
         except ImportError:
             pass
 
-        # WebSearcher sources under mcp/tools/ — load by path (PyPI mcp shadows package name mcp).
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-        def _load(relpath: str) -> Any | None:
-            path = os.path.join(root, relpath)
-            if not os.path.isfile(path):
-                return None
-            spec = importlib.util.spec_from_file_location("_ws_" + relpath.replace("/", "_"), path)
-            if spec is None or spec.loader is None:
-                return None
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            return mod
-
+        # WebSearcher tools from openfund_mcp.tools (single source; no path-load).
         try:
-            yft = _load(os.path.join("mcp", "tools", "yahoo_finance_tool.py"))
-            if yft:
-                self.register_tool(
-                    "yahoo_finance_tool.get_fundamental",
-                    lambda p: yft.get_fundamental(p if isinstance(p, dict) else {}),
-                )
-                self.register_tool(
-                    "yahoo_finance_tool.get_price",
-                    lambda p: yft.get_price(p if isinstance(p, dict) else {}),
-                )
-        except Exception:
+            from openfund_mcp.tools import yahoo_finance_tool as yft
+
+            self.register_tool(
+                "yahoo_finance_tool.get_fundamental",
+                lambda p: yft.get_fundamental(p if isinstance(p, dict) else {}),
+            )
+            self.register_tool(
+                "yahoo_finance_tool.get_price",
+                lambda p: yft.get_price(p if isinstance(p, dict) else {}),
+            )
+        except ImportError:
             pass
         try:
-            fc = _load(os.path.join("mcp", "tools", "fund_catalog_tool.py"))
-            if fc and hasattr(fc, "search"):
+            from openfund_mcp.tools import fund_catalog_tool as fc
+
+            if hasattr(fc, "search"):
                 self.register_tool(
                     "fund_catalog_tool.search",
                     lambda p: fc.search(p if isinstance(p, dict) else {}),
                 )
-        except Exception:
+        except ImportError:
             pass
         try:
-            stooq_mod = _load(os.path.join("mcp", "tools", "stooq_tool.py"))
-            if stooq_mod:
-                self.register_tool(
-                    "stooq_tool.get_price",
-                    lambda p: stooq_mod.get_price(p if isinstance(p, dict) else {}),
-                )
-        except Exception:
+            from openfund_mcp.tools import stooq_tool as stooq_mod
+
+            self.register_tool(
+                "stooq_tool.get_price",
+                lambda p: stooq_mod.get_price(p if isinstance(p, dict) else {}),
+            )
+        except ImportError:
             pass
         try:
-            et = _load(os.path.join("mcp", "tools", "etfdb_tool.py"))
-            if et:
-                self.register_tool(
-                    "etfdb_tool.get_fund_data",
-                    lambda p: et.get_fund_data(p if isinstance(p, dict) else {}),
-                )
-        except Exception:
+            from openfund_mcp.tools import etfdb_tool as et
+
+            self.register_tool(
+                "etfdb_tool.get_fund_data",
+                lambda p: et.get_fund_data(p if isinstance(p, dict) else {}),
+            )
+        except ImportError:
             pass
 
         from openfund_mcp.tools import capabilities
@@ -599,6 +585,120 @@ def _create_fastmcp_app() -> Any:
         pass
 
     # ---------------------------------------------------------------------------
+    # news_tool (optional)
+    # ---------------------------------------------------------------------------
+    _has_news = False
+    try:
+        from openfund_mcp.tools import news_tool as nt
+
+        @app.tool(
+            name="news_tool.search_rss",
+            description="Google News RSS search. query (string), limit (optional int).",
+        )
+        def news_tool_search_rss(query: str = "", limit: Optional[int] = None) -> dict:
+            return nt.search_rss({"query": query, "limit": limit} if limit is not None else {"query": query})
+
+        @app.tool(
+            name="news_tool.search_yahoo_rss",
+            description="Yahoo Finance RSS. query (string), limit (optional int).",
+        )
+        def news_tool_search_yahoo_rss(query: str = "", limit: Optional[int] = None) -> dict:
+            return nt.search_yahoo_rss({"query": query, "limit": limit} if limit is not None else {"query": query})
+
+        @app.tool(
+            name="news_tool.search_gdelt",
+            description="GDELT news API. query (string), limit (optional int).",
+        )
+        def news_tool_search_gdelt(query: str = "", limit: Optional[int] = None) -> dict:
+            return nt.search_gdelt({"query": query, "limit": limit} if limit is not None else {"query": query})
+        _has_news = True
+    except ImportError:
+        pass
+
+    # ---------------------------------------------------------------------------
+    # WebSearcher tools (fund_catalog, yahoo_finance, stooq, etfdb) from openfund_mcp.tools
+    # ---------------------------------------------------------------------------
+    _websearcher_tool_names: list[str] = []
+    try:
+        from openfund_mcp.tools import fund_catalog_tool as fc
+
+        if hasattr(fc, "search"):
+
+            @app.tool(
+                name="fund_catalog_tool.search",
+                description="Search ETFs/funds by name or query. query or name (string), limit (optional int).",
+            )
+            def fund_catalog_tool_search(
+                query: str = "",
+                name: str = "",
+                limit: int = 10,
+            ) -> dict:
+                payload: dict[str, Any] = {"limit": limit}
+                if query.strip():
+                    payload["query"] = query
+                elif name.strip():
+                    payload["name"] = name
+                else:
+                    payload["query"] = query or name
+                return fc.search(payload)
+
+            _websearcher_tool_names.append("fund_catalog_tool.search")
+    except ImportError:
+        pass
+    try:
+        from openfund_mcp.tools import yahoo_finance_tool as yft
+
+        if hasattr(yft, "get_fundamental") and hasattr(yft, "get_price"):
+
+            @app.tool(
+                name="yahoo_finance_tool.get_fundamental",
+                description="Yahoo quoteSummary: price, ETF stats, holdings when available. symbol (string).",
+            )
+            def yahoo_finance_tool_get_fundamental(symbol: str = "") -> dict:
+                return yft.get_fundamental({"symbol": symbol})
+
+            @app.tool(
+                name="yahoo_finance_tool.get_price",
+                description="Yahoo chart API: latest price. symbol (string).",
+            )
+            def yahoo_finance_tool_get_price(symbol: str = "") -> dict:
+                return yft.get_price({"symbol": symbol})
+            _websearcher_tool_names.extend([
+                "yahoo_finance_tool.get_fundamental",
+                "yahoo_finance_tool.get_price",
+            ])
+    except ImportError:
+        pass
+    try:
+        from openfund_mcp.tools import stooq_tool as stooq_mod
+
+        if hasattr(stooq_mod, "get_price"):
+
+            @app.tool(
+                name="stooq_tool.get_price",
+                description="Latest price from stooq. symbol (string); .US appended if missing.",
+            )
+            def stooq_tool_get_price(symbol: str = "") -> dict:
+                return stooq_mod.get_price({"symbol": symbol})
+            _websearcher_tool_names.append("stooq_tool.get_price")
+    except ImportError:
+        pass
+    try:
+        from openfund_mcp.tools import etfdb_tool as et
+
+        if hasattr(et, "get_fund_data"):
+
+            @app.tool(
+                name="etfdb_tool.get_fund_data",
+                description="ETFdb expense ratio, AUM, holdings. symbol (string).",
+            )
+            def etfdb_tool_get_fund_data(symbol: str = "") -> dict:
+                return et.get_fund_data({"symbol": symbol})
+            _websearcher_tool_names.append("etfdb_tool.get_fund_data")
+    except ImportError:
+        pass
+
+    # ---------------------------------------------------------------------------
     # get_capabilities
     # ---------------------------------------------------------------------------
     from openfund_mcp.tools import capabilities as cap
@@ -637,6 +737,14 @@ def _create_fastmcp_app() -> Any:
         ])
     if _has_analyst:
         _tool_names.append("analyst_tool.get_indicators")
+    if _has_news:
+        _tool_names.extend([
+            "news_tool.search_rss",
+            "news_tool.search_yahoo_rss",
+            "news_tool.search_gdelt",
+        ])
+    if _websearcher_tool_names:
+        _tool_names.extend(_websearcher_tool_names)
 
     @app.tool(
         name="get_capabilities",

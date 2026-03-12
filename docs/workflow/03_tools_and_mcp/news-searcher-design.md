@@ -148,7 +148,7 @@ Supported values: `1`, `7`, `30` (or as implemented). The agent passes `days` to
 
 ## MCP tools for News Search
 
-Implemented in `mcp/tools/news_tool.py` and documented in [agent-tools-reference.md](agent-tools-reference.md):
+Implemented in `openfund_mcp/tools/news_tool.py` and documented in [agent-tools-reference.md](agent-tools-reference.md):
 
 - **news_tool.search_rss** — Google News RSS; payload: `query`, `days`.
 - **news_tool.search_yahoo_rss** — Yahoo Finance fixed feed; payload: `limit`.
@@ -215,7 +215,7 @@ All news tools must return a dict with either a normal payload or `{"error": "..
 ## File and module layout
 
 - **Agent:** `agents/websearch_agent.py` — Invokes news tools in parallel, normalises, merges, builds citations. See [file-structure.md](file-structure.md).
-- **MCP tools:** `mcp/tools/news_tool.py` — `search_rss`, `search_yahoo_rss`, `search_gdelt`. Registered in `MCPServer.register_default_tools()`.
+- **MCP tools:** `openfund_mcp/tools/news_tool.py` — `search_rss`, `search_yahoo_rss`, `search_gdelt`. Registered in `openfund_mcp/mcp_server.py` (FastMCP app and MCPServer.register_default_tools()).
 - **Tool list:** `llm/tool_descriptions.py` (`WEBSEARCHER_ALLOWED_TOOL_NAMES`); [agent-tools-reference.md](agent-tools-reference.md) for contracts.
 
 ---

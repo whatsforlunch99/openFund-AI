@@ -1,6 +1,6 @@
 # WebSearcher Agent Design
 
-Design for the WebSearcher specialist agent: parallel multi-source query, normalized output schema, and integration with the Planner and MCP tool layer. **Implementation:** `agents/websearch_agent.py` and MCP tools under `mcp/tools/` loaded by path in `openfund_mcp/fastmcp_server.py`. See [backend.md](../02_planning/backend.md) for orchestration and [agent-tools-reference.md](agent-tools-reference.md) for tool contracts.
+Design for the WebSearcher specialist agent: parallel multi-source query, normalized output schema, and integration with the Planner and MCP tool layer. **Implementation:** `agents/websearch_agent.py` and MCP tools in `openfund_mcp/tools/` (fund_catalog_tool, yahoo_finance_tool, stooq_tool, etfdb_tool, market_tool, news_tool), all registered from `openfund_mcp/mcp_server.py`. See [backend.md](../02_planning/backend.md) for orchestration and [agent-tools-reference.md](agent-tools-reference.md) for tool contracts.
 
 ---
 
@@ -68,7 +68,7 @@ Design for the WebSearcher specialist agent: parallel multi-source query, normal
 |--------|----------|--------|
 | Stooq | `stooq_tool.get_price` | Latest price/close; primary price source when OK. |
 | Yahoo | `yahoo_finance_tool.get_fundamental` (or `get_price`) | Price, AUM, holdings, sector_exposure; `price_yahoo` stored when both stooq and Yahoo OK. |
-| ETFdb | `etfdb_tool.get_fund_data` | Often 403; omitted from merge if error. |
+| ETFdb | `etfdb_tool.get_fund_data` | Often 403; omitted from merge if error. **Skipped for known index symbols** (e.g. SPX); ETFdb is for ETFs and may 404 for indices. |
 | market_tool | `get_fundamentals`, `get_news`, `get_global_news` | Requires API keys/vendor; **get_news** must include `start_date`/`end_date` for Alpha Vantage; **get_global_news** must include `as_of_date` and `look_back_days` (never call with `{}`). |
 
 ### News bundle (`_fetch_news_sources`, parallel with financial)
@@ -128,7 +128,8 @@ Single fund/ETF record shape produced by `_normalise_to_schema`:
 ## FinanceDatabase integration
 
 - **Tool:** `fund_catalog_tool.search` — query/name + limit; returns `matches` with `symbol`, `name`, etc.
-- **Registration:** Loaded by **file path** in `fastmcp_server` / `mcp_server` because PyPI package `mcp` shadows the local `mcp/` package.
+- **Optional dependency:** `fund_catalog_tool` requires the `financedatabase` package. Install with `pip install openfund-ai[websearcher]`; see [pyproject.toml](../../../pyproject.toml) optional-dependencies. When not installed, WebSearcher falls back to `_normalize_symbol` heuristics.
+- **Registration:** All WebSearcher tools are implemented in `openfund_mcp/tools/` and registered in `openfund_mcp/mcp_server.py` (FastMCP app and MCPServer.register_default_tools()).
 
 ---
 
@@ -152,6 +153,7 @@ Single fund/ETF record shape produced by `_normalise_to_schema`:
 |-----------|------------|
 | Single source fails | Field omitted or filled from another source; `error` dict only for that tool’s slot in parallel fetch. |
 | ETFdb 403 | etfdb omitted; Yahoo/stooq still populate. |
+| **Index symbol (e.g. SPX)** | ETFdb is skipped for known index symbols; Stooq/Yahoo may still return index data where supported. Index symbols are not in the default SQL seed (`stock_ohlcv`); see progress/backend for data coverage. |
 | market_tool without API key | `market_data`/`sentiment`/`regulatory` carry `error`; **normalized_fund** still has price from stooq/Yahoo. |
 | LLM unavailable | Summary falls back to `_fallback_summary_from_normalized`; conflict resolution skipped. |
 
@@ -159,7 +161,7 @@ Single fund/ETF record shape produced by `_normalise_to_schema`:
 
 ## Stdio server and tool registration
 
-- **Path load:** `openfund_mcp/fastmcp_server.py` uses `importlib.util.spec_from_file_location` for `mcp/tools/fund_catalog_tool.py`, `yahoo_finance_tool.py`, `stooq_tool.py`, `etfdb_tool.py`.
+- **Tool registration:** `openfund_mcp/mcp_server.py` imports and registers fund_catalog_tool, yahoo_finance_tool, stooq_tool, etfdb_tool from `openfund_mcp.tools`.
 - **Critical:** Do **not** bind stooq module as `st` after `sql_tool` is imported as `st` — use `stooq_mod` so `sql_tool.run_query` closures stay correct.
 - **Capabilities:** `_websearcher_tool_names` appended to `get_capabilities` only for tools actually registered.
 

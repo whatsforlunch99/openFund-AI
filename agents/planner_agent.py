@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
+from agents.websearch_agent import extract_symbol_from_query
 from util import interaction_log
 
 logger = logging.getLogger(__name__)
@@ -455,11 +456,28 @@ class PlannerAgent(BaseAgent):
             )
             if has_ws_payload:
                 bits_ws: list[str] = []
-                # Always inject price line first when normalized_fund has prices (summary may be
-                # long LLM text whose first 120 chars omit the number; market_data may be error-only).
-                price_line = self._websearcher_price_line(w)
-                if price_line:
-                    bits_ws.append(f"price: {price_line}")
+                # Symbol mismatch check: if websearcher returned data for wrong symbol, do not use it.
+                ws_query = w.get("query") or ""
+                expected_symbol = extract_symbol_from_query(ws_query) if isinstance(ws_query, str) else ""
+                nf = w.get("normalized_fund") or []
+                actual_symbols = [
+                    rec.get("symbol") for rec in nf
+                    if isinstance(rec, dict) and rec.get("symbol")
+                ]
+                symbol_mismatch = bool(
+                    expected_symbol
+                    and actual_symbols
+                    and expected_symbol.upper() not in {s.upper() for s in actual_symbols}
+                )
+                if symbol_mismatch:
+                    bits_ws.append(
+                        f"No market data could be retrieved for the requested symbol ({expected_symbol})."
+                    )
+                    price_line = ""
+                else:
+                    price_line = self._websearcher_price_line(w)
+                    if price_line:
+                        bits_ws.append(f"price: {price_line}")
                 summary_ws = w.get("summary")
 
                 # if there is a summary, add a snippet of the summary (longer cap when price already set)
@@ -673,6 +691,8 @@ class PlannerAgent(BaseAgent):
             ("tesla", "TSLA"), ("tsla", "TSLA"),
             ("microsoft", "MSFT"), ("msft", "MSFT"),
             ("google", "GOOGL"), ("googl", "GOOGL"), ("alphabet", "GOOGL"),
+            ("s&p 500", "SPX"), ("s&p500", "SPX"), ("sp500", "SPX"), ("spx", "SPX"),
+            ("spy", "SPY"),
         )
         q_lower = query.lower()
         fund = ""
@@ -690,7 +710,8 @@ class PlannerAgent(BaseAgent):
                 },
             ),
             TaskStep(
-                agent="websearcher", params={"query": query}
+                agent="websearcher",
+                params={"query": query, "fund": fund} if fund else {"query": query},
             ),
             TaskStep(agent="analyst", params={"query": query}),
         ]

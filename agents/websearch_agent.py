@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Uppercase words that match [A-Z]{1,5} but are not tickers (English question words, etc.).
 # If the planner passes fund="WHAT" from "What is the price of SPY?", we must not query WHAT.US.
+# "P" from "S&P" is rarely a standalone ticker; blocklist avoids it when "(SPX)" is missing.
 _TICKER_BLOCKLIST = frozenset({
     "WHAT", "WHEN", "WHERE", "WHICH", "WHO", "WHOM", "WHOSE", "WHY", "HOW",
     "IS", "ARE", "WAS", "WERE", "BE", "BEEN", "BEING", "HAVE", "HAS", "HAD", "DO", "DOES", "DID",
@@ -33,7 +34,61 @@ _TICKER_BLOCKLIST = frozenset({
     "ONLY", "OWN", "SAME", "SO", "THAN", "TOO", "VERY", "CAN", "WILL", "JUST", "SHOULD", "NOW",
     "THERE", "HERE", "THIS", "THAT", "THESE", "THOSE", "WITH", "WITHOUT", "ABOUT", "AGAINST",
     "CURRENT", "RECENT", "LATEST", "PRICE", "NEWS", "STOCK", "FUND", "ETF", "DATA", "INFO",
+    "P",  # from "S&P" — avoid choosing P when (SPX) is missing
 })
+
+
+# Known index / fund name (lowercase) -> canonical symbol. Index-like phrases map to SPX.
+_QUERY_TO_SYMBOL_MAP = {
+    "s&p 500": "SPX",
+    "s&p500": "SPX",
+    "sp500": "SPX",
+    "spx": "SPX",
+    "spy": "SPY",
+}
+
+# Preferred tickers (indices/ETFs) to pick when multiple tokens match; longer tokens preferred otherwise.
+_PREFERRED_TICKERS = ("SPX", "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "NVDA", "AAPL", "MSFT", "GOOGL", "TSLA", "AMZN", "META")
+
+# Index symbols (not ETFs); ETFdb may 404 for these — skip or ignore.
+KNOWN_INDEX_SYMBOLS = frozenset({"SPX"})
+
+
+def extract_symbol_from_query(raw: str) -> str:
+    """Extract expected ticker from free-form query text. Same logic as WebSearcherAgent._normalize_symbol.
+    Used by planner for symbol-mismatch validation."""
+    text = (raw or "").strip()
+    if not text:
+        return "AAPL"
+    upper = text.upper()
+    lower = text.lower()
+    # Prefer ticker in parentheses
+    paren = re.search(r"\(([A-Z]{2,5})\)", upper)
+    if paren:
+        sym = paren.group(1)
+        if sym not in _TICKER_BLOCKLIST:
+            return sym
+    # Known map
+    for key, sym in _QUERY_TO_SYMBOL_MAP.items():
+        if key in lower:
+            return sym
+    # Token preference
+    tokens = re.findall(r"\b[A-Z]{1,5}\b", upper)
+    candidates = [t for t in tokens if t not in _TICKER_BLOCKLIST]
+    if candidates:
+        preferred_set = set(_PREFERRED_TICKERS)
+        in_preferred = [t for t in candidates if t in preferred_set]
+        if in_preferred:
+            return in_preferred[0]
+        return max(candidates, key=len)
+    known = {
+        "nvidia": "NVDA", "apple": "AAPL", "tesla": "TSLA", "microsoft": "MSFT",
+        "google": "GOOGL", "alphabet": "GOOGL", "vanguard": "VTI",
+    }
+    for key, sym in known.items():
+        if key in lower:
+            return sym
+    return "AAPL"
 
 
 def _now_iso() -> str:
@@ -132,15 +187,35 @@ class WebSearcherAgent(BaseAgent):
         if not text:
             return "AAPL"
         upper = text.upper()
-        # Prefer known multi-letter tickers mentioned in text (avoid WHAT, IS, etc.).
-        for sym in ("SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "NVDA", "AAPL", "MSFT", "GOOGL", "TSLA", "AMZN", "META"):
-            if re.search(r"\b" + re.escape(sym) + r"\b", upper):
+        lower = text.lower()
+
+        # 1.1 Prefer ticker in parentheses, e.g. (SPX), (SPY)
+        paren = re.search(r"\(([A-Z]{2,5})\)", upper)
+        if paren:
+            sym = paren.group(1)
+            if sym not in _TICKER_BLOCKLIST:
                 return sym
-        # Explicit uppercase tokens 1-5 chars — skip English/stopwords that look like tickers.
+
+        # 1.2 Known index/name -> symbol (lowercased text)
+        for key, sym in _QUERY_TO_SYMBOL_MAP.items():
+            if key in lower:
+                return sym
+
+        # 1.3 Collect non-blocklisted tokens; prefer (a) preferred list, (b) longer length
         tokens = re.findall(r"\b[A-Z]{1,5}\b", upper)
-        for t in tokens:
-            if t not in _TICKER_BLOCKLIST:
-                return t
+        candidates = [t for t in tokens if t not in _TICKER_BLOCKLIST]
+        if not candidates:
+            pass
+        else:
+            preferred_set = set(_PREFERRED_TICKERS)
+            in_preferred = [t for t in candidates if t in preferred_set]
+            if in_preferred:
+                return in_preferred[0]
+            # Longest first (so SPX beats S and P)
+            best = max(candidates, key=len)
+            return best
+
+        # Fallback: known company names
         known = {
             "nvidia": "NVDA",
             "apple": "AAPL",
@@ -149,10 +224,7 @@ class WebSearcherAgent(BaseAgent):
             "google": "GOOGL",
             "alphabet": "GOOGL",
             "vanguard": "VTI",
-            "spy": "SPY",
-            "sp500": "SPY",
         }
-        lower = text.lower()
         for key, sym in known.items():
             if key in lower:
                 return sym
@@ -525,10 +597,11 @@ class WebSearcherAgent(BaseAgent):
         tasks: list[tuple[str, str, dict]] = []
         if "stooq_tool.get_price" in reg:
             tasks.append(("stooq", "stooq_tool.get_price", {"symbol": symbol}))
-        yahoo_tool = "yahoo_finance_tool.get_fundamental" if "yahoo_finance_tool.get_fundamental" in reg else "yahoo_finance_tool.get_price"
+        yahoo_tool = "yahoo_finance_tool.get_fundamental"         if "yahoo_finance_tool.get_fundamental" in reg else "yahoo_finance_tool.get_price"
         if yahoo_tool in reg:
             tasks.append(("yahoo", yahoo_tool, {"symbol": symbol}))
-        if "etfdb_tool.get_fund_data" in reg:
+        # Skip ETFdb for known index symbols (e.g. SPX); ETFdb is for ETFs and may 404.
+        if "etfdb_tool.get_fund_data" in reg and symbol not in KNOWN_INDEX_SYMBOLS:
             tasks.append(("etfdb", "etfdb_tool.get_fund_data", {"symbol": symbol}))
         if "market_tool.get_fundamentals" in reg:
             tasks.append(("market", "market_tool.get_fundamentals", {"ticker": symbol, "symbol": symbol}))
@@ -960,6 +1033,8 @@ class WebSearcherAgent(BaseAgent):
         status = "limited_data" if has_errors else "success"
         logger.info("agent.websearcher.done status=%s", status)
         reply_to = getattr(message, "reply_to", None) or message.sender
+        # Include query so planner can validate expected vs actual symbol
+        reply_content["query"] = content.get("query") or ""
         reply = ACLMessage(
             performative=Performative.INFORM,
             sender=self.name,

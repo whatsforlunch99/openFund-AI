@@ -52,23 +52,25 @@ OpenFund-AI/
 │   ├── static_client.py
 │   ├── live_client.py
 │   └── factory.py
-├── mcp/
+├── openfund_mcp/              # Single MCP server (FastMCP stdio + MCPServer for tests)
 │   ├── __init__.py
+│   ├── __main__.py            # Entry: python -m openfund_mcp → run_stdio() from mcp_server
 │   ├── mcp_client.py
-│   ├── mcp_server.py
+│   ├── mcp_server.py          # FastMCP app + MCPServer; all tools from openfund_mcp.tools
 │   └── tools/
-│       ├── __init__.py
-│       ├── file_tool.py
 │       ├── vector_tool.py
 │       ├── kg_tool.py
-│       ├── fund_catalog_tool.py   # P1: FinanceDatabase search
-│       ├── stooq_tool.py          # P2: stooq price
-│       ├── yahoo_finance_tool.py  # P2 fallback: query1.finance.yahoo.com price
-│       ├── etfdb_tool.py          # P3: ETFdb fundamentals
+│       ├── sql_tool.py
 │       ├── market_tool.py
 │       ├── analyst_tool.py
-│       ├── sql_tool.py
-│       └── capabilities.py   # get_capabilities (backends + tool list)
+│       ├── news_tool.py
+│       ├── fund_catalog_tool.py
+│       ├── stooq_tool.py
+│       ├── yahoo_finance_tool.py
+│       ├── etfdb_tool.py
+│       ├── file_tool.py
+│       ├── capabilities.py
+│       └── ...
 ├── config/
 │   ├── __init__.py
 │   └── config.py
@@ -1461,9 +1463,9 @@ result = mcp_client.call_tool("file_tool.read_file", {"path": "CHANGELOG.md"})
 
 ---
 
-# mcp/mcp_server.py
+# openfund_mcp/mcp_server.py
 
-**Purpose:** Register tool handlers and dispatch incoming tool calls; catch exceptions and return error dicts.
+**Purpose:** Single MCP server module: **FastMCP** stdio app (for production and external clients) and **MCPServer** (in-process for tests). Registers all tools from `openfund_mcp.tools`. Run via `python -m openfund_mcp` (calls run_stdio()). Dispatch invokes handlers; returns error dict on unknown tool or exception.
 
 ---
 
@@ -1511,7 +1513,7 @@ result = server.dispatch("read_file", {"path": "CHANGELOG.md"})
 
 ---
 
-# mcp/tools/file_tool.py
+# openfund_mcp/tools/file_tool.py
 
 **Purpose:** MCP tool for reading file content and listing files by prefix. When MCP_FILE_BASE_DIR is set, read_file only allows paths under that directory (path traversal protection). Used by agents via MCPClient.
 

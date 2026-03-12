@@ -14,7 +14,7 @@ When **Librarian**, **WebSearcher**, or **Analyst** receive a request from the P
 
 **Code sync:** The allowed tool sets for each agent are maintained in `llm/tool_descriptions.py` (`LIBRARIAN_ALLOWED_TOOL_NAMES`, `WEBSEARCHER_ALLOWED_TOOL_NAMES`, `ANALYST_ALLOWED_TOOL_NAMES`). The LLM prompt for each agent is injected with only that agent's tool descriptions, and any tool name the LLM returns outside the allowed set is discarded at runtime by `filter_tool_calls_to_allowed()` before execution. Keep this document and `llm/tool_descriptions.py` in sync when adding or removing tools.
 
-All tools are registered in the **FastMCP server** (`openfund_mcp/fastmcp_server.py`) for production stdio and in **MCPServer.register_default_tools()** (`openfund_mcp/mcp_server.py`) for in-process tests. The API and agents use **MCPClient** to call the server over stdio. `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed.
+All tools are registered in the **single MCP server** (`openfund_mcp/mcp_server.py`): FastMCP app for production stdio and MCPServer.register_default_tools() for in-process tests. All tool implementations live under `openfund_mcp/tools/`. The API and agents use **MCPClient** to call the server over stdio. `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed.
 
 ---
 
@@ -248,7 +248,7 @@ Search ETFs and mutual funds by name/query. Returns symbol and metadata.
 
 #### fund_catalog_tool.search
 
-- **Description:** Search ETFs/mutual funds by query or name (FinanceDatabase). Optional: `pip install financedatabase`.
+- **Description:** Search ETFs/mutual funds by query or name (FinanceDatabase). Optional: install with `pip install openfund-ai[websearcher]` (or `pip install financedatabase`).
 - **Payload:** `query` or `name` (required, string), `limit` (optional, int, default 10).
 - **Returns:** `{"matches": [{"symbol": str, "name": str, "asset_class": str?, "exchange": str?}, ...], "timestamp": str, "source": "FinanceDatabase"}` or `{"error": str, "timestamp": str}`.
 - **Sample call:**

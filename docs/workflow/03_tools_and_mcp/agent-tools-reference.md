@@ -14,7 +14,7 @@ When **Librarian**, **WebSearcher**, or **Analyst** receive a request from the P
 
 **Code sync:** The allowed tool sets for each agent are maintained in `llm/tool_descriptions.py` (`LIBRARIAN_ALLOWED_TOOL_NAMES`, `WEBSEARCHER_ALLOWED_TOOL_NAMES`, `ANALYST_ALLOWED_TOOL_NAMES`). The LLM prompt for each agent is injected with only that agent's tool descriptions, and any tool name the LLM returns outside the allowed set is discarded at runtime by `filter_tool_calls_to_allowed()` before execution. Keep this document and `llm/tool_descriptions.py` in sync when adding or removing tools.
 
-All tools are registered in the **MCP server** (`openfund_mcp/mcp_server.py`): FastMCP stdio app for production and `MCPServer.register_default_tools()` for in-process tests. The API and agents use **MCPClient** to call the server over stdio. `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed.
+All tools are registered in the **FastMCP server** (`openfund_mcp/fastmcp_server.py`) for production stdio and in **MCPServer.register_default_tools()** (`openfund_mcp/mcp_server.py`) for in-process tests. The API and agents use **MCPClient** to call the server over stdio. `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed.
 
 ---
 
@@ -242,6 +242,116 @@ Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls retur
 
 ---
 
+## fund_catalog_tool _(optional — requires `financedatabase`)_
+
+Search ETFs and mutual funds by name/query. Returns symbol and metadata.
+
+#### fund_catalog_tool.search
+
+- **Description:** Search ETFs/mutual funds by query or name (FinanceDatabase). Optional: `pip install financedatabase`.
+- **Payload:** `query` or `name` (required, string), `limit` (optional, int, default 10).
+- **Returns:** `{"matches": [{"symbol": str, "name": str, "asset_class": str?, "exchange": str?}, ...], "timestamp": str, "source": "FinanceDatabase"}` or `{"error": str, "timestamp": str}`.
+- **Sample call:**
+  ```json
+  { "query": "Vanguard Total Stock", "limit": 5 }
+  ```
+
+---
+
+## stooq_tool
+
+Fetch latest price from stooq.com.
+
+#### stooq_tool.get_price
+
+- **Description:** Fetch latest price for a symbol from stooq. Symbol gets `.US` suffix for US market.
+- **Payload:** `symbol` or `ticker` (required, string).
+- **Returns:** `{"symbol": str, "price": float, "close": float, "date": str, "timestamp": str, "source": "stooq"}` or `{"error": str, "timestamp": str}`.
+- **Sample call:**
+  ```json
+  { "symbol": "SPY" }
+  ```
+
+---
+
+## yahoo_finance_tool
+
+Yahoo Finance data via `query1.finance.yahoo.com`. Price and ETF/fund fundamentals when available.
+
+#### yahoo_finance_tool.get_price
+
+- **Description:** Fetch latest price for a symbol from Yahoo Finance chart API. Same schema as stooq for compatibility.
+- **Payload:** `symbol` or `ticker` (required, string).
+- **Returns:** `{"symbol": str, "price": float, "close": float, "date": str, "timestamp": str, "source": "yahoo"}` or `{"error": str, "timestamp": str}`.
+- **Sample call:**
+  ```json
+  { "symbol": "SPY" }
+  ```
+
+#### yahoo_finance_tool.get_fundamental
+
+- **Description:** Fetch quoteSummary fundamentals (price + key ETF/fund stats). Session and crumb are obtained by loading the quote page and extracting the crumb from the page. If quoteSummary returns 401 (e.g. region block), the tool falls back to the chart API for price only (`quoteSummary_blocked: true`).
+- **Payload:** `symbol` or `ticker` (required, string).
+- **Returns:** `{"symbol": str, "name": str?, "currency": str?, "price": float?, "close": float?, "expense_ratio": float?, "aum": float?, "sector_exposure": {}, "holdings_top10": [...], "raw": {...}, "timestamp": str, "source": "yahoo"}` or `{"error": str, "timestamp": str}`. On 401 fallback, response includes `"quoteSummary_blocked": true`.
+- **Sample call:**
+  ```json
+  { "symbol": "SPY" }
+  ```
+
+---
+
+## etfdb_tool
+
+Fetch ETF fundamentals from ETFdb.com (expense ratio, AUM, holdings). May return 403 if site blocks requests.
+
+#### etfdb_tool.get_fund_data
+
+- **Description:** Fetch ETF fundamentals: expense ratio, AUM, top holdings from ETFdb.
+- **Payload:** `symbol` or `ticker` (required, string).
+- **Returns:** `{"symbol": str, "expense_ratio": float?, "aum": float?, "holdings_top10": [...], "sector_exposure": {}, "timestamp": str, "source": "ETFdb"}` or `{"error": str, "timestamp": str}`.
+- **Sample call:**
+  ```json
+  { "symbol": "VTI" }
+  ```
+
+---
+
+## news_tool
+
+News search via RSS (Google News, Yahoo Finance) and GDELT API. Per [news-searcher-design.md](news-searcher-design.md).
+
+#### news_tool.search_rss
+
+- **Description:** Search news via Google News RSS feed. Returns headlines, links, dates, and sources.
+- **Payload:** `query` (required, string), `days` (optional, int, default 7).
+- **Returns:** `{"items": [{"title": str, "link": str, "published": str, "source": str, "date": str}], "timestamp": str}` or `{"error": str, "timestamp": str}`.
+- **Sample call:**
+  ```json
+  { "query": "NVDA ETF exposure", "days": 7 }
+  ```
+
+#### news_tool.search_yahoo_rss
+
+- **Description:** Fetch general finance news from Yahoo Finance RSS (fixed feed, no query).
+- **Payload:** `limit` (optional, int, default 20).
+- **Returns:** Same schema as `news_tool.search_rss`. Items include title, link, published, source.
+- **Sample call:**
+  ```json
+  { "limit": 15 }
+  ```
+
+#### news_tool.search_gdelt
+
+- **Description:** Search news via GDELT API (free, no key). May return 429; use sparingly.
+- **Payload:** `query` (required, string), `limit` (optional, int, default 10).
+- **Returns:** Same schema as `news_tool.search_rss`.
+- **Sample call:**
+  ```json
+  { "query": "NVDA", "limit": 10 }
+  ```
+
+---
+
 ## market_tool _(optional — requires `pandas`)_
 
 **Vendor routing:** Vendor-agnostic tools route to the configured vendor (`MCP_MARKET_VENDOR`: `alpha_vantage` (default) or `finnhub`; unset or invalid → `alpha_vantage`). No yfinance; Alpha Vantage or Finnhub only.
@@ -356,7 +466,7 @@ Each agent uses `mcp_client.call_tool(...)` to access MCP tools. **Planner** and
 | Agent | Tools available |
 |---|---|
 | **Librarian** | `file_tool.read_file` · `vector_tool.search` · `vector_tool.get_by_ids` · `vector_tool.upsert_documents` · `vector_tool.health_check` · `vector_tool.create_collection_from_config` · `kg_tool.query_graph` · `kg_tool.get_relations` · `kg_tool.get_node_by_id` · `kg_tool.get_neighbors` · `kg_tool.get_graph_schema` · `kg_tool.shortest_path` · `kg_tool.get_similar_nodes` · `kg_tool.fulltext_search` · `kg_tool.bulk_export` · `kg_tool.bulk_create_nodes` · `sql_tool.run_query` · `sql_tool.explain_query` · `sql_tool.export_results` · `sql_tool.connection_health_check` · `get_capabilities` |
-| **WebSearcher** | `market_tool.get_fundamentals` · `market_tool.get_stock_data` · `market_tool.get_balance_sheet` · `market_tool.get_cashflow` · `market_tool.get_income_statement` · `market_tool.get_insider_transactions` · `market_tool.get_news` · `market_tool.get_global_news` · `get_capabilities` |
+| **WebSearcher** | `fund_catalog_tool.search` · `news_tool.search_rss` · `news_tool.search_yahoo_rss` · `news_tool.search_gdelt` · `stooq_tool.get_price` · `yahoo_finance_tool.get_price` · `etfdb_tool.get_fund_data` · `market_tool.get_fundamentals` · `market_tool.get_stock_data` · `market_tool.get_balance_sheet` · `market_tool.get_cashflow` · `market_tool.get_income_statement` · `market_tool.get_insider_transactions` · `market_tool.get_news` · `market_tool.get_global_news` · `get_capabilities` |
 | **Analyst** | `analyst_tool.get_indicators` · `get_capabilities` |
 | **Planner** | _(none — orchestrates specialists and sends decomposed queries via ACL)_ |
 | **Responder** | _(none — formats the final answer)_ |
@@ -378,6 +488,11 @@ Each agent uses `mcp_client.call_tool(...)` to access MCP tools. **Planner** and
 
 | Content need | Tool to call |
 |---|---|
+| Search ETFs/funds by name | `fund_catalog_tool.search` |
+| News (RSS / Yahoo / GDELT) | `news_tool.search_rss`, `news_tool.search_yahoo_rss`, `news_tool.search_gdelt` |
+| Latest price (stooq) | `stooq_tool.get_price` |
+| Latest price / fundamentals (Yahoo) | `yahoo_finance_tool.get_price`, `yahoo_finance_tool.get_fundamental` |
+| ETF fundamentals (ETFdb) | `etfdb_tool.get_fund_data` |
 | Company / fund overview (fundamentals) | `market_tool.get_fundamentals` |
 | Recent news / sentiment | `market_tool.get_news` |
 | Global macro / regulatory news | `market_tool.get_global_news` |

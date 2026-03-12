@@ -61,6 +61,10 @@ OpenFund-AI/
 │       ├── file_tool.py
 │       ├── vector_tool.py
 │       ├── kg_tool.py
+│       ├── fund_catalog_tool.py   # P1: FinanceDatabase search
+│       ├── stooq_tool.py          # P2: stooq price
+│       ├── yahoo_finance_tool.py  # P2 fallback: query1.finance.yahoo.com price
+│       ├── etfdb_tool.py          # P3: ETFdb fundamentals
 │       ├── market_tool.py
 │       ├── analyst_tool.py
 │       ├── sql_tool.py
@@ -96,7 +100,9 @@ OpenFund-AI/
     │   │   └── frontend.md
     │   ├── 03_tools_and_mcp/
     │   │   ├── agent-tools-reference.md   # MCP tool payloads and per-agent tool lists
-    │   │   └── mcp-server.md
+    │   │   ├── mcp-server.md
+    │   │   ├── websearcher-design.md      # WebSearcher agent design: parallel sources, schema, Planner contract
+    │   │   └── news-searcher-design.md    # News Search within WebSearcher: multi-source aggregation, citations
     │   └── 90_product/
     │       ├── prd.md
     │       ├── progress.md
@@ -658,7 +664,7 @@ combined = agent.combine_results(docs, graph_data)
 
 # agents/websearch_agent.py
 
-**Purpose:** Fetch real-time market, sentiment, and regulatory data via MCP market_tool. Tool selection may use LLM (see [backend.md](backend.md)); otherwise content-based dispatch. All returned data includes a timestamp. Tool list: [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md).
+**Purpose:** Fetch real-time market and fund data via MCP. Entry point `handle_message` → `_run_parallel_flow`: financial bundle per symbol via `_fetch_all_sources_for_symbol` (stooq, Yahoo, ETFdb, market_tool with dated news payloads), merged by `_merge_financial_results` into `normalized_fund`; news bundle via `_fetch_news_sources` in parallel. Symbol resolution uses `_resolve_symbols` / `_normalize_symbol` and `_TICKER_BLOCKLIST` so planner tokens like WHAT are not queried as tickers. Returns `normalized_fund`, backward-compat `market_data`/`sentiment`/`regulatory`, and `news`/`citations`. See [websearcher-design.md](../03_tools_and_mcp/websearcher-design.md).
 
 ---
 
@@ -666,7 +672,7 @@ combined = agent.combine_results(docs, graph_data)
 
 **Purpose:** Fetches real-time market and regulatory information via MCP. Tool selection may use LLM (see [backend.md](backend.md)); tool list in [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md).
 
-**Docstring:** `Fetches real-time market and regulatory information. Uses MCP market_tool (Alpha Vantage / Finnhub; Tavily path is currently stubbed via search_web). All returned data must include a timestamp.`
+**Docstring:** `Fetches real-time market and fund information. Queries all sources in parallel; merges into normalized_fund, market_data, sentiment, regulatory, news/citations. All returned data includes a timestamp.`
 
 ---
 
@@ -674,7 +680,7 @@ combined = agent.combine_results(docs, graph_data)
 
 **Purpose:** Process market/sentiment/regulatory requests; dispatch via MCP (tool selection may use LLM per [backend.md](backend.md)); send INFORM with timestamp in content.
 
-**Docstring:** `Process market/sentiment/regulatory requests. When LLM is available: uses prompt and tool descriptions to select tools and parameters, executes via call_tool, sends INFORM. Otherwise fetches via MCP and sends INFORM with timestamp. Args: message: The received ACL message.`
+**Docstring:** `Process REQUEST from Planner: run Financial Data Search and News Search in parallel, merge, send INFORM. Uses _run_parallel_flow; optional LLM summary, conflict resolution, all-tools-fail and news fallbacks when llm_client is set.`
 
 ---
 
@@ -1239,7 +1245,7 @@ cfg = load_config()
 
 **Purpose:** Central prompts for all agents; single source of truth aligned with PRD and user-flow.
 
-**Constants:** PLANNER_DECOMPOSE (task decomposition for Planner), LIBRARIAN_SYSTEM (retrieve/combine for Librarian; optional LLM), WEBSEARCHER_SYSTEM (market/sentiment/regulatory for WebSearcher; optional LLM), ANALYST_SYSTEM (quantitative analysis summary for Analyst; optional LLM), RESPONDER_SYSTEM (final user-facing answer by profile for Responder; used when llm_client set).
+**Constants:** PLANNER_DECOMPOSE (task decomposition for Planner), LIBRARIAN_SYSTEM (retrieve/combine for Librarian; optional LLM), WEBSEARCHER_SYSTEM (market/sentiment/regulatory for WebSearcher; optional LLM), WEBSEARCHER_TOOL_SELECTION (WebSearcher MCP tool planner), WEBSEARCHER_NEWS_FALLBACK_SYSTEM (LLM-only headline lines when all news APIs fail; used by `WebSearcherAgent._llm_news_fallback`), WEBSEARCHER_LLM_FALLBACK_SYSTEM (LLM paragraph when all market tools fail; used by `_llm_data_search_fallback`), WEBSEARCHER_CONFLICT_RESOLUTION_SYSTEM (stooq vs Yahoo price conflict; used by `_resolve_conflict_with_llm`), ANALYST_SYSTEM (quantitative analysis summary for Analyst; optional LLM), RESPONDER_SYSTEM (final user-facing answer by profile for Responder; used when llm_client set).
 
 **Function: `get_responder_user_content(user_profile: str, aggregated_research: str) -> str`**
 

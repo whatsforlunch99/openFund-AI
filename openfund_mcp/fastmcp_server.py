@@ -1,242 +1,40 @@
-"""MCP server: register and dispatch tools.
+"""FastMCP server: MCP protocol over stdio for external clients (e.g. Claude Desktop).
 
-Provides MCPServer for in-process dispatch (tests) and FastMCP stdio server
-for production/external clients. Run with: python -m openfund_mcp
+Tools are the same as in mcp/tools; registered with @mcp.tool() for discovery and JSON schema.
+Run with: python -m openfund_mcp
 """
 
 from __future__ import annotations
 
 import importlib.util
-import logging
 import os
-from collections.abc import Callable
 from typing import Any, Optional
-
-logger = logging.getLogger(__name__)
 
 try:
     from mcp.server.fastmcp import FastMCP
 except ImportError:
     FastMCP = None  # type: ignore[misc, assignment]
 
-_fastmcp_app: Any = None
+mcp: Optional[Any] = None
 
 
-def _payload_handler(
-    func: Callable[..., Any],
-    required_keys: list[str] | None = None,
-    arg_specs: list[tuple[str, list[str], Any, Any]] | None = None,
-    result_key: str | None = None,
-) -> Callable[[dict], dict]:
-    """Build a payload -> dict handler from a spec.
-
-    Args:
-        func: Tool function to call (e.g. vector_tool.search).
-        required_keys: Payload keys that must be present; else return error dict.
-        arg_specs: List of (param_name, payload_keys, default, coerce). payload_keys
-            is tried in order; first present key supplies the value. coerce is int or
-            a callable(val) for custom coercion (e.g. bool for explain_query).
-        result_key: If set, wrap return value in {result_key: result}.
-
-    Returns:
-        A handler(payload) -> dict suitable for register_tool.
-    """
-    required_keys = required_keys or []
-    arg_specs = arg_specs or []
-
-    def handler(payload: dict) -> dict:
-        for k in required_keys:
-            if k not in payload:
-                return {"error": f"Missing required parameter '{k}'"}
-        kwargs: dict[str, Any] = {}
-        for param_name, payload_keys, default, coerce in arg_specs:
-            val = default
-            for pk in payload_keys:
-                if pk in payload:
-                    val = payload[pk]
-                    break
-            if coerce is not None:
-                if coerce is int and val is not None:
-                    val = int(val)
-                elif callable(coerce):
-                    val = coerce(val) if val is not None else default
-            kwargs[param_name] = val
-        result = func(**kwargs)
-        if result_key is not None:
-            return {result_key: result}
-        return result
-
-    return handler
-
-
-class MCPServer:
-    """Registers tool handlers and dispatches incoming tool calls.
-
-    Tools (vector_tool, kg_tool, market_tool, analyst_tool, sql_tool)
-    are implemented as handlers; dispatch invokes them and returns results.
-    """
-
-    def __init__(self) -> None:
-        """Initialize empty handler registry."""
-        self._handlers: dict[str, Callable[..., Any]] = {}
-
-    def register_tool(self, name: str, handler: Callable[..., Any]) -> None:
-        """Register a tool by name.
-
-        Args:
-            name: Tool name (e.g. 'vector_tool.search').
-            handler: Callable that accepts payload and returns result dict.
-        """
-        self._handlers[name] = handler
-
-    def dispatch(self, tool_name: str, payload: dict) -> dict:
-        """Invoke the named tool with the given payload.
-
-        Returns {"error": "..."} if tool is unknown or the handler raises.
-        """
-        handler = self._handlers.get(tool_name)
-        if handler is None:
-            return {"error": f"Unknown tool: {tool_name}"}
-        # Invoke handler; return error dict if it raises
-        try:
-            return handler(payload)
-        except Exception as e:
-            return {"error": str(e)}  # backend: MCP tool errors return {"error": "..."}
-
-    def _register_specs(
-        self,
-        module: Any,
-        specs: list[tuple[str, str, list[str], list, str | None]],
-    ) -> None:
-        """Register tools from a list of (name, func_name, required_keys, arg_specs, result_key)."""
-        for name, func_name, required, arg_specs, result_key in specs:
-            func = getattr(module, func_name)
-            self.register_tool(
-                name,
-                _payload_handler(func, required, arg_specs, result_key),
-            )
-
-    def register_default_tools(self) -> None:
-        """Register vector/kg/sql first; market_tool and analyst_tool only if imports succeed (e.g. pandas)."""
-        from openfund_mcp.tools import vector_tool
-
-        self._register_specs(vector_tool, vector_tool.TOOL_SPECS)
-
-        from openfund_mcp.tools import kg_tool
-
-        self._register_specs(kg_tool, kg_tool.TOOL_SPECS)
-
-        from openfund_mcp.tools import sql_tool
-
-        self._register_specs(sql_tool, sql_tool.TOOL_SPECS)
-
-        market_tool: Any | None = None
-        try:
-            from openfund_mcp.tools import market_tool as _market_tool
-
-            market_tool = _market_tool
-        except ImportError:
-            pass
-        if market_tool is not None:
-            self._register_specs(market_tool, market_tool.TOOL_SPECS)
-
-        analyst_tool: Any | None = None
-        try:
-            from openfund_mcp.tools import analyst_tool as _analyst_tool
-
-            analyst_tool = _analyst_tool
-        except ImportError:
-            pass
-        if analyst_tool is not None:
-            self._register_specs(analyst_tool, analyst_tool.TOOL_SPECS)
-
-        try:
-            from openfund_mcp.tools import news_tool
-
-            self.register_tool("news_tool.search_rss", lambda p: news_tool.search_rss(p))
-            self.register_tool("news_tool.search_yahoo_rss", lambda p: news_tool.search_yahoo_rss(p))
-            self.register_tool("news_tool.search_gdelt", lambda p: news_tool.search_gdelt(p))
-        except ImportError:
-            pass
-
-        # WebSearcher sources under mcp/tools/ — load by path (PyPI mcp shadows package name mcp).
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-        def _load(relpath: str) -> Any | None:
-            path = os.path.join(root, relpath)
-            if not os.path.isfile(path):
-                return None
-            spec = importlib.util.spec_from_file_location("_ws_" + relpath.replace("/", "_"), path)
-            if spec is None or spec.loader is None:
-                return None
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            return mod
-
-        try:
-            yft = _load(os.path.join("mcp", "tools", "yahoo_finance_tool.py"))
-            if yft:
-                self.register_tool(
-                    "yahoo_finance_tool.get_fundamental",
-                    lambda p: yft.get_fundamental(p if isinstance(p, dict) else {}),
-                )
-                self.register_tool(
-                    "yahoo_finance_tool.get_price",
-                    lambda p: yft.get_price(p if isinstance(p, dict) else {}),
-                )
-        except Exception:
-            pass
-        try:
-            fc = _load(os.path.join("mcp", "tools", "fund_catalog_tool.py"))
-            if fc and hasattr(fc, "search"):
-                self.register_tool(
-                    "fund_catalog_tool.search",
-                    lambda p: fc.search(p if isinstance(p, dict) else {}),
-                )
-        except Exception:
-            pass
-        try:
-            stooq_mod = _load(os.path.join("mcp", "tools", "stooq_tool.py"))
-            if stooq_mod:
-                self.register_tool(
-                    "stooq_tool.get_price",
-                    lambda p: stooq_mod.get_price(p if isinstance(p, dict) else {}),
-                )
-        except Exception:
-            pass
-        try:
-            et = _load(os.path.join("mcp", "tools", "etfdb_tool.py"))
-            if et:
-                self.register_tool(
-                    "etfdb_tool.get_fund_data",
-                    lambda p: et.get_fund_data(p if isinstance(p, dict) else {}),
-                )
-        except Exception:
-            pass
-
-        from openfund_mcp.tools import capabilities
-
-        self.register_tool(
-            "get_capabilities",
-            lambda p: capabilities.get_capabilities(list(self._handlers.keys())),
-        )
-
-
-def _create_fastmcp_app() -> Any:
-    """Build FastMCP app and register all tools. Used for stdio server (python -m openfund_mcp)."""
-    global _fastmcp_app
-    if _fastmcp_app is not None:
-        return _fastmcp_app
+def _create_app() -> Any:
+    """Build FastMCP app and register all tools. Called on first use."""
+    global mcp
+    if mcp is not None:
+        return mcp
     if FastMCP is None:
-        raise RuntimeError("MCP SDK not installed. Run: pip install mcp")
-    app = FastMCP("openfund-ai")
+        raise RuntimeError(
+            "MCP SDK not installed. Run: pip install mcp"
+        )
+    mcp = FastMCP("openfund-ai")
 
     # ---------------------------------------------------------------------------
     # vector_tool
     # ---------------------------------------------------------------------------
     from openfund_mcp.tools import vector_tool as vt
 
-    @app.tool(
+    @mcp.tool(
         name="vector_tool.search",
         description="Semantic search over documents. Query (required), top_k (optional int, default 5), filter (optional dict).",
     )
@@ -248,7 +46,7 @@ def _create_fastmcp_app() -> Any:
         docs = vt.search(query=query, top_k=top_k, filter=filter)
         return {"documents": docs}
 
-    @app.tool(
+    @mcp.tool(
         name="vector_tool.get_by_ids",
         description="Retrieve entities by IDs. Payload: ids (list), collection_name (optional).",
     )
@@ -258,21 +56,21 @@ def _create_fastmcp_app() -> Any:
     ) -> dict:
         return vt.get_by_ids(ids=ids or [], collection_name=collection_name)
 
-    @app.tool(
+    @mcp.tool(
         name="vector_tool.upsert_documents",
         description="Insert or update documents. Payload: docs (list of dicts with id, content; optional fund_id, source).",
     )
     def vector_tool_upsert_documents(docs: Optional[list[dict]] = None) -> dict:
         return vt.upsert_documents(docs=docs or [])
 
-    @app.tool(
+    @mcp.tool(
         name="vector_tool.health_check",
         description="Check Milvus connectivity.",
     )
     def vector_tool_health_check() -> dict:
         return vt.health_check()
 
-    @app.tool(
+    @mcp.tool(
         name="vector_tool.create_collection_from_config",
         description="Create a Milvus collection. name (str), dimension (optional int, default 384), primary_key_field, scalar_fields, index_params (optional).",
     )
@@ -296,7 +94,7 @@ def _create_fastmcp_app() -> Any:
     # ---------------------------------------------------------------------------
     from openfund_mcp.tools import kg_tool as kt
 
-    @app.tool(
+    @mcp.tool(
         name="kg_tool.query_graph",
         description="Run Cypher query. Payload: cypher (string), params (optional dict).",
     )
@@ -306,14 +104,14 @@ def _create_fastmcp_app() -> Any:
     ) -> dict:
         return kt.query_graph(cypher=cypher, params=params)
 
-    @app.tool(
+    @mcp.tool(
         name="kg_tool.get_relations",
         description="Get relationships for an entity (fund/company). Payload: entity (string).",
     )
     def kg_tool_get_relations(entity: str) -> dict:
         return kt.get_relations(entity=entity)
 
-    @app.tool(
+    @mcp.tool(
         name="kg_tool.get_node_by_id",
         description="Look up a node by property. id_val or id (string), id_key (optional, default 'id').",
     )
@@ -323,7 +121,7 @@ def _create_fastmcp_app() -> Any:
     ) -> dict:
         return kt.get_node_by_id(id_val=id_val or "", id_key=id_key)
 
-    @app.tool(
+    @mcp.tool(
         name="kg_tool.get_neighbors",
         description="Get neighbors of a node. node_id or id (string), id_key, direction ('in'|'out'|'both'), relationship_type (optional), limit (optional int, default 100).",
     )
@@ -342,14 +140,14 @@ def _create_fastmcp_app() -> Any:
             limit=limit,
         )
 
-    @app.tool(
+    @mcp.tool(
         name="kg_tool.get_graph_schema",
         description="List node labels and relationship types.",
     )
     def kg_tool_get_graph_schema() -> dict:
         return kt.get_graph_schema()
 
-    @app.tool(
+    @mcp.tool(
         name="kg_tool.shortest_path",
         description="Find shortest path between two nodes. start_id, end_id (string), id_key (optional), relationship_type (optional), max_depth (optional int, default 15).",
     )
@@ -368,7 +166,7 @@ def _create_fastmcp_app() -> Any:
             max_depth=max_depth,
         )
 
-    @app.tool(
+    @mcp.tool(
         name="kg_tool.get_similar_nodes",
         description="Find structurally similar nodes by shared neighbors. node_id or id (string), id_key (optional), limit (optional int, default 10).",
     )
@@ -379,7 +177,7 @@ def _create_fastmcp_app() -> Any:
     ) -> dict:
         return kt.get_similar_nodes(node_id=node_id or "", id_key=id_key, limit=limit)
 
-    @app.tool(
+    @mcp.tool(
         name="kg_tool.fulltext_search",
         description="Full-text search via Neo4j index. index_name (string), query_string (string), limit (optional int, default 50).",
     )
@@ -394,7 +192,7 @@ def _create_fastmcp_app() -> Any:
             limit=limit,
         )
 
-    @app.tool(
+    @mcp.tool(
         name="kg_tool.bulk_export",
         description="Read-only Cypher export as JSON or CSV. cypher (string), params (optional), format ('json'|'csv'), row_limit (optional int, default 1000).",
     )
@@ -411,7 +209,7 @@ def _create_fastmcp_app() -> Any:
             row_limit=row_limit,
         )
 
-    @app.tool(
+    @mcp.tool(
         name="kg_tool.bulk_create_nodes",
         description="Create/merge nodes. nodes (list of dicts), label (optional string), id_key (optional string, default 'id').",
     )
@@ -427,7 +225,7 @@ def _create_fastmcp_app() -> Any:
     # ---------------------------------------------------------------------------
     from openfund_mcp.tools import sql_tool as st
 
-    @app.tool(
+    @mcp.tool(
         name="sql_tool.run_query",
         description="Execute SQL on PostgreSQL. query (string, required), params (optional).",
     )
@@ -437,7 +235,7 @@ def _create_fastmcp_app() -> Any:
     ) -> dict:
         return st.run_query(query=query, params=params)
 
-    @app.tool(
+    @mcp.tool(
         name="sql_tool.explain_query",
         description="Return SQL query plan. query (string), params (optional), analyze (optional bool).",
     )
@@ -448,7 +246,7 @@ def _create_fastmcp_app() -> Any:
     ) -> dict:
         return st.explain_query(query=query, params=params, analyze=analyze)
 
-    @app.tool(
+    @mcp.tool(
         name="sql_tool.export_results",
         description="Run read-only SQL and return JSON or CSV. query (string), params (optional), format ('json'|'csv'), row_limit (optional int, default 1000).",
     )
@@ -465,7 +263,7 @@ def _create_fastmcp_app() -> Any:
             row_limit=row_limit,
         )
 
-    @app.tool(
+    @mcp.tool(
         name="sql_tool.connection_health_check",
         description="Test PostgreSQL connectivity.",
     )
@@ -479,14 +277,14 @@ def _create_fastmcp_app() -> Any:
     try:
         from openfund_mcp.tools import market_tool as mt
 
-        @app.tool(
+        @mcp.tool(
             name="market_tool.get_fundamentals",
             description="Company fundamentals/overview. symbol or ticker (string).",
         )
         def market_tool_get_fundamentals(symbol: str = "") -> dict:
             return mt._route_fundamentals(symbol=symbol)
 
-        @app.tool(
+        @mcp.tool(
             name="market_tool.get_stock_data",
             description="OHLCV historical data. symbol (string), start_date (yyyy-mm-dd), end_date (yyyy-mm-dd).",
         )
@@ -499,7 +297,7 @@ def _create_fastmcp_app() -> Any:
                 symbol=symbol, start_date=start_date, end_date=end_date
             )
 
-        @app.tool(
+        @mcp.tool(
             name="market_tool.get_balance_sheet",
             description="Balance sheet. symbol or ticker (string), freq (optional 'quarterly'|'annual').",
         )
@@ -509,7 +307,7 @@ def _create_fastmcp_app() -> Any:
         ) -> dict:
             return mt._route_balance_sheet(symbol=symbol, freq=freq)
 
-        @app.tool(
+        @mcp.tool(
             name="market_tool.get_cashflow",
             description="Cash flow statement. symbol or ticker (string), freq (optional).",
         )
@@ -519,7 +317,7 @@ def _create_fastmcp_app() -> Any:
         ) -> dict:
             return mt._route_cashflow(symbol=symbol, freq=freq)
 
-        @app.tool(
+        @mcp.tool(
             name="market_tool.get_income_statement",
             description="Income statement. symbol or ticker (string), freq (optional).",
         )
@@ -529,14 +327,14 @@ def _create_fastmcp_app() -> Any:
         ) -> dict:
             return mt._route_income_statement(symbol=symbol, freq=freq)
 
-        @app.tool(
+        @mcp.tool(
             name="market_tool.get_insider_transactions",
             description="Insider transactions. symbol or ticker (string).",
         )
         def market_tool_get_insider_transactions(symbol: str = "") -> dict:
             return mt._route_insider_transactions(symbol=symbol)
 
-        @app.tool(
+        @mcp.tool(
             name="market_tool.get_news",
             description="Recent ticker news. symbol or ticker (string), limit (optional), start_date, end_date.",
         )
@@ -553,7 +351,7 @@ def _create_fastmcp_app() -> Any:
                 end_date=end_date,
             )
 
-        @app.tool(
+        @mcp.tool(
             name="market_tool.get_global_news",
             description="Global/macro financial news. as_of_date (optional yyyy-mm-dd), look_back_days (optional int, default 7), limit (optional int, default 10).",
         )
@@ -578,7 +376,7 @@ def _create_fastmcp_app() -> Any:
     try:
         from openfund_mcp.tools import analyst_tool as at
 
-        @app.tool(
+        @mcp.tool(
             name="analyst_tool.get_indicators",
             description="Technical indicators (SMA, RSI, MACD, etc.). symbol (string), indicator (e.g. close_50_sma, rsi, macd), as_of_date (yyyy-mm-dd), look_back_days (optional int, default 30).",
         )
@@ -596,6 +394,106 @@ def _create_fastmcp_app() -> Any:
             )
         _has_analyst = True
     except ImportError:
+        pass
+
+    # ---------------------------------------------------------------------------
+    # WebSearcher parallel sources (Yahoo, stooq, ETFdb)
+    # Local implementations live under mcp/tools/ but the PyPI package "mcp" shadows
+    # the project folder name; load by file path so subprocess stdio server exposes them.
+    # ---------------------------------------------------------------------------
+    _has_websearcher_sources = False
+    _websearcher_tool_names: list[str] = []
+
+    def _load_tool_module(unique_name: str, relpath: str) -> Any | None:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(root, relpath)
+        if not os.path.isfile(path):
+            return None
+        spec = importlib.util.spec_from_file_location(unique_name, path)
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    try:
+        # P1 FinanceDatabase search — same path-load pattern (PyPI mcp shadows local mcp package).
+        fc = _load_tool_module("openfund_fund_catalog_tool", os.path.join("mcp", "tools", "fund_catalog_tool.py"))
+        if fc is not None and hasattr(fc, "search"):
+            @mcp.tool(
+                name="fund_catalog_tool.search",
+                description="Search ETFs/funds by name or query. query or name (string), limit (optional int).",
+            )
+            def fund_catalog_tool_search(
+                query: str = "",
+                name: str = "",
+                limit: int = 10,
+            ) -> dict:
+                payload = {"limit": limit}
+                if query.strip():
+                    payload["query"] = query
+                elif name.strip():
+                    payload["name"] = name
+                else:
+                    payload["query"] = query or name
+                return fc.search(payload)
+
+            _has_websearcher_sources = True
+            _websearcher_tool_names.append("fund_catalog_tool.search")
+    except Exception:
+        pass
+
+    try:
+        yft = _load_tool_module("openfund_yahoo_finance_tool", os.path.join("mcp", "tools", "yahoo_finance_tool.py"))
+        if yft is not None and hasattr(yft, "get_fundamental") and hasattr(yft, "get_price"):
+            @mcp.tool(
+                name="yahoo_finance_tool.get_fundamental",
+                description="Yahoo quoteSummary: price, ETF stats, holdings when available. symbol (string).",
+            )
+            def yahoo_finance_tool_get_fundamental(symbol: str = "") -> dict:
+                return yft.get_fundamental({"symbol": symbol})
+
+            @mcp.tool(
+                name="yahoo_finance_tool.get_price",
+                description="Yahoo chart API: latest price. symbol (string).",
+            )
+            def yahoo_finance_tool_get_price(symbol: str = "") -> dict:
+                return yft.get_price({"symbol": symbol})
+            _has_websearcher_sources = True
+            _websearcher_tool_names.extend([
+                "yahoo_finance_tool.get_fundamental",
+                "yahoo_finance_tool.get_price",
+            ])
+    except Exception:
+        pass
+
+    try:
+        # Name must not be `st` — sql_tool is imported as st above; reusing st breaks sql_tool.* closures.
+        stooq_mod = _load_tool_module("openfund_stooq_tool", os.path.join("mcp", "tools", "stooq_tool.py"))
+        if stooq_mod is not None and hasattr(stooq_mod, "get_price"):
+            @mcp.tool(
+                name="stooq_tool.get_price",
+                description="Latest price from stooq. symbol (string); .US appended if missing.",
+            )
+            def stooq_tool_get_price(symbol: str = "") -> dict:
+                return stooq_mod.get_price({"symbol": symbol})
+            _has_websearcher_sources = True
+            _websearcher_tool_names.append("stooq_tool.get_price")
+    except Exception:
+        pass
+
+    try:
+        et = _load_tool_module("openfund_etfdb_tool", os.path.join("mcp", "tools", "etfdb_tool.py"))
+        if et is not None and hasattr(et, "get_fund_data"):
+            @mcp.tool(
+                name="etfdb_tool.get_fund_data",
+                description="ETFdb expense ratio, AUM, holdings. symbol (string).",
+            )
+            def etfdb_tool_get_fund_data(symbol: str = "") -> dict:
+                return et.get_fund_data({"symbol": symbol})
+            _has_websearcher_sources = True
+            _websearcher_tool_names.append("etfdb_tool.get_fund_data")
+    except Exception:
         pass
 
     # ---------------------------------------------------------------------------
@@ -637,19 +535,24 @@ def _create_fastmcp_app() -> Any:
         ])
     if _has_analyst:
         _tool_names.append("analyst_tool.get_indicators")
+    if _websearcher_tool_names:
+        _tool_names.extend(_websearcher_tool_names)
 
-    @app.tool(
+    @mcp.tool(
         name="get_capabilities",
         description="List registered MCP tools and backend status (neo4j, postgres, milvus).",
     )
     def get_capabilities() -> dict:
         return cap.get_capabilities(_tool_names)
 
-    _fastmcp_app = app
-    return _fastmcp_app
+    return mcp
 
 
-def run_stdio() -> None:
-    """Run the MCP server over stdio (for python -m openfund_mcp and external MCP clients)."""
-    app = _create_fastmcp_app()
+def run() -> None:
+    """Run the FastMCP server over stdio (for external MCP clients)."""
+    app = _create_app()
     app.run()
+
+
+if __name__ == "__main__":
+    run()

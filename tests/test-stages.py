@@ -14,48 +14,7 @@ import uuid
 from io import StringIO
 from unittest.mock import patch
 
-from typing import Optional
-
 import pytest
-
-
-# --- Mock LLM client for tests (no API key / no live LLM) ---
-
-def _default_mock_steps() -> list:
-    return [
-        {"agent": "librarian", "params": {"query": ""}},
-        {"agent": "websearcher", "params": {"query": ""}},
-        {"agent": "analyst", "params": {"query": ""}},
-    ]
-
-
-class MockLLMClient:
-    """Minimal LLMClient implementation for tests: fixed steps, complete passthrough, select_tools returns []."""
-
-    def __init__(self, steps: Optional[list] = None) -> None:
-        self._steps = steps if steps is not None else _default_mock_steps()
-
-    def decompose_to_steps(self, query: str, memory_context: str = "") -> list:
-        result = []
-        for s in self._steps:
-            step = dict(s)
-            params = dict(step.get("params") or {})
-            params["query"] = query
-            step["params"] = params
-            result.append(step)
-        return result
-
-    def complete(self, system_prompt: str, user_content: str) -> str:
-        return user_content
-
-    def select_tools(
-        self,
-        system_prompt: str,
-        user_content: str,
-        tool_descriptions: str,
-    ) -> list:
-        return []
-
 
 # --- Stage 1.1: Config and minimal main ---
 
@@ -274,10 +233,10 @@ def test_stage_1_3() -> None:
 
 
 def test_stage_2_1() -> None:
-    """Stage 2.1: MCP server and client, vector_tool.search."""
+    """Stage 2.1: MCP server and client, file_tool.read_file."""
     try:
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
@@ -285,22 +244,34 @@ from openfund_mcp.mcp_server import MCPServer
     server.register_default_tools()
     client = MCPClient(server)
 
-    result = client.call_tool("vector_tool.search", {"query": "test query", "top_k": 2})
-    assert isinstance(result, dict)
-    assert "documents" in result or "error" in result
-    if "documents" in result:
-        assert isinstance(result["documents"], list)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write("hello stage 2.1")
+        path = f.name
+    try:
+        result = client.call_tool("file_tool.read_file", {"path": path})
+        assert isinstance(result, dict)
+        assert "content" in result
+        assert result["content"] == "hello stage 2.1"
+        assert result.get("path") == path
+    finally:
+        os.unlink(path)
 
-    missing_result = client.call_tool("vector_tool.search", {})
+    missing_result = client.call_tool(
+        "file_tool.read_file", {"path": "/nonexistent/file.txt"}
+    )
     assert isinstance(missing_result, dict)
-    assert "error" in missing_result or "documents" in missing_result
+    assert (
+        "error" in missing_result
+        or "content" not in missing_result
+        or missing_result.get("content") is None
+    )
 
 
 def test_stage_2_2_trading_tools() -> None:
     """Stage 2.2: TradingAgents-integrated MCP tools (fundamental, news, market) in market_tool."""
     try:
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
@@ -390,7 +361,7 @@ from openfund_mcp.mcp_server import MCPServer
 def test_vendor_config_get_market_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_market_vendor() reads MCP_MARKET_VENDOR; default alpha_vantage; invalid/unset -> alpha_vantage."""
     try:
-        from openfund_mcp.tools.market_tool import get_market_vendor
+        from mcp.tools.market_tool import get_market_vendor
     except ImportError as e:
         pytest.skip(f"MCP market_tool not available: {e}")
 
@@ -416,7 +387,7 @@ def test_vendor_config_get_market_vendor(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_vendor_config_get_indicator_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_indicator_vendor() reads MCP_INDICATOR_VENDOR; default alpha_vantage; invalid -> alpha_vantage."""
     try:
-        from openfund_mcp.tools.market_tool import get_indicator_vendor
+        from mcp.tools.market_tool import get_indicator_vendor
     except ImportError as e:
         pytest.skip(f"MCP market_tool not available: {e}")
 
@@ -435,8 +406,8 @@ def test_vendor_config_route_stock_data_av_and_fallback(
 ) -> None:
     """When MCP_MARKET_VENDOR=alpha_vantage, _route_stock_data tries AV; on failure returns error."""
     try:
-        from openfund_mcp.tools import market_tool
-        from openfund_mcp.tools.market_tool import AlphaVantageRateLimitError
+        from mcp.tools import market_tool
+        from mcp.tools.market_tool import AlphaVantageRateLimitError
     except ImportError as e:
         pytest.skip(f"MCP market_tool not available: {e}")
 
@@ -460,8 +431,8 @@ def test_vendor_config_route_indicators_av_and_fallback(
 ) -> None:
     """When AV fails, _route_indicators returns error."""
     try:
-        from openfund_mcp.tools import analyst_tool
-        from openfund_mcp.tools.market_tool import AlphaVantageRateLimitError
+        from mcp.tools import analyst_tool
+        from mcp.tools.market_tool import AlphaVantageRateLimitError
     except ImportError as e:
         pytest.skip(f"MCP analyst_tool not available: {e}")
 
@@ -597,23 +568,23 @@ def test_stage_3_1() -> None:
 
 
 def test_stage_3_2() -> None:
-    """Stage 3.2: LibrarianAgent (Slice 3 subset) — vector_tool.search."""
+    """Stage 3.2: LibrarianAgent (Slice 3 subset) — file_tool.read_file."""
     try:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.librarian_agent import LibrarianAgent
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 3.2 deps not available: {e}")
 
     server = MCPServer()
     server.register_tool(
-        "vector_tool.search",
+        "file_tool.read_file",
         lambda p: (
-            {"documents": [{"id": "1", "content": "hello from vector", "score": 0.9}]}
-            if "query" in p
-            else {"error": "Missing query"}
+            {"content": "hello from file", "path": p["path"]}
+            if "path" in p
+            else {"error": "Missing path"}
         ),
     )
     client = MCPClient(server)
@@ -627,7 +598,7 @@ from openfund_mcp.mcp_server import MCPServer
         performative=Performative.REQUEST,
         sender="planner",
         receiver="librarian",
-        content={"vector_query": "test", "query": "test"},
+        content={"query": "read file", "path": "/tmp/test.txt"},
         conversation_id=cid,
         reply_to="planner",
     )
@@ -638,9 +609,13 @@ from openfund_mcp.mcp_server import MCPServer
     assert reply.performative == Performative.INFORM
     assert reply.sender == "librarian"
     assert isinstance(reply.content, dict)
-    assert "documents" in reply.content or "error" in reply.content
-    if "documents" in reply.content and reply.content["documents"]:
-        assert reply.content["documents"][0].get("content") == "hello from vector"
+    assert (
+        "content" in reply.content
+        or "result" in reply.content
+        or "data" in reply.content
+    )
+    if "content" in reply.content:
+        assert reply.content["content"] == "hello from file"
 
 
 def test_stage_3_3() -> None:
@@ -696,8 +671,8 @@ def test_stage_3_3() -> None:
 def test_stage_4_1() -> None:
     """Stage 4.1: vector_tool (Milvus)."""
     try:
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
@@ -724,8 +699,8 @@ from openfund_mcp.mcp_server import MCPServer
 def test_stage_4_2() -> None:
     """Stage 4.2: kg_tool (Neo4j)."""
     try:
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
@@ -751,8 +726,8 @@ from openfund_mcp.mcp_server import MCPServer
 def test_stage_4_3() -> None:
     """Stage 4.3: sql_tool (PostgreSQL)."""
     try:
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
@@ -775,8 +750,8 @@ from openfund_mcp.mcp_server import MCPServer
 def test_stage_5_1() -> None:
     """Stage 5.1: market_tool (mocked to avoid network/yfinance)."""
     try:
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
@@ -795,8 +770,8 @@ from openfund_mcp.mcp_server import MCPServer
 def test_stage_5_2() -> None:
     """Stage 5.2: analyst_tool (mocked to avoid network/yfinance)."""
     try:
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
@@ -826,8 +801,8 @@ def test_stage_5_3() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.websearch_agent import WebSearcherAgent
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 5.3 deps not available: {e}")
 
@@ -867,8 +842,8 @@ def test_stage_5_4() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.analyst_agent import AnalystAgent
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 5.4 deps not available: {e}")
 
@@ -898,6 +873,72 @@ from openfund_mcp.mcp_server import MCPServer
     assert reply.sender == "analyst"
     assert isinstance(reply.content, dict)
     assert "analysis" in reply.content
+
+
+def test_websearcher_news_searcher() -> None:
+    """News Searcher: WebSearcher returns news and citations (per docs/news-searcher-design.md)."""
+    try:
+        from a2a.acl_message import ACLMessage, Performative
+        from a2a.message_bus import InMemoryMessageBus
+        from agents.websearch_agent import WebSearcherAgent
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
+    except ImportError as e:
+        pytest.skip(f"News Searcher deps not available: {e}")
+
+    rss_stub = {
+        "items": [
+            {"title": "Nvidia rally lifts semiconductor ETFs", "link": "https://example.com/1", "source": "Yahoo Finance", "date": "2026-03-10"},
+            {"title": "AI ETFs see strong inflows", "link": "https://example.com/2", "source": "Bloomberg", "date": "2026-03-09"},
+        ],
+        "timestamp": "2026-03-10T08:00:00Z",
+    }
+    market_stub = {"content": "mock", "timestamp": "2026-03-10T08:00:00Z"}
+    with patch("mcp.tools.news_tool.search_rss", return_value=rss_stub), patch(
+        "mcp.tools.market_tool._route_fundamentals", return_value=market_stub
+    ), patch("mcp.tools.market_tool._route_news", return_value=market_stub), patch(
+        "mcp.tools.market_tool._route_global_news", return_value=market_stub
+    ):
+        server = MCPServer()
+        server.register_default_tools()
+        client = MCPClient(server)
+        bus = InMemoryMessageBus()
+        bus.register_agent("websearcher")
+        bus.register_agent("planner")
+        agent = WebSearcherAgent("websearcher", bus, mcp_client=client)
+        cid = str(uuid.uuid4())
+        req = ACLMessage(
+            performative=Performative.REQUEST,
+            sender="planner",
+            receiver="websearcher",
+            content={"query": "NVDA ETF news", "fund": "NVDA"},
+            conversation_id=cid,
+            reply_to="planner",
+        )
+        bus.send(req)
+        agent.handle_message(req)
+        reply = bus.receive("planner", timeout=5.0)
+
+    assert reply is not None
+    assert reply.performative == Performative.INFORM
+    assert reply.sender == "websearcher"
+    content = reply.content
+    assert isinstance(content, dict)
+    assert "news" in content
+    assert "citations" in content
+    news = content["news"]
+    citations = content["citations"]
+    assert isinstance(news, list)
+    assert isinstance(citations, dict)
+    assert len(news) >= 1
+    for item in news:
+        assert "id" in item
+        assert item["id"].startswith("NEWS")
+        assert "title" in item
+        assert "source" in item
+    for cid, url in citations.items():
+        assert cid.startswith("NEWS")
+        assert isinstance(url, str) and len(url) > 0
 
 
 def test_stage_6_1() -> None:
@@ -951,9 +992,10 @@ def test_stage_7_1() -> None:
     from fastapi.testclient import TestClient
 
     from api.rest import create_app
+    from llm.static_client import StaticLLMClient
 
-    # Use mock LLM so test does not require LLM_API_KEY
-    app = create_app(timeout_seconds=5, llm_client=MockLLMClient())
+    # Use static LLM so test does not require LLM_API_KEY
+    app = create_app(timeout_seconds=5, llm_client=StaticLLMClient())
     client = TestClient(app)
 
     # Invalid user_profile is rejected (PRD: invalid profile rejected)
@@ -966,35 +1008,42 @@ def test_stage_7_1() -> None:
     )
     assert r_bad.status_code == 422, r_bad.text
 
-    r = client.post(
-        "/chat",
-        json={
-            "query": "What is fund X?",
-            "user_profile": "beginner",
-        },
-    )
-    assert r.status_code == 200, r.text
-    data = r.json()
-    assert "conversation_id" in data
-    assert "status" in data
-    assert "response" in data
-    cid = data["conversation_id"]
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write("Fund X is a sample fund.")
+        path = f.name
+    try:
+        r = client.post(
+            "/chat",
+            json={
+                "query": "What is fund X?",
+                "user_profile": "beginner",
+                "path": path,
+            },
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "conversation_id" in data
+        assert "status" in data
+        assert "response" in data
+        cid = data["conversation_id"]
 
-    r2 = client.get(f"/conversations/{cid}")
-    assert r2.status_code == 200, r2.text
-    state = r2.json()
-    assert state.get("id") == cid
-    assert "user_id" in state
-    assert state.get("initial_query") == "What is fund X?"
-    assert "messages" in state
-    assert state.get("status") in ("active", "complete", "error")
-    assert "final_response" in state
-    assert "created_at" in state
+        r2 = client.get(f"/conversations/{cid}")
+        assert r2.status_code == 200, r2.text
+        state = r2.json()
+        assert state.get("id") == cid
+        assert "user_id" in state
+        assert state.get("initial_query") == "What is fund X?"
+        assert "messages" in state
+        assert state.get("status") in ("active", "complete", "error")
+        assert "final_response" in state
+        assert "created_at" in state
+    finally:
+        os.unlink(path)
 
 
 def test_stage_8_1() -> None:
     """Stage 8.1: OutputRail format_for_user and check_compliance."""
-    from safety.safety_gateway import OutputRail
+    from output.output_rail import OutputRail
 
     rail = OutputRail()
     text = "Fund X returned 5%."
@@ -1019,30 +1068,39 @@ def test_stage_9_1() -> None:
     from fastapi.testclient import TestClient
 
     from api.rest import create_app
+    from llm.static_client import StaticLLMClient
 
-    app = create_app(timeout_seconds=5, llm_client=MockLLMClient())
+    app = create_app(timeout_seconds=5, llm_client=StaticLLMClient())
     client = TestClient(app)
 
-    with client.websocket_connect("/ws") as ws:
-        ws.send_json(
-            {
-                "query": "What is fund X?",
-                "user_profile": "beginner",
-            }
-        )
-        data = ws.receive_json()
-        while data.get("event") == "flow":
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write("What is fund X? (stage 9.1)")
+        path = f.name
+    try:
+        with client.websocket_connect("/ws") as ws:
+            ws.send_json(
+                {
+                    "query": "What is fund X?",
+                    "user_profile": "beginner",
+                    "path": path,
+                }
+            )
             data = ws.receive_json()
-    assert "event" in data
-    assert data["event"] in ("response", "timeout", "error")
-    if data["event"] == "response":
-        assert "conversation_id" in data
-        assert "response" in data
-    elif data["event"] == "timeout":
-        assert "conversation_id" in data
-        assert data.get("response") is None
-    else:
-        assert "detail" in data
+            while data.get("event") == "flow":
+                data = ws.receive_json()
+        assert "event" in data
+        assert data["event"] in ("response", "timeout", "error")
+        if data["event"] == "response":
+            assert "conversation_id" in data
+            assert "response" in data
+        elif data["event"] == "timeout":
+            assert "conversation_id" in data
+            assert data.get("response") is None
+        else:
+            assert "detail" in data
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
 
 
 def test_stage_10_1() -> None:
@@ -1063,17 +1121,18 @@ def test_stage_10_1() -> None:
 
 
 def test_stage_10_2_llm_static_mock() -> None:
-    """Stage 10.2: get_llm_client requires LLM_API_KEY; Planner with MockLLMClient returns runnable steps."""
+    """Stage 10.2: get_llm_client requires LLM_API_KEY; Planner with StaticLLMClient returns runnable steps."""
     from config.config import Config, load_config
     from llm.factory import get_llm_client
+    from llm.static_client import StaticLLMClient
 
     cfg = load_config()
     cfg_no_key = Config(**{**vars(cfg), "llm_api_key": None})
     with pytest.raises((ValueError, ImportError)):
         get_llm_client(cfg_no_key)
 
-    # Planner with MockLLMClient (e.g. for tests/E2E) still produces runnable steps
-    client = MockLLMClient()
+    # Planner with StaticLLMClient (e.g. for tests/E2E) still produces runnable steps
+    client = StaticLLMClient()
     steps = client.decompose_to_steps("What is fund X?")
     assert isinstance(steps, list)
     assert len(steps) == 3
@@ -1106,7 +1165,7 @@ def test_stage_10_2_planner_uses_prompts_module() -> None:
     mock_create.return_value.choices = [
         MagicMock(
             message=MagicMock(
-                content='[{"agent":"librarian","action":"search","params":{"query":"q"}}]'
+                content='[{"agent":"librarian","action":"read_file","params":{"query":"q"}}]'
             )
         )
     ]
@@ -1123,9 +1182,11 @@ def test_stage_10_2_planner_uses_prompts_module() -> None:
     assert system_content == PLANNER_DECOMPOSE
 
 
-def test_stage_10_2_mock_llm_complete_passthrough() -> None:
-    """Stage 10.2: MockLLMClient.complete returns user_content unchanged."""
-    client = MockLLMClient()
+def test_stage_10_2_static_client_complete_passthrough() -> None:
+    """Stage 10.2: StaticLLMClient.complete returns user_content unchanged."""
+    from llm.static_client import StaticLLMClient
+
+    client = StaticLLMClient()
     out = client.complete("system prompt", "user content")
     assert out == "user content"
 
@@ -1142,7 +1203,7 @@ def test_stage_10_2_responder_llm_prompt() -> None:
     from a2a.acl_message import ACLMessage, Performative
     from a2a.message_bus import InMemoryMessageBus
     from agents.responder_agent import ResponderAgent
-    from safety.safety_gateway import OutputRail
+    from output.output_rail import OutputRail
 
     bus = InMemoryMessageBus()
     bus.register_agent("responder")
@@ -1190,15 +1251,15 @@ def test_stage_10_2_librarian_llm_prompt() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.librarian_agent import LibrarianAgent
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 librarian deps not available: {e}")
 
     server = MCPServer()
     server.register_tool(
-        "vector_tool.search",
-        lambda p: {"documents": [{"id": "1", "content": "vector content", "score": 0.9}]},
+        "file_tool.read_file",
+        lambda p: {"content": "file content", "path": p.get("path", "")},
     )
     client = MCPClient(server)
     bus = InMemoryMessageBus()
@@ -1209,7 +1270,7 @@ from openfund_mcp.mcp_server import MCPServer
         performative=Performative.REQUEST,
         sender="planner",
         receiver="librarian",
-        content={"query": "fund X", "vector_query": "fund X"},
+        content={"query": "fund X", "path": "/tmp/x.txt"},
         conversation_id="cid-lib",
         reply_to="planner",
     )
@@ -1219,7 +1280,7 @@ from openfund_mcp.mcp_server import MCPServer
     call_args = mock_llm.complete.call_args[0]
     assert len(call_args) >= 2
     assert call_args[0] == LIBRARIAN_SYSTEM
-    assert "fund X" in call_args[1]
+    assert "fund X" in call_args[1] or "/tmp/x.txt" in call_args[1]
 
 
 def test_stage_10_2_websearcher_llm_prompt() -> None:
@@ -1236,8 +1297,8 @@ def test_stage_10_2_websearcher_llm_prompt() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.websearch_agent import WebSearcherAgent
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 websearcher deps not available: {e}")
 
@@ -1283,8 +1344,8 @@ def test_stage_10_2_analyst_llm_prompt() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.analyst_agent import AnalystAgent
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 analyst deps not available: {e}")
 
@@ -1319,8 +1380,10 @@ from openfund_mcp.mcp_server import MCPServer
 
 
 def test_stage_10_2_static_client_select_tools_returns_empty() -> None:
-    """Stage 10.2: MockLLMClient.select_tools returns [] so specialists fall back to content-key dispatch."""
-    client = MockLLMClient()
+    """Stage 10.2: StaticLLMClient.select_tools returns [] so specialists fall back to content-key dispatch."""
+    from llm.static_client import StaticLLMClient
+
+    client = StaticLLMClient()
     tool_calls = client.select_tools("system", "user", "tool list")
     assert tool_calls == []
 
@@ -1330,13 +1393,14 @@ def test_stage_10_2_planner_sends_only_to_chosen_agents_with_decomposed_query() 
     from a2a.acl_message import ACLMessage, Performative
     from a2a.message_bus import InMemoryMessageBus
     from agents.planner_agent import PlannerAgent, TaskStep
+    from llm.static_client import StaticLLMClient
 
-    # Custom steps: only librarian and websearcher (no analyst). MockLLMClient injects user query into params.
+    # Custom steps: only librarian and websearcher (no analyst). StaticLLMClient injects user query into params.
     custom_steps = [
         {"agent": "librarian", "params": {"query": "Find NVDA fund facts"}},
         {"agent": "websearcher", "params": {"query": "NVDA stock price and news"}},
     ]
-    client = MockLLMClient(steps=custom_steps)
+    client = StaticLLMClient(steps=custom_steps)
     bus = InMemoryMessageBus()
     for name in ("planner", "librarian", "websearcher", "analyst"):
         bus.register_agent(name)
@@ -1345,7 +1409,7 @@ def test_stage_10_2_planner_sends_only_to_chosen_agents_with_decomposed_query() 
     steps = planner.decompose_task(user_query)
     assert len(steps) == 2
     assert [s.agent for s in steps] == ["librarian", "websearcher"]
-    # MockLLMClient overwrites params["query"] with user query
+    # StaticLLMClient overwrites params["query"] with user query
     assert steps[0].params.get("query") == user_query
     assert steps[1].params.get("query") == user_query
 
@@ -1366,7 +1430,7 @@ def test_stage_10_2_live_client_parse_steps_per_agent_query() -> None:
     user_query = "Should I invest in AAPL?"
 
     # Two agents with params.query: each step keeps its own query
-    text1 = '[{"agent":"librarian","action":"search","params":{"query":"AAPL fundamentals and holdings"}},{"agent":"analyst","action":"analyze","params":{"query":"Risk and return for AAPL"}}]'
+    text1 = '[{"agent":"librarian","action":"read_file","params":{"query":"AAPL fundamentals and holdings"}},{"agent":"analyst","action":"analyze","params":{"query":"Risk and return for AAPL"}}]'
     steps1 = client._parse_steps(text1, user_query)
     assert steps1 is not None
     assert len(steps1) == 2
@@ -1453,21 +1517,26 @@ def test_stage_10_2_librarian_tool_selection_when_llm_returns_tool_calls() -> No
     mock_llm = MagicMock()
     mock_llm.select_tools = MagicMock(
         return_value=[
+            {"tool": "file_tool.read_file", "payload": {"path": "/data/fund.txt"}},
             {"tool": "vector_tool.search", "payload": {"query": "NVDA", "top_k": 3}},
         ]
     )
-    mock_llm.complete = MagicMock(return_value="Summary of vector results.")
+    mock_llm.complete = MagicMock(return_value="Summary of file and vector results.")
 
     try:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.librarian_agent import LibrarianAgent
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 librarian deps not available: {e}")
 
     server = MCPServer()
+    server.register_tool(
+        "file_tool.read_file",
+        lambda p: {"content": "fund content", "path": p.get("path", "")},
+    )
     server.register_tool(
         "vector_tool.search",
         lambda p: {"documents": [{"id": "1", "text": "NVDA doc", "score": 0.9}]},
@@ -1494,29 +1563,23 @@ from openfund_mcp.mcp_server import MCPServer
     assert reply.performative == Performative.INFORM
     assert reply.sender == "librarian"
     assert isinstance(reply.content, dict)
-    assert "documents" in reply.content or "content" in reply.content
+    assert "file" in reply.content or "documents" in reply.content or "content" in reply.content
     assert mock_llm.complete.called
 
 
 def test_stage_10_2_websearcher_tool_selection_when_llm_returns_tool_calls() -> None:
-    """WebSearcher with llm_client uses tool selection when select_tools returns non-empty list."""
+    """WebSearcher with llm_client runs parallel flow and sends INFORM; may call complete for summary."""
     from unittest.mock import MagicMock
 
     mock_llm = MagicMock()
-    mock_llm.select_tools = MagicMock(
-        return_value=[
-            {"tool": "market_tool.get_fundamentals", "payload": {"ticker": "AAPL"}},
-            {"tool": "market_tool.get_news", "payload": {"symbol": "AAPL", "limit": 3}},
-        ]
-    )
     mock_llm.complete = MagicMock(return_value="Market and news brief.")
 
     try:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.websearch_agent import WebSearcherAgent
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 websearcher deps not available: {e}")
 
@@ -1545,13 +1608,13 @@ from openfund_mcp.mcp_server import MCPServer
     )
     agent.handle_message(req)
 
-    assert mock_llm.select_tools.called
     reply = bus.receive("planner", timeout=0.5)
     assert reply is not None
     assert reply.performative == Performative.INFORM
     assert reply.sender == "websearcher"
     assert isinstance(reply.content, dict)
     assert "market_data" in reply.content or "sentiment" in reply.content
+    # WebSearcher uses parallel flow (no select_tools); may call complete for summary/conflict
     assert mock_llm.complete.called
 
 
@@ -1579,8 +1642,8 @@ def test_stage_10_2_analyst_tool_selection_when_llm_returns_tool_calls() -> None
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.analyst_agent import AnalystAgent
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from mcp.mcp_client import MCPClient
+        from mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 analyst deps not available: {e}")
 

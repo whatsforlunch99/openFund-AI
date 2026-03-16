@@ -523,6 +523,114 @@ def test_stage_2_3_situation_memory_load_from_dir_missing() -> None:
     assert mem.get_memories("query", n_matches=1) == []
 
 
+# --- User memory: working memory 500-word cap + preference labels ---
+
+
+def test_user_memory_get_append_roundtrip_and_preference_labels() -> None:
+    """User memory: get/append round-trip and preference_labels persist."""
+    try:
+        from memory.user_memory import (
+            append_preference_labels,
+            append_user_memory,
+            get_user_memory,
+            get_user_memory_raw,
+            update_preference_labels,
+        )
+    except ImportError as e:
+        pytest.skip(f"User memory not available: {e}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        user_id = "test_user_" + str(uuid.uuid4())[:8]
+        path = os.path.join(tmp, "mem")
+        os.makedirs(path, exist_ok=True)
+
+        # Initially empty
+        assert get_user_memory(user_id, memory_store_path=path) == ""
+        text, labels = get_user_memory_raw(user_id, memory_store_path=path)
+        assert text == ""
+        assert labels == []
+
+        append_user_memory(user_id, "Question: What is ETF? ", memory_store_path=path)
+        out = get_user_memory(user_id, memory_store_path=path)
+        assert "Question: What is ETF?" in out
+        text, labels = get_user_memory_raw(user_id, memory_store_path=path)
+        assert "ETF" in text
+        assert labels == []
+
+        update_preference_labels(
+            user_id, ["invest in US market", "trade funds"], memory_store_path=path
+        )
+        out = get_user_memory(user_id, memory_store_path=path)
+        assert "Preferences:" in out
+        assert "invest in US market" in out
+        assert "trade funds" in out
+        assert "ETF" in out
+        _, labels = get_user_memory_raw(user_id, memory_store_path=path)
+        assert "invest in US market" in labels
+        assert "trade funds" in labels
+
+        append_preference_labels(user_id, ["long-term horizon"], memory_store_path=path)
+        _, labels = get_user_memory_raw(user_id, memory_store_path=path)
+        assert "long-term horizon" in labels
+        assert len(labels) == 3
+
+
+def test_user_memory_word_count_and_truncation() -> None:
+    """User memory: when over 500 words, default compressor truncates."""
+    try:
+        from memory.user_memory import (
+            MAX_WORDS,
+            append_user_memory,
+            get_user_memory_raw,
+            _word_count,
+        )
+    except ImportError as e:
+        pytest.skip(f"User memory not available: {e}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        user_id = "test_user_" + str(uuid.uuid4())[:8]
+        path = os.path.join(tmp, "mem")
+
+        # Append a long string (e.g. 600 words)
+        words = ["word" + str(i) for i in range(600)]
+        long_addition = " ".join(words)
+        assert _word_count(long_addition) == 600
+        append_user_memory(user_id, long_addition, memory_store_path=path)
+        text, _ = get_user_memory_raw(user_id, memory_store_path=path)
+        assert _word_count(text) <= MAX_WORDS
+        assert text.strip().endswith("word499")
+
+
+def test_user_memory_compressor_mock() -> None:
+    """User memory: set_compressor with mock shortens to gist."""
+    try:
+        from memory.user_memory import (
+            append_user_memory,
+            get_user_memory_raw,
+            set_compressor,
+            _truncate_to_words,
+        )
+    except ImportError as e:
+        pytest.skip(f"User memory not available: {e}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        user_id = "test_user_" + str(uuid.uuid4())[:8]
+        path = os.path.join(tmp, "mem")
+
+        def mock_compress(text: str, max_words: int) -> str:
+            return "GIST: " + _truncate_to_words(text, 3)
+
+        set_compressor(mock_compress)
+        try:
+            words = ["word" + str(i) for i in range(600)]
+            append_user_memory(user_id, " ".join(words), memory_store_path=path)
+            text, _ = get_user_memory_raw(user_id, memory_store_path=path)
+            assert text.startswith("GIST:")
+            assert "word0" in text
+        finally:
+            set_compressor(lambda t, n: _truncate_to_words(t, n))
+
+
 def test_stage_3_1() -> None:
     """Stage 3.1: PlannerAgent (Slice 3 subset)."""
     try:

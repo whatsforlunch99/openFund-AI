@@ -9,6 +9,7 @@ from typing import Any
 from a2a.acl_message import ACLMessage, Performative
 from a2a.conversation_manager import ConversationManager
 from a2a.message_bus import MessageBus
+from memory.user_memory import get_user_memory
 from safety.safety_gateway import SafetyError, SafetyGateway
 from util import interaction_log
 
@@ -79,9 +80,10 @@ async def handle_websocket(
         conversation_id = str(conversation_id).strip() or None
     user_memory = ""
     if user_id:
-        # Load persisted user history and compute planner memory context.
         manager.load_user_conversations(user_id)
-        user_memory = manager.get_user_memory_context(user_id)
+        user_memory = get_user_memory(user_id)
+        if not user_memory:
+            user_memory = manager.get_user_memory_context(user_id)
 
     interaction_log.log_call(
         "api.websocket.handle_websocket",

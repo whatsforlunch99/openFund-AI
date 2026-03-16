@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
+from memory.user_memory import append_user_memory
 from util import interaction_log
 
 logger = logging.getLogger(__name__)
@@ -363,6 +364,13 @@ class ConversationManager:
             state.final_response = content["final_response"]
             state.status = "complete"
             state.completion_event.set()  # Unblock POST /chat or --e2e-once waiting on event.wait()
+            # Append to per-user working memory for planner context (500-word cap, compression in user_memory)
+            summary = "Question: " + ((state.initial_query or "")[:200]).strip() + ". "
+            append_user_memory(
+                state.user_id,
+                summary,
+                memory_store_path=self._memory_root,
+            )
             interaction_log.log_call(
                 "a2a.conversation_manager.ConversationManager.register_reply",
                 result={

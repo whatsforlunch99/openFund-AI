@@ -80,6 +80,11 @@ def _run_e2e_once() -> None:
         llm_client = get_llm_client(cfg)
     except (ValueError, ImportError):
         llm_client = None
+    if llm_client is not None:
+        from memory import user_memory as memory_user_memory
+        memory_user_memory.set_compressor(
+            lambda t, n: memory_user_memory.compress_to_gist(t, n, llm_client)
+        )
     planner = PlannerAgent("planner", bus, llm_client=llm_client)
     librarian = LibrarianAgent(
         "librarian", bus, mcp_client=client, llm_client=llm_client

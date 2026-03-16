@@ -76,7 +76,8 @@ OpenFund-AI/
 │   └── config.py
 ├── memory/
 │   ├── __init__.py
-│   └── situation_memory.py
+│   ├── situation_memory.py
+│   └── user_memory.py
 ├── util/
 │   ├── __init__.py
 │   ├── trace_log.py
@@ -1402,6 +1403,66 @@ cfg = load_config()
 ## Method: `FinancialSituationMemory.load_from_dir(self, memory_store_path: str) -> None`
 
 **Purpose:** Load from `memory_store_path/situation_memory.json` if present; no-op if missing.
+
+---
+
+# memory/user_memory.py
+
+**Purpose:** Per-user working memory (preferences, questions asked, topics of interest) and preference labels for planner context; stored at `memory_store_path/<user_id>/user_memory.json`. Working memory is capped at 500 words; when it exceeds that, a pluggable compressor shortens it (default: truncation; optional LLM summarization via `set_compressor`). Anonymous user_id maps to `anonymous/`. REST/WebSocket call `get_user_memory(user_id)` for planner context; ConversationManager calls `append_user_memory` when a conversation completes.
+
+---
+
+## Constant: `USER_MEMORY_FILENAME`
+
+**Purpose:** Default filename per user: `user_memory.json`.
+
+---
+
+## Constant: `MAX_WORDS`
+
+**Purpose:** Word cap for working memory (500). When exceeded, compressor is invoked.
+
+---
+
+## Function: `get_user_memory(user_id: str, memory_store_path: str | None = None) -> str`
+
+**Purpose:** Return planner-ready string: "Preferences: " + labels + working memory text; empty if no file or no content.
+
+---
+
+## Function: `get_user_memory_raw(user_id: str, memory_store_path: str | None = None) -> tuple[str, list[str]]`
+
+**Purpose:** Return (text, preference_labels) for this user.
+
+---
+
+## Function: `append_user_memory(user_id: str, addition: str, memory_store_path: str | None = None) -> None`
+
+**Purpose:** Append to working memory; if over 500 words, run compressor then save. No-op if user_id is None.
+
+---
+
+## Function: `update_preference_labels(user_id: str, labels: list[str], memory_store_path: str | None = None) -> None`
+
+**Purpose:** Replace stored preference_labels with the given list and save.
+
+---
+
+## Function: `append_preference_labels(user_id: str, labels: list[str], memory_store_path: str | None = None, dedupe: bool = True) -> None`
+
+**Purpose:** Add labels to existing list; optional dedupe. Then save.
+
+---
+
+## Function: `set_compressor(f: Callable[[str, int], str]) -> None`
+
+**Purpose:** Set the compressor callable used when working memory text exceeds MAX_WORDS (default: truncation).
+
+---
+
+## Function: `compress_to_gist(text: str, max_words: int = 500, llm_client: Any = None) -> str`
+
+**Purpose:** Shorten text to at most max_words. Uses llm_client.complete() if provided; else truncation.
 
 ---
 

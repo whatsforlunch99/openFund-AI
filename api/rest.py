@@ -23,6 +23,7 @@ from a2a.acl_message import ACLMessage, Performative
 from a2a.conversation_manager import ConversationManager, ConversationState
 from a2a.message_bus import InMemoryMessageBus, MessageBus
 from api.websocket import handle_websocket as ws_handle_websocket
+from memory.user_memory import get_user_memory
 from safety.safety_gateway import SafetyError, SafetyGateway
 from util import interaction_log
 
@@ -290,6 +291,12 @@ def create_app(
                     "LLM is required. Set LLM_API_KEY in .env and install: pip install openfund-ai[llm]. See README."
                 ) from e
 
+        # Wire user-memory compressor to use LLM for summarization when over 500 words
+        from memory import user_memory as memory_user_memory
+        memory_user_memory.set_compressor(
+            lambda t, n: memory_user_memory.compress_to_gist(t, n, llm_client)
+        )
+
         _model = (cfg.llm_model or "").strip() or "gpt-4o-mini"
         _base = (cfg.llm_base_url or "").strip()
         _provider = "deepseek" if _base and "deepseek" in _base.lower() else "openai"
@@ -459,10 +466,12 @@ def create_app(
         conversation_id = body.conversation_id
         user_memory = ""
 
-        #  Load persisted history and derive planner memory context before dispatch.
+        # Load persisted history and derive planner memory context before dispatch.
         if user_id:
             manager.load_user_conversations(user_id)
-            user_memory = manager.get_user_memory_context(user_id)
+            user_memory = get_user_memory(user_id)
+            if not user_memory:
+                user_memory = manager.get_user_memory_context(user_id)
 
         interaction_log.log_call(
             "api.rest.post_chat_endpoint",

@@ -40,8 +40,9 @@ ENV/
 .mypy_cache/
 .tmp_milvus_cfg/
 
-# Project-specific (docs)
-memory/
+# Project-specific: persisted memory data (not the memory package source)
+memory/*.json
+memory/*/
 volumes/
 
 # Local env (secrets)

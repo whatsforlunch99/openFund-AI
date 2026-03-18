@@ -1,0 +1,20 @@
+index_id,yahoo_symbol,confidence,quoteType,matched_name,source_url
+^IXIC,^IXIC,direct,index,Nasdaq Composite Index,https://finance.yahoo.com/quote/^IXIC
+^HUI,^HUI,direct,index,NYSE Arca Gold BUGS Index,https://finance.yahoo.com/quote/^HUI
+^HGX,^HGX,direct,index,PHLX Housing Sector Index,https://finance.yahoo.com/quote/^HGX
+AAVE-CAD,AAVE-CAD,direct,cryptocurrency,Aave CAD,https://finance.yahoo.com/quote/AAVE-CAD
+AAVE-CNY,AAVE-CNY,direct,cryptocurrency,Aave CNY,https://finance.yahoo.com/quote/AAVE-CNY
+AED=X,AED=X,direct,currency,AED/USD Exchange Rate,https://finance.yahoo.com/quote/AED=X
+AEDAUD=X,AEDAUD=X,direct,currency,AED/AUD Exchange Rate,https://finance.yahoo.com/quote/AEDAUD=X
+000002.SZ,000002.SZ,direct,equity,China Vanke Co Ltd,https://finance.yahoo.com/quote/000002.SZ
+000006.SZ,000006.SZ,direct,equity,Shenzhen Zhenye Group Co Ltd,https://finance.yahoo.com/quote/000006.SZ
+^ACWI,^ACWI,proxy,index,MSCI ACWI Index (proxy),https://finance.yahoo.com/quote/^ACWI
+^ADFI-IV,^ADFI-IV,uncertain,index,ADFI Indicative Value,https://finance.yahoo.com/quote/^ADFI-IV
+0GKA.SG,0GKA.SG,uncertain,fund,Fund listed on SG exchange,https://finance.yahoo.com/quote/0GKA.SG
+0LND.SG,0LND.SG,uncertain,fund,Fund listed on SG exchange,https://finance.yahoo.com/quote/0LND.SG
+000008.SS,000008.SS,direct,index,SSE Index (code 000008),https://finance.yahoo.com/quote/000008.SS
+000019.SS,000019.SS,direct,index,SSE Index (code 000019),https://finance.yahoo.com/quote/000019.SS
+AABXX,AABXX,direct,mutualfund,American Funds Money Market Fund,https://finance.yahoo.com/quote/AABXX
+AAFXX,AAFXX,direct,mutualfund,American Funds Money Market Fund,https://finance.yahoo.com/quote/AAFXX
+AAPL,AAPL,direct,,,
+NVDA,NVDA,direct,,,

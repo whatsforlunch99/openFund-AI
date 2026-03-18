@@ -1,0 +1,5 @@
+timestamp,url,status,reason,crumb
+2026-03-18T06:59:47.473100,https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=max&interval=1d&events=history,200,,
+2026-03-18T06:59:48.672407,"https://query2.finance.yahoo.com/v10/finance/quoteSummary/AAPL?modules=price,summaryDetail,defaultKeyStatistics,financialData,calendarEvents,earningsTrend,recommendationTrend,upgradeDowngradeHistory,esgScores,assetProfile",200,,mDvPl9ncAY7
+2026-03-18T06:59:51.964328,https://query1.finance.yahoo.com/v8/finance/chart/NVDA?range=max&interval=1d&events=history,200,,
+2026-03-18T06:59:53.576307,"https://query2.finance.yahoo.com/v10/finance/quoteSummary/NVDA?modules=price,summaryDetail,defaultKeyStatistics,financialData,calendarEvents,earningsTrend,recommendationTrend,upgradeDowngradeHistory,esgScores,assetProfile",200,,mDvPl9ncAY7

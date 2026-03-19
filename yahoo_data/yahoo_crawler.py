@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import http.cookiejar
+import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -182,15 +183,9 @@ def fetch_json(url, opener, rate_limiter, logger, max_retries=3, session=None, u
                 data = resp.read().decode("utf-8", errors="replace")
                 logger.log(url, str(status), crumb=crumb_used)
                 obj = json.loads(data)
-                if use_crumb and session and is_invalid_crumb(obj):
-                    session.refresh_crumb(host)
-                    final_url = add_crumb(url, session)
-                    crumb_used = session.crumbs.get(host, "")
-                    req2 = urllib.request.Request(final_url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-                    with opener.open(req2, timeout=TIMEOUT) as resp2:
-                        data2 = resp2.read().decode("utf-8", errors="replace")
-                        logger.log(url, str(resp2.status), "crumb_refreshed", crumb=crumb_used)
-                        return json.loads(data2)
+                if use_crumb and is_invalid_crumb(obj):
+                    print("needs new crumb")
+                    sys.exit(1)
                 return obj
         except urllib.error.HTTPError as e:
             code = e.code
@@ -200,10 +195,9 @@ def fetch_json(url, opener, rate_limiter, logger, max_retries=3, session=None, u
                     backoff = (2 ** attempt) + random.uniform(0, 0.5)
                     time.sleep(backoff)
                     continue
-            if code == 401 and use_crumb and session and attempt < max_retries:
-                logger.log(url, str(code), "refresh_crumb", crumb=crumb_used)
-                session.refresh_crumb(host)
-                continue
+            if code == 401 and use_crumb:
+                print("needs new crumb")
+                sys.exit(1)
             logger.log(url, str(code), "error", crumb=crumb_used)
             return None
         except Exception as e:

@@ -30,11 +30,38 @@ def is_indicator_empty(val):
     return False
 
 
+def repair_dict_reader_row(row, headers):
+    """
+    csv.DictReader stores overflow columns under key None when a data row has
+    more fields than the header (e.g. unquoted comma in matched_name:
+    ``Amazon.com, Inc.``). Re-stitch into declared columns so DictWriter works.
+    """
+    row = dict(row)
+    extra = row.pop(None, None)
+    if extra is not None and not isinstance(extra, list):
+        extra = [extra]
+    if extra:
+        joined_extra = ",".join(str(x) for x in extra)
+        if "matched_name" in headers and "source_url" in headers:
+            su = (row.get("source_url") or "").strip()
+            mn = (row.get("matched_name") or "").strip()
+            # Typical split: name fragment in matched_name, ", Inc." in source_url, URL in extra
+            if su and not su.lower().startswith("http"):
+                row["matched_name"] = f"{mn}, {su}".strip().strip(",")
+            row["source_url"] = joined_extra
+        elif headers:
+            lh = headers[-1]
+            prev = row.get(lh, "")
+            row[lh] = f"{prev},{joined_extra}" if str(prev).strip() else joined_extra
+    # Only keys declared in header (never pass None key to DictWriter)
+    return {h: row.get(h, "") for h in headers}
+
+
 def dedupe_file(path, filename):
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         reader = csv.DictReader(f)
-        headers = reader.fieldnames or []
-        rows = list(reader)
+        headers = [h for h in (reader.fieldnames or []) if h is not None]
+        rows = [repair_dict_reader_row(r, headers) for r in reader]
 
     before = len(rows)
     dropped_empty = 0
@@ -54,7 +81,7 @@ def dedupe_file(path, filename):
     after = len(out_rows)
 
     with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=headers)
+        writer = csv.DictWriter(f, fieldnames=headers, quoting=csv.QUOTE_MINIMAL)
         writer.writeheader()
         for row in out_rows:
             writer.writerow(row)

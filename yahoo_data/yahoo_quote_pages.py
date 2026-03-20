@@ -7,7 +7,7 @@ from datetime import datetime
 from lxml import html as lxml_html
 
 BASE_DIR = "/Users/jiani/Desktop/finance_database/yahoo_data"
-OUT_PATH = os.path.join(BASE_DIR, "yahoo_quote_metrics.csv")
+OUT_PATH = os.path.join(BASE_DIR, "csv_files", "yahoo_quote_metrics.csv")
 
 FIELDS = [
     "symbol",
@@ -242,3 +242,10 @@ def has_any_values(row):
         if row.get(key):
             return True
     return False
+
+
+if __name__ == "__main__":
+    import sys
+    from yahoo_quote_core import cli_main
+    # Pass this module object into the shared runner so it can read OUT_PATH/FIELDS.
+    cli_main(sys.modules[__name__], OUT_PATH)

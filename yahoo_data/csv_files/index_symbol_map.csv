@@ -1,0 +1,111 @@
+index_id,yahoo_symbol,confidence,quoteType,matched_name,source_url
+^IXIC,^IXIC,direct,index,Nasdaq Composite Index,https://finance.yahoo.com/quote/^IXIC
+^HUI,^HUI,direct,index,NYSE Arca Gold BUGS Index,https://finance.yahoo.com/quote/^HUI
+^HGX,^HGX,direct,index,PHLX Housing Sector Index,https://finance.yahoo.com/quote/^HGX
+AAVE-CAD,AAVE-CAD,direct,cryptocurrency,Aave CAD,https://finance.yahoo.com/quote/AAVE-CAD
+AAVE-CNY,AAVE-CNY,direct,cryptocurrency,Aave CNY,https://finance.yahoo.com/quote/AAVE-CNY
+AED=X,AED=X,direct,currency,AED/USD Exchange Rate,https://finance.yahoo.com/quote/AED=X
+AEDAUD=X,AEDAUD=X,direct,currency,AED/AUD Exchange Rate,https://finance.yahoo.com/quote/AEDAUD=X
+000002.SZ,000002.SZ,direct,equity,China Vanke Co Ltd,https://finance.yahoo.com/quote/000002.SZ
+000006.SZ,000006.SZ,direct,equity,Shenzhen Zhenye Group Co Ltd,https://finance.yahoo.com/quote/000006.SZ
+^ACWI,^ACWI,proxy,index,MSCI ACWI Index (proxy),https://finance.yahoo.com/quote/^ACWI
+^ADFI-IV,^ADFI-IV,uncertain,index,ADFI Indicative Value,https://finance.yahoo.com/quote/^ADFI-IV
+0GKA.SG,0GKA.SG,uncertain,fund,Fund listed on SG exchange,https://finance.yahoo.com/quote/0GKA.SG
+0LND.SG,0LND.SG,uncertain,fund,Fund listed on SG exchange,https://finance.yahoo.com/quote/0LND.SG
+000008.SS,000008.SS,direct,index,SSE Index (code 000008),https://finance.yahoo.com/quote/000008.SS
+000019.SS,000019.SS,direct,index,SSE Index (code 000019),https://finance.yahoo.com/quote/000019.SS
+AAFXX,AAFXX,direct,mutualfund,American Funds U.S. Government Money Market Fund Class 529‑A,https://finance.yahoo.com/quote/AAFXX
+SPY,SPY,direct,etf,SPDR S&P 500 ETF Trust,https://finance.yahoo.com/quote/SPY
+VOO,VOO,direct,etf,Vanguard S&P 500 ETF,https://finance.yahoo.com/quote/VOO
+IVV,IVV,direct,etf,iShares Core S&P 500 ETF,https://finance.yahoo.com/quote/IVV
+VTI,VTI,direct,etf,Vanguard Total Stock Market ETF,https://finance.yahoo.com/quote/VTI
+QQQ,QQQ,direct,etf,Invesco QQQ Trust Series 1,https://finance.yahoo.com/quote/QQQ
+VUG,VUG,direct,etf,Vanguard Growth ETF,https://finance.yahoo.com/quote/VUG
+VEA,VEA,direct,etf,Vanguard FTSE Developed Markets ETF,https://finance.yahoo.com/quote/VEA
+IEFA,IEFA,direct,etf,iShares Core MSCI EAFE ETF,https://finance.yahoo.com/quote/IEFA
+VTV,VTV,direct,etf,Vanguard Value ETF,https://finance.yahoo.com/quote/VTV
+BND,BND,direct,etf,Vanguard Total Bond Market ETF,https://finance.yahoo.com/quote/BND
+MSFT,MSFT,direct,equity,Microsoft Corporation,https://finance.yahoo.com/quote/MSFT
+AMZN,AMZN,direct,equity,"Amazon.com, Inc.",https://finance.yahoo.com/quote/AMZN
+TSLA,TSLA,direct,equity,"Tesla, Inc.",https://finance.yahoo.com/quote/TSLA
+META,META,direct,equity,"Meta Platforms, Inc.",https://finance.yahoo.com/quote/META
+GOOGL,GOOGL,direct,equity,Alphabet Inc. Class A,https://finance.yahoo.com/quote/GOOGL
+AMD,AMD,direct,equity,"Advanced Micro Devices, Inc.",https://finance.yahoo.com/quote/AMD
+NFLX,NFLX,direct,equity,"Netflix, Inc.",https://finance.yahoo.com/quote/NFLX
+JPM,JPM,direct,equity,JPMorgan Chase & Co.,https://finance.yahoo.com/quote/JPM
+^DJI,^DJI,direct,index,Dow Jones Industrial Average,https://finance.yahoo.com/quote/^DJI
+^FTSE,^FTSE,direct,index,FTSE 100 Index,https://finance.yahoo.com/quote/^FTSE
+^N225,^N225,direct,index,Nikkei 225,https://finance.yahoo.com/quote/^N225
+^GDAXI,^GDAXI,direct,index,DAX Performance Index,https://finance.yahoo.com/quote/^GDAXI
+^FCHI,^FCHI,direct,index,CAC 40,https://finance.yahoo.com/quote/^FCHI
+^HSI,^HSI,direct,index,Hang Seng Index,https://finance.yahoo.com/quote/^HSI
+^STOXX50E,^STOXX50E,direct,index,Euro Stoxx 50,https://finance.yahoo.com/quote/^STOXX50E
+^BSESN,^BSESN,direct,index,BSE Sensex,https://finance.yahoo.com/quote/^BSESN
+000001.SS,000001.SS,direct,index,SSE Composite Index,https://finance.yahoo.com/quote/000001.SS
+^RUT,^RUT,direct,index,Russell 2000 Index,https://finance.yahoo.com/quote/^RUT
+^VIX,^VIX,direct,index,CBOE Volatility Index,https://finance.yahoo.com/quote/^VIX
+GC=F,GC=F,direct,commodity,Gold Futures,https://finance.yahoo.com/quote/GC=F
+CL=F,CL=F,direct,commodity,Crude Oil WTI Futures,https://finance.yahoo.com/quote/CL=F
+SI=F,SI=F,direct,commodity,Silver Futures,https://finance.yahoo.com/quote/SI=F
+NG=F,NG=F,direct,commodity,Natural Gas Futures,https://finance.yahoo.com/quote/NG=F
+HG=F,HG=F,direct,commodity,Copper Futures,https://finance.yahoo.com/quote/HG=F
+ZC=F,ZC=F,direct,commodity,Corn Futures,https://finance.yahoo.com/quote/ZC=F
+ZS=F,ZS=F,direct,commodity,Soybean Futures,https://finance.yahoo.com/quote/ZS=F
+ZW=F,ZW=F,direct,commodity,Wheat Futures,https://finance.yahoo.com/quote/ZW=F
+EURUSD=X,EURUSD=X,direct,currency,Euro / US Dollar,https://finance.yahoo.com/quote/EURUSD=X
+GBPUSD=X,GBPUSD=X,direct,currency,British Pound / US Dollar,https://finance.yahoo.com/quote/GBPUSD=X
+USDJPY=X,USDJPY=X,direct,currency,US Dollar / Japanese Yen,https://finance.yahoo.com/quote/USDJPY=X
+USDCAD=X,USDCAD=X,direct,currency,US Dollar / Canadian Dollar,https://finance.yahoo.com/quote/USDCAD=X
+USDCHF=X,USDCHF=X,direct,currency,US Dollar / Swiss Franc,https://finance.yahoo.com/quote/USDCHF=X
+AUDUSD=X,AUDUSD=X,direct,currency,Australian Dollar / US Dollar,https://finance.yahoo.com/quote/AUDUSD=X
+NZDUSD=X,NZDUSD=X,direct,currency,New Zealand Dollar / US Dollar,https://finance.yahoo.com/quote/NZDUSD=X
+EEM,EEM,direct,etf,iShares MSCI Emerging Markets ETF,https://finance.yahoo.com/quote/EEM
+VWO,VWO,direct,etf,Vanguard FTSE Emerging Markets ETF,https://finance.yahoo.com/quote/VWO
+VYM,VYM,direct,etf,Vanguard High Dividend Yield ETF,https://finance.yahoo.com/quote/VYM
+SCHD,SCHD,direct,etf,Schwab U.S. Dividend Equity ETF,https://finance.yahoo.com/quote/SCHD
+IWM,IWM,direct,etf,iShares Russell 2000 ETF,https://finance.yahoo.com/quote/IWM
+VGK,VGK,direct,etf,Vanguard FTSE Europe ETF,https://finance.yahoo.com/quote/VGK
+SPYG,SPYG,direct,etf,SPDR Portfolio S&P 500 Growth ETF,https://finance.yahoo.com/quote/SPYG
+SPYV,SPYV,direct,etf,SPDR Portfolio S&P 500 Value ETF,https://finance.yahoo.com/quote/SPYV
+NVDA,NVDA,direct,equity,NVIDIA Corporation,https://finance.yahoo.com/quote/NVDA
+BABA,BABA,direct,equity,Alibaba Group Holding Limited,https://finance.yahoo.com/quote/BABA
+TSM,TSM,direct,equity,Taiwan Semiconductor Manufacturing Company Limited,https://finance.yahoo.com/quote/TSM
+ORCL,ORCL,direct,equity,Oracle Corporation,https://finance.yahoo.com/quote/ORCL
+SAP,SAP,direct,equity,SAP SE,https://finance.yahoo.com/quote/SAP
+DIS,DIS,direct,equity,The Walt Disney Company,https://finance.yahoo.com/quote/DIS
+KO,KO,direct,equity,Coca-Cola Company,https://finance.yahoo.com/quote/KO
+PFE,PFE,direct,equity,Pfizer Inc.,https://finance.yahoo.com/quote/PFE
+LVMH.PA,LVMH.PA,direct,equity,LVMH Moët Hennessy Louis Vuitton SE,https://finance.yahoo.com/quote/LVMH.PA
+SONY,SONY,direct,equity,Sony Group Corporation,https://finance.yahoo.com/quote/SONY
+TCEHY,TCEHY,direct,equity,Tencent Holdings Limited,https://finance.yahoo.com/quote/TCEHY
+RIO,RIO,direct,equity,Rio Tinto Group,https://finance.yahoo.com/quote/RIO
+TM,TM,direct,equity,Toyota Motor Corporation,https://finance.yahoo.com/quote/TM
+NVS,NVS,direct,equity,Novartis AG,https://finance.yahoo.com/quote/NVS
+BHP,BHP,direct,equity,BHP Group Limited,https://finance.yahoo.com/quote/BHP
+ASML,ASML,direct,equity,ASML Holding NV,https://finance.yahoo.com/quote/ASML
+LIN,LIN,direct,equity,Linde plc,https://finance.yahoo.com/quote/LIN
+PEP,PEP,direct,equity,"PepsiCo, Inc.",https://finance.yahoo.com/quote/PEP
+MCD,MCD,direct,equity,McDonald's Corporation,https://finance.yahoo.com/quote/MCD
+SBUX,SBUX,direct,equity,Starbucks Corporation,https://finance.yahoo.com/quote/SBUX
+COST,COST,direct,equity,Costco Wholesale Corporation,https://finance.yahoo.com/quote/COST
+WMT,WMT,direct,equity,Walmart Inc.,https://finance.yahoo.com/quote/WMT
+HD,HD,direct,equity,"Home Depot, Inc.",https://finance.yahoo.com/quote/HD
+UNH,UNH,direct,equity,UnitedHealth Group Incorporated,https://finance.yahoo.com/quote/UNH
+MA,MA,direct,equity,Mastercard Incorporated,https://finance.yahoo.com/quote/MA
+V,V,direct,equity,Visa Inc.,https://finance.yahoo.com/quote/V
+BAC,BAC,direct,equity,Bank of America Corporation,https://finance.yahoo.com/quote/BAC
+CSCO,CSCO,direct,equity,"Cisco Systems, Inc.",https://finance.yahoo.com/quote/CSCO
+INTC,INTC,direct,equity,Intel Corporation,https://finance.yahoo.com/quote/INTC
+CVX,CVX,direct,equity,Chevron Corporation,https://finance.yahoo.com/quote/CVX
+XOM,XOM,direct,equity,Exxon Mobil Corporation,https://finance.yahoo.com/quote/XOM
+MRK,MRK,direct,equity,"Merck & Co., Inc.",https://finance.yahoo.com/quote/MRK
+ABT,ABT,direct,equity,Abbott Laboratories,https://finance.yahoo.com/quote/ABT
+LLY,LLY,direct,equity,Eli Lilly and Company,https://finance.yahoo.com/quote/LLY
+NKE,NKE,direct,equity,"Nike, Inc.",https://finance.yahoo.com/quote/NKE
+AMGN,AMGN,direct,equity,Amgen Inc.,https://finance.yahoo.com/quote/AMGN
+GILD,GILD,direct,equity,"Gilead Sciences, Inc.",https://finance.yahoo.com/quote/GILD
+BA,BA,direct,equity,Boeing Company,https://finance.yahoo.com/quote/BA
+CAT,CAT,direct,equity,Caterpillar Inc.,https://finance.yahoo.com/quote/CAT
+DE,DE,direct,equity,Deere & Company,https://finance.yahoo.com/quote/DE
+MMM,MMM,direct,equity,3M Company,https://finance.yahoo.com/quote/MMM
+AAPL,AAPL,direct,equity,Apple Inc.,https://finance.yahoo.com/quote/AAPL

@@ -4,8 +4,10 @@ from datetime import datetime
 
 from lxml import html as lxml_html
 
+### yahoo only has key statistics for equity, not applicable for indices, mutual funds, etc. please check the symbol before scraping
+
 BASE_DIR = "/Users/jiani/Desktop/finance_database/yahoo_data"
-OUT_PATH = f"{BASE_DIR}/yahoo_key_statistics.csv"
+OUT_PATH = f"{BASE_DIR}/csv_files/yahoo_key_statistics.csv"
 
 FIELDS = [
     "symbol",
@@ -153,3 +155,10 @@ def should_retry(row, store, table_data, http_ok=True):
     valuation = len(store.get("valuation_measures", {}))
     sections = len(store.get("sections", {}))
     return valuation == 0 and sections == 0
+
+
+if __name__ == "__main__":
+    import sys
+    from yahoo_quote_core import cli_main
+    # Pass this module object into the shared runner so it can read OUT_PATH/FIELDS.
+    cli_main(sys.modules[__name__], OUT_PATH)

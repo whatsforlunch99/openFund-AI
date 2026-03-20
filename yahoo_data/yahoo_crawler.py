@@ -555,6 +555,8 @@ def main():
     session.prefetch()
 
     symbols = parse_symbols_arg(args.symbols)
+    csv_dir = BASE_DIR / "csv_files"
+    csv_dir.mkdir(parents=True, exist_ok=True)
     index_master_path = BASE_DIR / "index_master.csv"
     if symbols:
         masters = []
@@ -834,18 +836,17 @@ def main():
 
 
     # write outputs
-    append_symbol_map(BASE_DIR / "index_symbol_map.csv", symbol_map_rows)
-    append_levels(BASE_DIR / "index_levels.csv", levels_rows)
-    append_indicators(BASE_DIR / "yahoo_indicators.csv", indicators_rows)
+    append_symbol_map(csv_dir / "index_symbol_map.csv", symbol_map_rows)
+    append_indicators(csv_dir / "yahoo_indicators.csv", indicators_rows)
     # write_technicals(BASE_DIR / "yahoo_technicals.csv", technicals_rows)
-    append_timeseries(BASE_DIR / "yahoo_timeseries.csv", levels_rows, technicals_rows)
+    append_timeseries(csv_dir / "yahoo_timeseries.csv", levels_rows, technicals_rows)
     if not symbols:
         write_index_master(
             index_master_path,
             masters,
             ["yahoo_symbol", "yahoo_exchange", "yahoo_currency", "yahoo_instrumentType"],
         )
-    logger.write(BASE_DIR / "yahoo_crawl_log.csv")
+    logger.write(csv_dir / "yahoo_crawl_log.csv")
 
     print("Done. Wrote:")
     print("- index_symbol_map.csv")

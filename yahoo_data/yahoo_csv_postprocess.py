@@ -10,7 +10,7 @@ Conventions
   ``MultiIndex(symbol, timestamp)`` with NaN symbol rows dropped by default.
 
 Each ``postprocess_*`` accepts either a pre-loaded ``DataFrame`` or ``path``
-(defaults to ``<this_dir>/<csv_filename>``).
+(defaults to ``<this_dir>/csv_files/<csv_filename>``).
 
 Return shapes (index names → column content)
 --------------------------------------------
@@ -60,6 +60,7 @@ from urllib.parse import unquote
 import pandas as pd
 
 _DIR = Path(__file__).resolve().parent
+_CSV_DIR = _DIR / "csv_files"
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -67,7 +68,7 @@ _DIR = Path(__file__).resolve().parent
 
 
 def _default_path(filename: str) -> Path:
-    return _DIR / filename
+    return _CSV_DIR / filename
 
 
 def _load_df(
@@ -260,6 +261,20 @@ def postprocess_yahoo_quote_metrics(
 # yahoo_key_statistics.csv
 # ---------------------------------------------------------------------------
 
+# Blobs sometimes contain invalid JSON: object keys like 3/19/2026 without quotes.
+_KEY_STAT_UNQUOTED_MDY_KEY_RE = re.compile(
+    r"([\{,]\s*)(\d{1,2}/\d{1,2}/\d{4})(\s*:)"
+)
+
+
+def repair_key_statistics_json_blob(blob: str) -> str:
+    """
+    Quote unquoted ``M/D/YYYY``-shaped keys so :func:`json.loads` can parse.
+    Example invalid fragment: ``{"Market Cap": {3/19/2026: "3.73T"}}``.
+    """
+    if not blob:
+        return blob
+    return _KEY_STAT_UNQUOTED_MDY_KEY_RE.sub(r'\1"\2"\3', blob)
 
 
 def merge_key_statistics_json_dict(data: dict[str, Any]) -> dict[str, Any]:
@@ -279,8 +294,10 @@ def merge_key_statistics_json_dict(data: dict[str, Any]) -> dict[str, Any]:
 
 def pretty_key_statistics_json(blob: str, *, indent: int = 2) -> str:
     """Return pretty-printed JSON for debugging / optional column."""
-    if not blob or str(blob).strip() in ("", "{}", "nan"):
+    blob = str(blob).strip()
+    if blob in ("", "{}", "nan"):
         return "{}"
+    blob = repair_key_statistics_json_blob(blob)
     try:
         data = json.loads(blob)
     except (json.JSONDecodeError, TypeError):
@@ -289,8 +306,10 @@ def pretty_key_statistics_json(blob: str, *, indent: int = 2) -> str:
     return json.dumps(merged, indent=indent, ensure_ascii=False, default=str)
 
 def _parse_key_statistics_merged(blob: str) -> dict[str, Any] | None:
-    if not blob or str(blob).strip() in ("", "{}", "nan"):
+    blob = str(blob).strip()
+    if blob in ("", "{}", "nan"):
         return {}
+    blob = repair_key_statistics_json_blob(blob)
     try:
         data = json.loads(blob)
     except (json.JSONDecodeError, TypeError):

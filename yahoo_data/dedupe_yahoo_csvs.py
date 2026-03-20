@@ -3,7 +3,7 @@ import csv
 import os
 from collections import OrderedDict
 
-BASE_DIR = "/Users/jiani/Desktop/finance_database/yahoo_data"
+BASE_DIR = "/Users/jiani/Desktop/finance_database/yahoo_data/csv_files"
 
 KEY_RULES = {
     "index_levels.csv": ["index_id", "date", "source"],

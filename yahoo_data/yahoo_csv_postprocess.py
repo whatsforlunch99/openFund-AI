@@ -478,6 +478,83 @@ def postprocess_yahoo_indicators(
     return df.sort_index()
 
 
+def postprocess_yahoo_fundamentals_metrics(
+    df: pd.DataFrame | None = None,
+    path: str | Path | None = None,
+) -> pd.DataFrame:
+    """
+    Unified long-form fundamentals metrics.
+
+    Combines:
+    - `yahoo_indicators.csv` (valuation/fundamental indicators) into metric_group/metric_name/value rows.
+    - `yahoo_key_statistics.csv` (key stats page scrape) into metric_group/metric_name/value rows.
+
+    Index:
+      (symbol, as_of_timestamp, metric_source, metric_group, metric_name)
+
+    Columns:
+      - metric_value (string)
+      - source_url (string)
+      - status (string or NA)
+
+    Note: `df`/`path` are ignored for this virtual output and exist only to match
+    the registry signature.
+    """
+    _ = (df, path)  # not used: virtual output built from other postprocessors
+
+    # Indicators: index (symbol, date); includes indicator_group/indicator_name.
+    indicators = postprocess_yahoo_indicators()
+    ind = indicators.reset_index()
+    ind = ind.rename(
+        columns={
+            "date": "as_of_timestamp",
+            "indicator_group": "metric_group",
+            "indicator_name": "metric_name",
+            "indicator_value": "metric_value",
+        }
+    )
+    ind["metric_source"] = "indicator"
+    ind["status"] = pd.NA
+    ind["metric_value"] = ind["metric_value"].astype(str)
+
+    # Key stats: index (symbol, timestamp, url, status); includes category/sub_category/value.
+    key_stats = postprocess_yahoo_key_statistics()
+    keys = key_stats.reset_index()
+    keys = keys.rename(
+        columns={
+            "timestamp": "as_of_timestamp",
+            "url": "source_url",
+            "category": "metric_group",
+            "sub_category": "metric_name",
+            "value": "metric_value",
+        }
+    )
+    keys["metric_source"] = "key_statistics"
+    keys["metric_value"] = keys["metric_value"].astype(str)
+
+    keep = [
+        "symbol",
+        "as_of_timestamp",
+        "metric_source",
+        "metric_group",
+        "metric_name",
+        "metric_value",
+        "source_url",
+        "status",
+    ]
+
+    out = pd.concat([ind[keep], keys[keep]], ignore_index=True)
+    out = out.drop_duplicates(subset=keep, keep="last")
+
+    out["symbol"] = out["symbol"].astype(str)
+    out["as_of_timestamp"] = pd.to_datetime(out["as_of_timestamp"], errors="coerce", utc=False)
+    out["metric_group"] = out["metric_group"].astype("category")
+    out["metric_name"] = out["metric_name"].astype("category")
+
+    out = out.set_index(["symbol", "as_of_timestamp", "metric_source", "metric_group", "metric_name"]).sort_index()
+    return out
+
+
 # ---------------------------------------------------------------------------
 # yahoo_timeseries.csv & index_levels.csv
 # ---------------------------------------------------------------------------
@@ -607,10 +684,8 @@ def postprocess_yahoo_crawl_log(
 
 POSTPROCESS_BY_FILENAME: dict[str, Any] = {
     "yahoo_quote_metrics.csv": postprocess_yahoo_quote_metrics,
-    "yahoo_key_statistics.csv": postprocess_yahoo_key_statistics,
-    "yahoo_indicators.csv": postprocess_yahoo_indicators,
+    "yahoo_fundamentals_metrics.csv": postprocess_yahoo_fundamentals_metrics,
     "yahoo_timeseries.csv": postprocess_yahoo_timeseries,
-    "index_levels.csv": postprocess_index_levels,
     "index_symbol_map.csv": postprocess_index_symbol_map,
     "yahoo_crawl_log.csv": postprocess_yahoo_crawl_log,
 }

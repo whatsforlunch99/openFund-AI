@@ -17,7 +17,7 @@ FIELDS = [
     "status",
 ]
 
-REQUEST_KWARGS = {"follow_redirects": False}
+REQUEST_KWARGS = {"follow_redirects": True}
 DISABLE_HEADERS = False
 FETCHER = "static"
 FETCH_KWARGS = {}

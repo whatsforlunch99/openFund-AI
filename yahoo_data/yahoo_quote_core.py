@@ -151,6 +151,7 @@ def crawl_symbols_collect(
 
     for i, symbol in enumerate(symbols):
         url = page.build_url(symbol)
+        print(f"[{i+1}/{len(symbols)}] {symbol} -> {url}")
         last_status = None
         success = False
 
@@ -160,11 +161,29 @@ def crawl_symbols_collect(
                 if not disable_headers:
                     req_headers = headers_override if headers_override is not None else headers
 
-                # Playwright fetch first (default)
-                if req_headers is not None:
-                    res = playwright_fetcher.fetch(url, extra_headers=req_headers, **fetch_kwargs)
+                # Respect page-level FETCHER setting.
+                # - Some pages (e.g. key statistics) set FETCHER="static" so we don't
+                #   depend on a Playwright browser being installed.
+                fetch_mode = getattr(page, "FETCHER", "playwright")
+
+                if fetch_mode == "static":
+                    # Static fetch (Scrapling Fetcher)
+                    if req_headers is not None:
+                        res = fetcher.get(
+                            url,
+                            timeout=20,
+                            stealthy_headers=True,
+                            headers=req_headers,
+                            **request_kwargs,
+                        )
+                    else:
+                        res = fetcher.get(url, timeout=20, stealthy_headers=True, **request_kwargs)
                 else:
-                    res = playwright_fetcher.fetch(url, **fetch_kwargs)
+                    # Playwright fetch first (default)
+                    if req_headers is not None:
+                        res = playwright_fetcher.fetch(url, extra_headers=req_headers, **fetch_kwargs)
+                    else:
+                        res = playwright_fetcher.fetch(url, **fetch_kwargs)
 
                 status = getattr(res, "status", None)
                 last_status = status
@@ -259,7 +278,9 @@ def crawl_symbols_collect(
 def build_headers():
     cookie_header = get_cookie_header()
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        # Yahoo is sensitive to some UA strings. A simpler UA consistently returns the
+        # expected key-statistics HTML in this environment.
+        "User-Agent": "Mozilla/5.0",
         "Accept-Language": "en-US,en;q=0.9",
     }
     if cookie_header:

@@ -4,7 +4,25 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **cn_fund_all CSV table design (fund-table-adjustment):** FEE section now uses a long-table format `fund_id, fee_type, condition, fee_value, fee_unit` instead of raw column union, eliminating most empty cells. HOLDINGS uses normalized columns `report_period, holding_code, holding_name, weight, market_value, share_count, rank`. Per-fund `data.csv` and consolidated `static.csv` reflect the new schema. Design docs: csv-consolidation-design.md, data-ingestion.md, fund-table-adjustment.
+
+- **CN fund consolidation: multi-table format in single files:** `daily.csv` and `static.csv` now each contain multiple logical tables separated by `# === SECTION ===` markers. Each table has its own header and columns (no cross-section empty columns). `daily.csv`: NAV, RANK blocks; `static.csv`: BASIC, FEE, HOLDINGS, ANNOUNCEMENTS_* blocks. Old per-section files (nav.csv, rank.csv, etc.) are removed on run.
+
 ### Added
+
+- **static.csv 时间列移至文件头（方案 C）：** as_of_date、collected_at 不再作为每行重复列，改为在 static.csv 顶部注释 `# as_of_date: yyyy-mm-dd` 和 `# consolidated_at: ...`。
+
+- **Data consolidate aligned with fund-table-adjustment:** CSV output schema now maps to fund_basic, fund_fee_raw, fund_nav, fund_holdings. BASIC adds currency, is_etf, is_qdii; FEE adds raw_text; HOLDINGS adds industry. Design doc [csv-consolidation-design.md](docs/data_prep/csv-consolidation-design.md) updated with layering and schema mapping.
+
+- **Empty value markers in CN fund CSV:** Data ingestion and consolidation now fill blank cells with explicit markers: `not_exist` (数据不存在), `not_disclosed` (未披露, when upstream returns 未披露/暂无/-), `parse_failed` (解析失败), `api_missing` (接口缺失). Module `data_manager/empty_markers.py`; applied in cn_fund_tool get_basic, collector CSV write, and consolidation merge. See [data-ingestion.md](docs/data_prep/data-ingestion.md).
+
+- **CN fund CSV consolidation (daily + static):** New `python -m data_manager consolidate --date yyyy-mm-dd` merges per-fund data.csv into `consolidated/{date}/daily.csv` (NAV + Rank) and `static.csv` (Basic + Fee + Holdings + Announcements). Options: `--output daily|static|both`, `--date-from`/`--date-to` for range, `--dry-run`. See [csv-consolidation-design.md](docs/data_prep/csv-consolidation-design.md).
+
+- **CN fund ingestion: NAV/report time limits:** NAV data limited to last 365 days via `look_back_days`. Announcements (EM + cninfo) and report downloads limited to last 3 years.
+
+- **CN fund ingestion: new path layout and report downloads:** (1) **Path:** `cn_fund_all` output moved from `{date}/{fund_id}.json` to `{date}/{fund_id}/data.json`; CSV is `{date}/{fund_id}/data.csv`. (2) **Report downloads:** When announcements contain 季度报告 or 年度报告, PDFs are downloaded from 东方财富 (`pdf.dfcfw.com`) to `{fund_id}/reports/{报告ID}.pdf`. Distributor and list_collected_files updated to discover `data.json` in the new layout.
 
 - **Per-user working memory and preference labels:** New `memory/user_memory.py` stores per-user working memory (preferences, questions asked, topics of interest) capped at 500 words. When the text exceeds 500 words, a pluggable compressor shortens it (default: truncation; optional LLM summarization wired at startup). Preference labels (e.g. "invest in US market", "trade funds") are stored and returned with the working memory for planner context. APIs: `get_user_memory`, `get_user_memory_raw`, `append_user_memory`, `update_preference_labels`, `append_preference_labels`, `set_compressor`, `compress_to_gist`. ConversationManager appends a short summary to user memory when a conversation completes. REST and WebSocket prefer this user memory for planner context, with fallback to recent Q/A from `get_user_memory_context`. Persistence: `memory/<user_id>/user_memory.json` (same root as conversations). Tests in `tests/test-stages.py`: round-trip and preference_labels, word count/truncation, mock compressor.
 
@@ -28,6 +46,12 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 - **Yahoo/stooq/ETFdb missing from stdio MCP server:** PyPI package `mcp` shadows the project `mcp/` folder, so `yahoo_finance_tool` / `stooq_tool` / `etfdb_tool` were never registered on `python -m openfund_mcp`. `openfund_mcp/fastmcp_server.py` and `openfund_mcp/mcp_server.py` now load `mcp/tools/*.py` by file path and register the four tools so WebSearcher parallel flow can fetch price/fundamentals again.
 
 - **MCPClient + WebSearcher news fallback:** `session.call_tool` CallToolResult no longer assumes `.is_error` (removed/renamed in newer `mcp` SDK); `openfund_mcp/mcp_client.py` detects errors via `is_error` / `isError` / content-block flags and extracts error text safely so market/news tools return parsed JSON instead of a blanket AttributeError. **WebSearcher:** `WEBSEARCHER_NEWS_FALLBACK_SYSTEM` added to `llm/prompts.py` for `_llm_news_fallback` when all news sources fail — prevents ImportError and 408 timeout. Docs: `docs/backend.md`, `docs/websearcher-design.md`, `docs/file-structure.md`, `docs/progress.md`.
+
+- **CN fund ingestion basic-info source priority:** `cn_fund_tool.get_basic` now prefers EM catalog (`fund_name_em`) for stable `fund_name`/`fund_type`, optionally supplements with EM individual basic info when available, and uses XQ endpoints only as a last resort. Manager/company enrichment remains EM-based (`fund_manager_em`), and bulk-endpoint safeguards remain in place.
+
+- **CN fund ingestion CSV output:** `data_manager collect` supports `--format csv` or `--format both` for `cn_fund_all` tasks. Writes one file per fund: `{fund_id}.csv`, containing all sections (basic, nav, fee, holdings, rank) with `# ===` section headers. UTF-8 BOM for Excel compatibility. JSON remains the canonical format for the distribute pipeline.
+
+- **CN fund ingestion: fill empty fields via AKShare interfaces:** (1) **NAV 累计净值:** ETF (51x/15x/56x/58x) uses `fund_etf_fund_info_em` which returns both 单位净值 and 累计净值; open-end funds get 累计净值 via `fund_open_fund_info_em(indicator="累计净值走势")` when primary call omits it. (2) **Basic enrichment:** `fund_name_em` matches are enriched from `fund_individual_basic_info_xq` for risk_level, inception_date, tracking_index, investment_scope, latest_scale, description. (3) **Fee:** `fund_fee_em` now tries multiple indicators (申购费率（前端）, 赎回费率, 运作费用, etc.) and aggregates results.
 
 ### Added
 

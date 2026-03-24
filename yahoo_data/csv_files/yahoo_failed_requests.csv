@@ -50,3 +50,8 @@ timestamp,crawler,symbol,url,status
 2026-03-23T08:33:29Z,__main__,SAP,https://finance.yahoo.com/quote/SAP/key-statistics/,404
 2026-03-23T08:33:29Z,__main__,DIS,https://finance.yahoo.com/quote/DIS/key-statistics/,404
 2026-03-23T08:37:39Z,__main__,LVMH.PA,https://finance.yahoo.com/quote/LVMH.PA/key-statistics/,302
+2026-03-24T07:58:22Z,__main__,ASML,https://finance.yahoo.com/quote/ASML/,
+2026-03-24T08:09:04Z,__main__,ASML,https://finance.yahoo.com/quote/ASML/key-statistics/,
+2026-03-24T08:09:08Z,__main__,ASML,https://finance.yahoo.com/quote/ASML/,
+2026-03-24T08:15:26Z,__main__,UGRO,https://finance.yahoo.com/quote/UGRO/,
+2026-03-24T08:17:09Z,__main__,UGRO,https://finance.yahoo.com/quote/UGRO/,

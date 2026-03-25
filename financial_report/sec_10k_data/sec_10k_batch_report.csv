@@ -1,0 +1,17 @@
+symbol,year,filing_date,accession,htm_found,htm_path,pdf_created,pdf_path,sec_form_used,used_fallback,skip_reason
+LVMH.PA,2023,,,False,,False,,,,ticker not found in SEC map
+LVMH.PA,2024,,,False,,False,,,,ticker not found in SEC map
+LVMH.PA,2025,,,False,,False,,,,ticker not found in SEC map
+LVMH.PA,2026,,,False,,False,,,,ticker not found in SEC map
+TCEHY,2023,,,False,,False,,,,ticker not found in SEC map
+TCEHY,2024,,,False,,False,,,,ticker not found in SEC map
+TCEHY,2025,,,False,,False,,,,ticker not found in SEC map
+TCEHY,2026,,,False,,False,,,,ticker not found in SEC map
+XOM,2023,2023-02-22,0000034088-23-000020,True,./sec_10k/XOM/2023/xom-20221231.htm,True,./sec_10k/XOM/2023/xom-20221231.pdf,10-K,False,
+XOM,2024,2024-02-28,0000034088-24-000018,True,./sec_10k/XOM/2024/xom-20231231.htm,True,./sec_10k/XOM/2024/xom-20231231.pdf,10-K,False,
+XOM,2025,2025-02-19,0000034088-25-000010,True,./sec_10k/XOM/2025/xom-20241231.htm,True,./sec_10k/XOM/2025/xom-20241231.pdf,10-K,False,
+XOM,2026,2026-02-18,0000034088-26-000045,True,./sec_10k/XOM/2026/xom-20251231.htm,True,./sec_10k/XOM/2026/xom-20251231.pdf,10-K,False,
+GILD,2023,2023-02-22,0000882095-23-000007,True,./sec_10k/GILD/2023/gild-20221231.htm,True,./sec_10k/GILD/2023/gild-20221231.pdf,10-K,False,
+GILD,2024,2024-02-23,0000882095-24-000007,True,./sec_10k/GILD/2024/gild-20231231.htm,True,./sec_10k/GILD/2024/gild-20231231.pdf,10-K,False,
+GILD,2025,2025-02-28,0000882095-25-000006,True,./sec_10k/GILD/2025/gild-20241231.htm,True,./sec_10k/GILD/2025/gild-20241231.pdf,10-K,False,
+GILD,2026,2026-02-24,0000882095-26-000006,True,./sec_10k/GILD/2026/gild-20251231.htm,True,./sec_10k/GILD/2026/gild-20251231.pdf,10-K,False,

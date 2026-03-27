@@ -40,7 +40,7 @@ Use this README as the source of truth for:
 - `yahoo_csv_postprocess.py`
   - Converts raw CSVs into typed pandas views, including merged fundamentals output.
 - `display_postprocessed.ipynb`
-  - Notebook to inspect postprocessed outputs quickly.
+  - Notebook to inspect postprocessed outputs quickly and export final files to `processed_csv/`.
 
 ## Data files (raw + postprocessed)
 
@@ -128,6 +128,12 @@ Key columns:
 - `postprocess_yahoo_fundamentals_metrics()`: merged long fundamentals view combining:
   - indicators (`yahoo_indicators.csv`)
   - key statistics (`yahoo_key_statistics.csv`)
+
+Final pipeline-ready data files are written under `processed_csv/` by `display_postprocessed.ipynb`:
+- `processed_csv/index_symbol_map.csv`
+- `processed_csv/yahoo_fundamentals_metrics.csv`
+- `processed_csv/yahoo_quote_metrics.csv`
+- `processed_csv/yahoo_timeseries.csv`
 
 ## When you add a new symbol: exact runbook
 
@@ -228,7 +234,12 @@ python3 yahoo_data/dedupe_yahoo_csvs.py
   ```bash
   python3 yahoo_data/check_symbol_completeness_and_fix.py
   ```
-- Open `yahoo_data/display_postprocessed.ipynb` to inspect postprocessed outputs.
+- Run/open `display_postprocessed.ipynb` to generate and inspect postprocessed outputs.
+- Confirm final exported files exist in `processed_csv/`:
+  - `processed_csv/index_symbol_map.csv`
+  - `processed_csv/yahoo_fundamentals_metrics.csv`
+  - `processed_csv/yahoo_quote_metrics.csv`
+  - `processed_csv/yahoo_timeseries.csv`
 - Optionally quick-import in Python:
   ```bash
   python3 -c "from yahoo_data.yahoo_csv_postprocess import postprocess_yahoo_fundamentals_metrics as f; print(f().shape)"

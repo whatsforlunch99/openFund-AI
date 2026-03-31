@@ -55,7 +55,7 @@ Design for the WebSearcher specialist agent: parallel multi-source query, normal
 ## Symbol resolution (implementation detail)
 
 - **`_resolve_symbols(content)`** — If `fund`/`symbol` is a 1–5 letter ticker **and not blocklisted**, use it. Otherwise calls `fund_catalog_tool.search(query)` when registered; else `_normalize_symbol(query|fund)`.
-- **Blocklist** (`_TICKER_BLOCKLIST`): English words that look like tickers (e.g. `WHAT`, `IS`, `PRICE`) so Planner passing `fund="WHAT"` from “What is the price of SPY?” does not query `WHAT.US`. Known tickers **SPY**, **QQQ**, etc. are detected in free text via regex before blocklist tokens.
+- **Blocklist** (`database/agent_heuristics.json` → `websearcher.ticker_blocklist`, loaded via `util/agent_heuristics.get_websearcher_heuristics`): English words that look like tickers (e.g. `WHAT`, `IS`, `PRICE`) so Planner passing `fund="WHAT"` from “What is the price of SPY?” does not query `WHAT.US`. Known tickers **SPY**, **QQQ**, etc. are detected in free text via regex before blocklist tokens.
 - **Default symbol** when nothing matches: `AAPL` (legacy behaviour).
 
 ---

@@ -22,7 +22,8 @@ Rules:
    - websearcher: search online for latest price action, market/news events, macro or regulatory updates.
    - analyst: perform quantitative analysis, risk/return interpretation, metric comparison, scenario reasoning based on the data from the librarian and websearcher if user did not supply the relevant data.
 4) Keep queries concise (prefer <= 25 words each).
-5) Output only the JSON array. No markdown, prose, or code fences. No keys other than agent name and specified query for the agent.
+5) Do not add specific calendar years (e.g. 2023, 2024) to sub-queries unless the user explicitly asked about that year or date range. For "should I invest now / today" or general performance questions, use wording like "latest", "recent", or "current" instead of inventing a year—otherwise news and price tools may miss relevant data and contradict the user's timeframe.
+6) Output only the JSON array. No markdown, prose, or code fences. No keys other than agent name and specified query for the agent.
 
 If the user query is ambiguous, produce best-effort intepretation and encode assumptions in the per-agent query text. You may return an empty array only if the request clearly needs no specialist research."""
 
@@ -41,8 +42,12 @@ Reply with exactly one token:
 - INSUFFICIENT
 
 Decision rule:
-- SUFFICIENT if a useful, non-fabricated answer can be produced now, even with minor gaps.
-- INSUFFICIENT if critical facts are missing and another specialist round is likely to materially improve quality.
+- SUFFICIENT if a useful, non-fabricated answer can be produced now, even with minor gaps. Prefer SUFFICIENT when:
+  - The user asked to compare or choose among named investments and the WebSearcher block includes concrete prices or normalized_fund lines for each main instrument mentioned, OR
+  - The librarian block includes factual SQL/performance rows for part of the question, OR
+  - Any specialist returned substantive narrative summaries (not only API errors).
+  Partial data (e.g. prices without full 10-year series, or one leg of a two-asset comparison) still counts as SUFFICIENT if the user could get a caveated, honest answer from what is present.
+- INSUFFICIENT only when there is no reliable signal for the core of the question, or another round is very likely to add decisive facts (not merely polish).
 
 Output only one token."""
 
@@ -143,7 +148,8 @@ Output a JSON array of tool calls. Each element must have:
 - "payload": object with the required parameters for that tool
 
 Guidelines:
-- Prefer 1-3 calls unless query clearly needs more.
+- always use KG tools for fetching basic information about the stock symbol.
+- Prefer 1-3 calls in additional to KG tools unless query clearly needs more.
 - Use concrete identifiers in payload (symbol/entity/path/query).
 - Do not include unknown payload keys.
 - When using sql_tool.run_query or sql_tool.export_results, write SQL only against the PostgreSQL schema listed above (correct table and column names).

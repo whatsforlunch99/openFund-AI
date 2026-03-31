@@ -96,7 +96,13 @@ class LibrarianAgent(BaseAgent):
                 else LIBRARIAN_ALLOWED_TOOL_NAMES
             )
             tool_descriptions = get_librarian_tool_descriptions(registered)
-            user_content = f"Sub-query from planner: {query}"
+            sr = content.get("symbol_resolution")
+            entity_hint = ""
+            if isinstance(sr, dict) and sr.get("status") == "resolved":
+                cn = (sr.get("canonical_name") or "").strip()
+                if cn:
+                    entity_hint = f"\nResolved entity for knowledge graph / SQL (use for get_relations, ILIKE, etc.): {cn}"
+            user_content = f"Sub-query from planner: {query}{entity_hint}"
             tool_calls = self._llm_client.select_tools(
                 LIBRARIAN_TOOL_SELECTION, user_content, tool_descriptions
             )
@@ -233,17 +239,32 @@ class LibrarianAgent(BaseAgent):
                 docs = result.get("documents", result) if isinstance(result, dict) else result
                 docs_list = docs if isinstance(docs, list) else [docs]
                 parts.setdefault("documents", []).extend(docs_list)
-            elif tool in ("kg_tool.get_relations", "kg_tool.get_node_by_id", "kg_tool.query_graph"):
-                if isinstance(result, dict) and "error" not in result:
-                    existing = parts.get("graph", {})
-                    if isinstance(existing, dict) and isinstance(result, dict):
-                        # Merge nodes/edges if present
-                        for k in ("nodes", "edges", "rows"):
-                            if k in result and result[k]:
-                                existing.setdefault(k, []).extend(result[k] if isinstance(result[k], list) else [result[k]])
-                        parts["graph"] = existing
-                    else:
-                        parts["graph"] = result
+            elif tool in (
+                "kg_tool.get_relations",
+                "kg_tool.get_node_by_id",
+                "kg_tool.query_graph",
+                "kg_tool.fulltext_search",
+            ):
+                if not isinstance(result, dict):
+                    continue
+                err = result.get("error")
+                has_payload = any(
+                    bool(result.get(k)) for k in ("nodes", "edges", "rows", "node")
+                )
+                if err and not has_payload:
+                    continue
+                existing = parts.get("graph", {})
+                if not isinstance(existing, dict):
+                    existing = {}
+                for k in ("nodes", "edges", "rows"):
+                    if k in result and result[k]:
+                        existing.setdefault(k, []).extend(
+                            result[k] if isinstance(result[k], list) else [result[k]]
+                        )
+                node_one = result.get("node")
+                if node_one:
+                    existing.setdefault("nodes", []).append(node_one)
+                parts["graph"] = existing
             elif tool.startswith("sql_tool."):
                 parts["sql"] = result if isinstance(result, dict) else {"rows": []}
         return parts

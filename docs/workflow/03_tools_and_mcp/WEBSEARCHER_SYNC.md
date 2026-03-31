@@ -23,4 +23,4 @@ They are **not** registered on main until ported to `openfund_mcp/tools/` (see b
 
 ## `struct_log` / `log_agent_section`
 
-Added to **`util/log_format.py`** so `agents/websearch_agent.py` can run on the current main tree.
+Added to **`util/interaction_log.py`** (`OpenFundFormatter`) so `agents/websearch_agent.py` can run on the current main tree.

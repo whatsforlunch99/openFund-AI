@@ -1,0 +1,22 @@
+{
+  "china vanke": {
+    "canonical_name": "China Vanke Co., Ltd.",
+    "symbol_type": "equities",
+    "listings": [
+      {
+        "exchange": "SZSE",
+        "market": "CN",
+        "symbol_yahoo": "000002.SZ",
+        "symbol_compact": "000002",
+        "primary": true
+      },
+      {
+        "exchange": "HKEX",
+        "market": "HK",
+        "symbol_yahoo": "2202.HK",
+        "symbol_compact": "2202",
+        "primary": false
+      }
+    ]
+  }
+}

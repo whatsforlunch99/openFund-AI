@@ -75,8 +75,9 @@ class ResponderAgent(BaseAgent):
                 **interaction_log.content_preview_for_log(content),
             },
         )
-        # When planner marks insufficient after max rounds, force this exact message
-        if content.get("insufficient"):
+        # When planner marks insufficient after max rounds, force a short failure message unless
+        # planner already attached a partial answer body (substantive research + caveats).
+        if content.get("insufficient") and not content.get("partial_insufficient"):
             final_response = "Insufficient information."
         # Normalize profile value before formatting so OutputRail logic is deterministic.
         user_profile = content.get("user_profile") or "beginner"

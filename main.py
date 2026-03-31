@@ -17,7 +17,7 @@ warnings.filterwarnings(
 )
 
 from config.config import load_config
-from util.log_format import OpenFundFormatter
+from util.interaction_log import OpenFundFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ UVICORN_LOG_CONFIG = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "openfund": {"()": "util.log_format.OpenFundFormatter"},
+        "openfund": {"()": "util.interaction_log.OpenFundFormatter"},
     },
     "handlers": {
         "default": {

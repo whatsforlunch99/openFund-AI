@@ -1,0 +1,42 @@
+[
+  {
+    "id": "xle_fund_description_1",
+    "content": "State Street Energy Select Sector SPDR ETF (XLE)\nCategory: Energy\nIndex Tracked: Custom Index\nInvestment Style: Passive Index\nTotal Assets (B): 35.61\nExpense Ratio: 0.001\nDividend Yield: 0.029516\nHoldings Count: 300",
+    "symbol": "XLE",
+    "fund_id": "XLE",
+    "doc_type": "fund_description",
+    "source": "datasets/a.json",
+    "published_at": "2026-03-02",
+    "collected_at": "2026-03-02 14:56:58.962543"
+  },
+  {
+    "id": "xle_analyst_report_2",
+    "content": "Performance summary for XLE\nYTD: 0.224973\n1Y: 0.270063\n3Y: 0.418674\n5Y: 1.7102\n10Y: 1.753865\nRisk metrics\nBeta: 0.777\nStdDev: 0.248969\nSharpe: 1.0385\nMax Drawdown: -0.201373",
+    "symbol": "XLE",
+    "fund_id": "XLE",
+    "doc_type": "analyst_report",
+    "source": "datasets/a.json",
+    "published_at": "2026-03-02",
+    "collected_at": "2026-03-02 14:56:58.962543"
+  },
+  {
+    "id": "xle_earnings_summary_3",
+    "content": "Top holdings for XLE\n- AAPL: Apple Inc. (0.133333)\n- MSFT: Microsoft Corporation (0.133333)\n- NVDA: NVIDIA Corporation (0.12)\n- AMZN: Amazon.com Inc. (0.106667)\n- META: Meta Platforms Inc. (0.093333)\n- GOOGL: Alphabet Inc. Class A (0.093333)\n- BRK.B: Berkshire Hathaway (0.093333)\n- JPM: JPMorgan Chase & Co. (0.08)\n- LLY: Eli Lilly and Co. (0.08)\n- XOM: Exxon Mobil Corporation (0.066667)",
+    "symbol": "XLE",
+    "fund_id": "XLE",
+    "doc_type": "earnings_summary",
+    "source": "datasets/a.json",
+    "published_at": "2026-03-02",
+    "collected_at": "2026-03-02 14:56:58.962543"
+  },
+  {
+    "id": "xle_news_4",
+    "content": "Sector allocation and flow summary for XLE\nSector Allocation:\n- Technology: 0.386667\n- Communication Services: 0.186667\n- Financials: 0.173333\n- Consumer Discretionary: 0.106667\n- Healthcare: 0.08\n- Energy: 0.066667\n- Consumer Staples: 0.0\n- Industrials: 0.0\n- Utilities: 0.0\n- Materials: 0.0\n- Real Estate: 0.0\nFlow Period: 2026\nInflow (B): 5.9141\nOutflow (B): 1.4204\nNet Flow (B): 4.4937\nPct of AUM: 0.126192",
+    "symbol": "XLE",
+    "fund_id": "XLE",
+    "doc_type": "news",
+    "source": "datasets/a.json",
+    "published_at": "2026-03-02",
+    "collected_at": "2026-03-02 14:56:58.962543"
+  }
+]

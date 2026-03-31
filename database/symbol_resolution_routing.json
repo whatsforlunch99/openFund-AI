@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "routes": [
+    {
+      "cache_key": "china vanke",
+      "phrases": ["万科", "china vanke", "vanke"],
+      "symbols": ["000002.SZ", "2202.HK"]
+    }
+  ],
+  "ticker_symbol_types": {
+    "SPY": "etfs",
+    "QQQ": "etfs",
+    "VOO": "etfs"
+  }
+}

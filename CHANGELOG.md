@@ -4,7 +4,53 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **Util cohesion:** `symbol_resolution_cache` and `tool_symbol_capabilities` are folded into [util/planner_symbol_resolution.py](util/planner_symbol_resolution.py). `OpenFundFormatter` lives in [util/interaction_log.py](util/interaction_log.py) (dictConfig path `util.interaction_log.OpenFundFormatter`). Removed `util/symbol_resolution_cache.py`, `util/tool_symbol_capabilities.py`, and `util/log_format.py`.
+
+- **Agent heuristics data file:** Ticker blocklists, phrase→symbol maps, preferred tickers, S&P/ETF override sets, analyst default/scan tickers, and planner partial-answer prefix/suffix moved from `agents/websearch_agent.py`, `agents/planner_agent.py`, and `agents/analyst_agent.py` into [database/agent_heuristics.json](database/agent_heuristics.json). Loaded via [util/agent_heuristics.py](util/agent_heuristics.py) (`get_websearcher_heuristics`, `get_planner_heuristics`, `get_analyst_heuristics`, `planner_fallback_substring_symbol_pairs`). `get_known_index_symbols()` replaces the old `KNOWN_INDEX_SYMBOLS` constant.
+
 ### Added
+
+- **Partial answers when research is “insufficient”:** If the planner exhausts `MAX_RESEARCH_ROUNDS` but collected outputs still have signal (e.g. `normalized_fund` prices, librarian SQL rows, long summaries), it now sends `_format_final` wrapped in caveats to the Responder with `partial_insufficient: true` instead of replacing the body with the single phrase “Insufficient information.” The Responder only forces that short message when `insufficient` is set and `partial_insufficient` is not.
+
+- **Sufficiency context:** `_format_aggregated_for_sufficiency` includes `normalized_fund` price lines and symbol lists plus librarian SQL row hints. `PLANNER_SUFFICIENCY` prompts the model to prefer SUFFICIENT when comparable prices or partial SQL exist.
+
+- **Specialist REQUEST `resolution_*` fields:** When symbol resolution status is `resolved`, planner REQUEST content also includes `resolution_listings`, `resolution_symbol_type`, and `resolution_canonical_name` (in addition to `symbol_resolution`) for explicit multi-listing context.
+
+### Changed
+
+- **Graph-aligned `symbol_type`:** `symbol_resolution` uses `schema_version` **3**. Allowed types: `cryptos`, `currencies`, `equities`, `etfs`, `funds`, `indices`, `moneymarkets`, `unknown`; legacy JSON values `etf` / `stock` normalize to `etfs` / `equities`. `etfdb_tool.get_fund_data` is gated on `symbol_type == "etfs"`. `database/symbol_resolution_routing.json` ticker hints updated (`SPY`, `QQQ`, `VOO` → `etfs`).
+
+### Fixed
+
+- **Planner decomposition inventing years:** `PLANNER_DECOMPOSE` now forbids adding calendar years to specialist sub-queries unless the user asked for that period; `decompose_to_steps` prepends today's UTC date so "latest/recent" aligns with the run date (avoids e.g. "in 2024" on a present-tense invest question).
+
+- **WebSearcher multi-ticker + `symbol_resolution`:** When the planner attached a resolved primary listing (e.g. `000002.SZ` for China Vanke), parallel fetches for a second ticker (e.g. `SPY`) still called Yahoo/ETFdb/market with the pinned symbol, so logs showed `symbol=SPY` but Yahoo data for Vanke. Payload symbols now use `_by_tool_symbol_for_iteration` so the pinned ticker is only reused when it matches the current loop symbol (same root ticker, allowing `.SZ` vs bare numeric).
+
+- **`kg_tool.get_relations` isolated nodes:** The one-hop pattern `MATCH (e)-[r]-(other)` returned no rows for entities that exist in Neo4j but have **no relationships**, so the Librarian merged an empty `graph`. When that query returns nothing, `get_relations` now runs a fallback `MATCH (e) WHERE … RETURN e` using the same entity predicate and returns those nodes with `edges: []`.
+
+- **SPY vs SPX on “SPY (S&P 500 ETF)” queries:** `_QUERY_TO_SYMBOL_MAP` matched `s&p 500` → `SPX` before `spy` → `SPY`, so Yahoo was called with `SPX` (no price). `extract_symbol_from_query`, `_normalize_symbol`, and fund-catalog symbol lists now apply `_prefer_etf_over_sp500_index_phrase` / `_merge_catalog_symbols_for_query` so an explicit ETF ticker in the text wins when S&P 500 wording is also present.
+
+### Changed
+
+- **Planner symbol resolution:** Known multi-listing issuers moved from inline Python to `database/symbol_resolution_known_issuers.json`; `util/planner_symbol_resolution._load_known_issuers` loads the file (lazy). Runtime cache unchanged: `{MEMORY_STORE_PATH}/symbol_resolution_cache.json`. Documented overlap between `util/tool_symbol_capabilities.py` and `openfund_mcp/tools` (planner gating vs tool implementation).
+
+- **Symbol resolution routing + ETF gating:** New `database/symbol_resolution_routing.json` (phrase/symbol → `cache_key`, `ticker_symbol_types` for etf vs stock). `derive_cache_key` uses routing before ticker heuristics. Payload `schema_version` **2** adds `symbol_type` (`etf` | `stock` | `unknown`); `etfdb_tool.get_fund_data` is included in `by_tool` only when `symbol_type` is `etf` (and US listing). Issuers carry `symbol_type` in `symbol_resolution_known_issuers.json`. WebSearcher accepts `symbol_resolution` schema_version ≥ 1 for `by_tool`.
+
+### Added
+
+- **Planner symbol resolution:** Before task decomposition, the Planner resolves listings and a per-MCP-tool `by_tool` plan (`action`: `call` | `skip`, `reason_code`, optional `symbol`), caches entries under `{MEMORY_STORE_PATH}/symbol_resolution_cache.json`, stores per `conversation_id`, and attaches **`symbol_resolution`** (schema_version 1) to every specialist REQUEST (including refined round). WebSearcher honors `by_tool` for financial + news tool calls (skips e.g. `market_tool.get_fundamentals` / `market_tool.get_news` for non-US listings such as China A-shares while keeping Yahoo and RSS). Librarian LLM prompt gets an optional resolved entity line; Analyst injects `resolved_symbol` for `get_indicators`. Flow step `planner_symbol_resolution`. New modules: `util/planner_symbol_resolution.py`, `util/symbol_resolution_cache.py`, `util/tool_symbol_capabilities.py`. Tests: `tests/test_symbol_resolution.py`.
+
+- **Conversation `data_sources`:** Each record in `memory/<user_id>/conversations.json` includes fixed keys `librarian`, `websearcher`, `analyst` with bounded JSON-safe snapshots of specialist INFORM content. The Planner calls `ConversationManager.merge_data_sources` (via `util/specialist_snapshot.build_data_sources_from_collected`) when aggregation completes before clearing `_collected`; partial merges preserve agents not updated in a second round. GET `/conversations/{id}` includes `data_sources`. Tests: `test_stage_1_3_data_sources_persist`, `test_stage_1_3_merge_data_sources_partial_round2` in `tests/test-stages.py`.
+
+### Changed
+
+- **Neo4j graph CSV export (kg_tool):** Primary bundle is **three CSVs** (`graph_nodes.csv`, `graph_relationships.csv`, `category_inspection.csv`); all edges live in `graph_relationships.csv` with `:START_ID`, `:END_ID`, `:TYPE`, and `source_field` where applicable. Only these three CSVs are emitted. Validator schema id `normalized_bundle_v4`.
+
+### Added
+
+- **`scripts/load_neo4j_graph_bundle.py`:** Validate `database/graph_data/neo4j_export`, optional `--load` into Neo4j, optional `--probe-vanke` for a quick `get_relations` check (loads `.env`).
 
 - **Per-user working memory and preference labels:** New `memory/user_memory.py` stores per-user working memory (preferences, questions asked, topics of interest) capped at 500 words. When the text exceeds 500 words, a pluggable compressor shortens it (default: truncation; optional LLM summarization wired at startup). Preference labels (e.g. "invest in US market", "trade funds") are stored and returned with the working memory for planner context. APIs: `get_user_memory`, `get_user_memory_raw`, `append_user_memory`, `update_preference_labels`, `append_preference_labels`, `set_compressor`, `compress_to_gist`. ConversationManager appends a short summary to user memory when a conversation completes. REST and WebSocket prefer this user memory for planner context, with fallback to recent Q/A from `get_user_memory_context`. Persistence: `memory/<user_id>/user_memory.json` (same root as conversations). Tests in `tests/test-stages.py`: round-trip and preference_labels, word count/truncation, mock compressor.
 
@@ -13,6 +59,16 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 - **Merge feature/websearcher into main:** WebSearcher parallel flow (FinanceDatabase, Stooq, Yahoo, ETFdb, market_tool, news_tool), FastMCP as MCP entry point (`openfund_mcp/__main__.py` → `run_stdio()` from mcp_server with .env loading), MCPClient `_tool_result_is_error` / `_tool_result_error_text` for SDK compatibility. Design docs under `docs/workflow/03_tools_and_mcp/` (websearcher-design.md, news-searcher-design.md, WEBSEARCHER_SYNC.md). WebSearcherAgent uses interaction_log and standard logger only (no trace_log/struct_log). Python 3.9–compatible type hint in `_normalise_to_schema`.
 
 ### Fixed
+
+- **Librarian dropped Neo4j fulltext / get_node_by_id results:** `LibrarianAgent._execute_tool_calls` only merged `get_relations` and `query_graph`, so LLM-chosen `kg_tool.fulltext_search` (and `get_node_by_id`’s `node` field) never reached `content.graph` → empty graph despite Neo4j hits. Now `fulltext_search` and `get_node_by_id` merge into the same `graph.nodes` list; partial errors with no payload are still skipped.
+
+- **get_relations wrong matches (e.g. Visa for “China Vanke”):** Substring match on `symbol` used `size >= 1`, so `V` matched inside “van**k**e”. Now substring match requires **symbol length ≥ 3**. **Name match** uses alphanumerics-only compact strings so “China Vanke Co Ltd” aligns with “China Vanke Co., Ltd.” **Removed `e.node_id` from Cypher** to avoid Neo4j “property does not exist” warnings on demo-only graphs; CSV loader now sets **`id`** to symbol (fallback `node_id`) so `e.id = $entity` still works after re-import.
+
+- **run.sh:** Skip `python -m data_manager` when the `data_manager` module is missing instead of printing `No module named data_manager`.
+
+- **KG fulltext index missing:** `kg_tool.fulltext_search` no longer fails hard when Neo4j has no fulltext index (e.g. `company`). It falls back to a parameterized `MATCH` on `name`/`symbol` with `CONTAINS` and returns `fallback: property_contains` when used. Removes stray debug file writes in `kg_tool` / `get_relations`.
+
+- **WebSearcher “China Vanke” → CHINA:** Free-form queries mentioning China Vanke were tokenized so `CHINA` won `max(..., key=len)` over `VANKE`, hitting the wrong Yahoo/Stooq symbol. `_KNOWN_COMPANY_PHRASES` maps `china vanke` / `vanke` → `000002.SZ` before the token heuristic (and `extract_symbol_from_query` stays aligned). Tests: `tests/test_websearch_symbol_extract.py`, `tests/test_kg_tool.py` (fulltext fallback).
 
 - **Symbol resolution (SPX → S):** WebSearcher `_normalize_symbol` no longer returns the first non-blocklisted token (e.g. "S" from "S&P 500 (SPX)"). It now (1) prefers a 2–5 letter ticker in parentheses like `(SPX)`, (2) uses a known map for "s&p 500"/"sp500"/"spx" → SPX (and "spy" → SPY), (3) prefers longer and preferred tickers in the token loop, and (4) adds "P" to the blocklist. Planner fallback `_QUERY_TO_SYMBOL` includes SPX variants and passes `fund` in websearcher params when set. Planner validates websearcher response: if the expected symbol (from the query) does not match `normalized_fund` symbols, it omits the price line and injects "No market data could be retrieved for the requested symbol (…)". ETFdb is skipped for known index symbols (e.g. SPX). Optional dependency: `pip install openfund-ai[websearcher]` for FinanceDatabase (fund_catalog_tool). See docs/websearcher-design.md and agent-tools-reference.md.
 

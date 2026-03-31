@@ -104,17 +104,17 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 #### kg_tool.get_relations
 
-- **Description:** Get all relationships and connected nodes for a named entity (e.g. fund or company).
-- **Payload:** `entity` (required, string) — entity name or identifier.
+- **Description:** Get 1-hop relationships and connected nodes for a company/fund. Matches `id`, exact `name`/`symbol`, Neo4j `elementId`, punctuation-insensitive name overlap with planner text, or planner text containing a **multi-character** symbol (single-letter tickers are not substring-matched). Omits `node_id` in Cypher so demo graphs without that property do not emit DBMS warnings; CSV loads set `id` from symbol (or node id).
+- **Payload:** `entity` (required, string) — symbol (e.g. `000002.SZ`), `id`, exact name, or planner sub-query naming the issuer.
 - **Returns:** `{"nodes": [...], "edges": [...]}` or `{"error": str}`.
 - **Sample call:**
   ```json
-  { "entity": "NVDA" }
+  { "entity": "000002.SZ" }
   ```
 
 #### kg_tool.get_node_by_id
 
-- **Description:** Look up a single node by a specific property value.
+- **Description:** Look up a single node by a specific property value (for CSV-loaded graphs use `id_key: "node_id"` when matching import ids).
 - **Payload:** `id_val` (required, string — the value to match), `id_key` (optional, string, default `"id"` — the property name to match on).
 - **Returns:** `{"node": {...}}` or `{"node": null}` if not found.
 - **Sample call:**

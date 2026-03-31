@@ -37,6 +37,10 @@ OpenFund-AI/
 │   └── schemas.py             # Database schema definitions (SQL DDL, Cypher patterns)
 ├── datasets/                     # Fund dataset files
 │   └── combined_funds.json       # Canonical combined fund dataset used by distribute-funds
+├── database/                     # Static data (graph bundles, planner symbol catalog, etc.)
+│   ├── agent_heuristics.json     # WebSearcher ticker blocklist / phrase→symbol maps; planner partial text; analyst defaults
+│   ├── symbol_resolution_known_issuers.json  # cache_key → canonical_name, symbol_type, listings
+│   └── symbol_resolution_routing.json        # phrase/symbol → cache_key; ticker → etf|stock hints
 ├── scripts/
 │   ├── run.sh                # Single entrypoint: backends, seed, API, and interactive chat (use --no-chat for API only)
 │   └── chat_cli.py            # Interactive terminal client: POST /chat in a loop; --port, --profile
@@ -81,7 +85,10 @@ OpenFund-AI/
 ├── util/
 │   ├── __init__.py
 │   ├── trace_log.py
-│   └── interaction_log.py
+│   ├── interaction_log.py
+│   ├── specialist_snapshot.py   # Bounded JSON-safe snapshots of specialist INFORM payloads for conversations.json
+│   ├── agent_heuristics.py      # Load database/agent_heuristics.json for agents (websearch/planner/analyst)
+│   └── planner_symbol_resolution.py  # Listings + by_tool + tool/market registry + symbol_resolution_cache.json I/O
 ├── main.py
 ├── CHANGELOG.md
 ├── README.md
@@ -210,6 +217,34 @@ print(msg.conversation_id)  # UUID string
 
 **Format:** Each log line is a single JSON object with keys: ts, conversation_id, function, params, result, duration_ms, sequence. Logger name: openfund.interaction. Enable via INTERACTION_LOG=1 or config.interaction_log_enabled.
 
+**Class:** `OpenFundFormatter` — Root `logging.Formatter` for uvicorn/app logs (timestamp, level, category, message); passes through `openfund.interaction` lines unchanged. Referenced from `main.py` dictConfig as `util.interaction_log.OpenFundFormatter`.
+
+---
+
+# util/specialist_snapshot.py
+
+**Purpose:** Build bounded, JSON-serializable snapshots of librarian / websearcher / analyst INFORM `content` dicts for persistence in `conversations.json` (not full raw payloads).
+
+**Constants / symbols:** `SPECIALIST_AGENTS` — tuple `("librarian", "websearcher", "analyst")`.
+
+**Functions:**
+- `snapshot_specialist_payload(agent: str, content: Any) -> dict[str, Any]` — Per-agent snapshot (truncated summaries, counts, small previews) or `{}` if content missing; enforces a per-agent serialized size budget.
+- `build_data_sources_from_collected(collected: dict[str, Any]) -> dict[str, dict[str, Any]]` — Maps each specialist present in `collected` with non-empty content to its snapshot; used by the Planner before handing off to the Responder.
+
+---
+
+# util/planner_symbol_resolution.py
+
+**Purpose:** Build `symbol_resolution` objects (`schema_version` 3: `status`, `symbol_type`, `listings`, `by_tool`) for Planner REQUEST content; load issuers from `database/symbol_resolution_known_issuers.json`; routing aliases from `database/symbol_resolution_routing.json` (`_load_routing`, `_routing_cache_key_for_query`); static MCP tool vs market registry (`FINANCIAL_TOOL_IDS`, `NEWS_TOOL_IDS`, `call_entry` / `skip_entry`, `should_include_financial_tool`); read/write `{MEMORY_STORE_PATH}/symbol_resolution_cache.json` (`load_cache`, `get_cached_entry`, `put_cached_entry`).
+
+**Functions:** `derive_cache_key`, `resolve_symbol_resolution_for_query`, `maybe_use_cached_resolution`, `resolution_summary_for_prompt`, `_load_known_issuers`, `_load_routing`, `_ticker_symbol_type_from_routing`.
+
+---
+
+# util/agent_heuristics.py
+
+**Purpose:** Load `database/agent_heuristics.json` once (LRU-cached) into typed structs: `WebsearcherHeuristics` (ticker blocklist, `query_substring_to_symbol`, company phrases, preferred tickers, index symbols, ETF/S&P override sets, default fallback symbol), `PlannerHeuristics` (partial-insufficient prefix/suffix), `AnalystHeuristics` (default symbol, query scan tickers). Exposes `planner_fallback_substring_symbol_pairs` and `clear_heuristics_cache` for tests.
+
 ---
 
 # a2a/message_bus.py
@@ -316,7 +351,7 @@ bus.broadcast(ACLMessage(performative="stop", sender="responder", receiver="*", 
 
 ## Class: `ConversationState`
 
-**Purpose:** Snapshot of one conversation. Holds id, user_id, initial_query, messages, status, final_response, created_at, completion_event, and flow_events for API blocking, persistence, and UI flow steps.
+**Purpose:** Snapshot of one conversation. Holds id, user_id, initial_query, messages, status, final_response, created_at, completion_event, flow_events, and **data_sources** (fixed keys librarian / websearcher / analyst → bounded snapshot dicts or `{}`) for API blocking, persistence, and UI flow steps.
 
 **Docstring:**
 ```text
@@ -331,6 +366,7 @@ Attributes:
     created_at: Creation datetime.
     completion_event: threading.Event set when final_response is written; callers block with event.wait(timeout=...).
     flow_events: Append-only list of flow step dicts for UI (e.g. {"step": "...", "message": "...", "detail": {...}}).
+    data_sources: Optional bounded snapshots of specialist INFORM payloads (librarian, websearcher, analyst).
 ```
 
 **Example usage:**
@@ -352,7 +388,7 @@ state = ConversationState(conversation_id="abc", user_id="u1", initial_query="..
 
 **Docstring:** `Tracks conversations and sends STOP broadcasts via the message bus. Responsibilities: create conversation, get state, register replies, broadcast STOP.`
 
-**Persistence:** Conversation state is written to `MEMORY_STORE_PATH/<user_id>/conversations.json` (see [backend.md](backend.md)) on create and on register_reply. Anonymous user_id maps to `anonymous/`. ConversationManager maintains _memory_root and uses _user_dir, _save_user internally. Only a subset of state is persisted: id, user_id, initial_query, messages, status, final_response, created_at. **flow_events are in-memory only**; they are returned in the API response (`flow`) for the current request but are not written to conversations.json.
+**Persistence:** Conversation state is written to `MEMORY_STORE_PATH/<user_id>/conversations.json` (see [backend.md](backend.md)) on create, on register_reply, and on `merge_data_sources`. Anonymous user_id maps to `anonymous/`. ConversationManager maintains _memory_root and uses _user_dir, _save_user internally. Persisted fields include: id, user_id, initial_query, messages, status, final_response, created_at, **data_sources** (fixed agent keys; values are bounded snapshots from `util/specialist_snapshot.py`). **flow_events are in-memory only**; they are returned in the API response (`flow`) for the current request but are not written to conversations.json.
 
 ---
 
@@ -435,6 +471,14 @@ Args:
 ```python
 mgr.register_reply(cid, reply_msg)
 ```
+
+---
+
+## Method: `ConversationManager.merge_data_sources(self, conversation_id: str, per_agent: dict[str, Any]) -> None`
+
+**Purpose:** Merge specialist snapshots into `state.data_sources` by agent key (`librarian`, `websearcher`, `analyst`). Only non-empty dict values in `per_agent` overwrite that agent’s slot; other agents keep prior snapshots (supports planner round 2). Calls `_save_user` to persist.
+
+**Example usage:** `mgr.merge_data_sources(cid, build_data_sources_from_collected(collected))` — typically invoked from `PlannerAgent` immediately before clearing `_collected` when sending to the Responder.
 
 ---
 
@@ -541,7 +585,7 @@ step = TaskStep(agent="librarian", params={"query": "fund X facts", "fund": "X"}
 
 ## Method: `PlannerAgent.handle_message(self, message: ACLMessage) -> None`
 
-**Purpose:** On STOP, return. On INFORM from librarian/websearcher/analyst, aggregate in _collected; when all expected specialist replies are in, run planner sufficiency check and either start refined planner round(s) or send INFORM to responder with final_response and user_profile. On REQUEST from api, validate user_profile, call decompose_task (uses llm_client when set), and dispatch the initial planner round; merge path from content for E2E.
+**Purpose:** On STOP, return. On INFORM from librarian/websearcher/analyst, aggregate in _collected; when all expected specialist replies are in, run planner sufficiency check and either start refined planner round(s) or send INFORM to responder with final_response and user_profile. When handing off to the Responder, if `conversation_manager` is set, calls `merge_data_sources` with `build_data_sources_from_collected(collected)` before deleting `_collected`. On REQUEST from api: resolve symbol (cache + `symbol_resolution_cache.json`), append flow `planner_symbol_resolution`, augment `user_memory` with resolution summary, validate user_profile, call `decompose_task` (uses llm_client when set), and dispatch the initial planner round; `create_research_request` attaches `symbol_resolution` per `conversation_id` (including refined round). Merge path from content for E2E.
 
 **Docstring:** `Handle incoming messages directed to the Planner. Handles STOP (ignore), INFORM from specialist agents (aggregate then forward to Responder), and REQUEST from API (send to all three agents). Args: message: The received ACL message (REQUEST from api, or INFORM from librarian/websearcher/analyst).`
 
@@ -667,7 +711,7 @@ combined = agent.combine_results(docs, graph_data)
 
 # agents/websearch_agent.py
 
-**Purpose:** Fetch real-time market and fund data via MCP. Entry point `handle_message` → `_run_parallel_flow`: financial bundle per symbol via `_fetch_all_sources_for_symbol` (stooq, Yahoo, ETFdb, market_tool with dated news payloads), merged by `_merge_financial_results` into `normalized_fund`; news bundle via `_fetch_news_sources` in parallel. Symbol resolution uses `_resolve_symbols` / `_normalize_symbol` and `_TICKER_BLOCKLIST` so planner tokens like WHAT are not queried as tickers. Returns `normalized_fund`, backward-compat `market_data`/`sentiment`/`regulatory`, and `news`/`citations`. See [websearcher-design.md](../03_tools_and_mcp/websearcher-design.md).
+**Purpose:** Fetch real-time market and fund data via MCP. Entry point `handle_message` → `_run_parallel_flow`: financial bundle per symbol via `_fetch_all_sources_for_symbol` (stooq, Yahoo, ETFdb, market_tool with dated news payloads), merged by `_merge_financial_results` into `normalized_fund`; news bundle via `_fetch_news_sources` in parallel. Symbol resolution uses `_resolve_symbols` / `_normalize_symbol` and `get_websearcher_heuristics()` (from `database/agent_heuristics.json` via `util/agent_heuristics.py`) so planner tokens like WHAT are not queried as tickers. Returns `normalized_fund`, backward-compat `market_data`/`sentiment`/`regulatory`, and `news`/`citations`. See [websearcher-design.md](../03_tools_and_mcp/websearcher-design.md).
 
 ---
 
@@ -1717,6 +1761,36 @@ rels = get_relations("FUND_X")
 ## Function: `populate_demo() -> tuple[bool, str]`
 
 **Purpose:** MERGE Company NVDA, Sector Technology, IN_SECTOR edge. Uses NEO4J_URI. Returns (success, message). Keeps CredentialsExpired/Unauthorized hints in errors. Caller should load .env first.
+
+---
+
+## Function: `build_graph_csvs(data_dir: str = "database/graph_data", output_dir: str = "database/graph_data/neo4j_export") -> dict`
+
+**Purpose:** Build normalized Neo4j-import-ready CSV bundle from `database/graph_data/*.csv` using a category-first approach with canonical IDs.
+
+**Behavior highlights:**
+- Record, dataset, and currency **bare ids** from slugged symbols/names/codes (e.g. `ogka_sg`, `funds`, `usd`).
+- **Tag** nodes: one node per normalized categorical value across all columns/files; relationship `source_field` records which column produced the link.
+- **Dimension** nodes `currency` and `dataset`; all currency/dataset entities link to them.
+- Narrative-like categorical values are filtered before tag creation.
+- Example: `USD` / `uSD` → one currency node `usd`.
+
+**Outputs:**
+- Node file: `graph_nodes.csv` (all labels in one file; global id space with deterministic suffixes when the same bare slug would otherwise collide across kinds).
+- Relationship file: `graph_relationships.csv` (single file; `:START_ID`, `:END_ID`, `:TYPE`, `source_field`).
+- Inspection: `category_inspection.csv`.
+- Return payload includes `graph_nodes_csv`, `graph_relationships_csv`, `category_inspection_csv`, `import_files`, `neo4j_import_command_hint`, and deprecated alias `category_nodes_csv` pointing at `graph_nodes_csv` for older callers.
+
+---
+
+## Function: `load_graph_csvs_to_neo4j(nodes_csv: str, relationships_csv: str, mode: str = "append", output_dir: str | None = None) -> dict`
+
+**Purpose:** Load normalized bundle from `output_dir` (`graph_nodes.csv` + `graph_relationships.csv`), or an ad-hoc `nodes_csv` + `relationships_csv` pair when `output_dir` is unset.
+
+**Behavior highlights:**
+- Supports append mode.
+- In bundle mode, loads `graph_nodes.csv` and `graph_relationships.csv` (`:TYPE` per row; optional `source_field`).
+- Without `output_dir`, `load_graph_csvs_to_neo4j` still accepts a custom `nodes_csv` + `relationships_csv` pair (ad-hoc schema) for tests or one-off loads.
 
 ---
 

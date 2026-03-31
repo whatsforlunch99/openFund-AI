@@ -16,83 +16,156 @@ from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util import interaction_log
+from util.agent_heuristics import get_websearcher_heuristics
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
 
-# Uppercase words that match [A-Z]{1,5} but are not tickers (English question words, etc.).
-# If the planner passes fund="WHAT" from "What is the price of SPY?", we must not query WHAT.US.
-# "P" from "S&P" is rarely a standalone ticker; blocklist avoids it when "(SPX)" is missing.
-_TICKER_BLOCKLIST = frozenset({
-    "WHAT", "WHEN", "WHERE", "WHICH", "WHO", "WHOM", "WHOSE", "WHY", "HOW",
-    "IS", "ARE", "WAS", "WERE", "BE", "BEEN", "BEING", "HAVE", "HAS", "HAD", "DO", "DOES", "DID",
-    "THE", "A", "AN", "AND", "OR", "BUT", "IF", "THEN", "ELSE", "FOR", "TO", "OF", "IN", "ON", "AT",
-    "BY", "FROM", "AS", "INTO", "THROUGH", "DURING", "BEFORE", "AFTER", "ABOVE", "BELOW",
-    "NOT", "NO", "YES", "ALL", "ANY", "BOTH", "EACH", "FEW", "MORE", "MOST", "OTHER", "SOME", "SUCH",
-    "ONLY", "OWN", "SAME", "SO", "THAN", "TOO", "VERY", "CAN", "WILL", "JUST", "SHOULD", "NOW",
-    "THERE", "HERE", "THIS", "THAT", "THESE", "THOSE", "WITH", "WITHOUT", "ABOUT", "AGAINST",
-    "CURRENT", "RECENT", "LATEST", "PRICE", "NEWS", "STOCK", "FUND", "ETF", "DATA", "INFO",
-    "P",  # from "S&P" — avoid choosing P when (SPX) is missing
-})
+
+def _standalone_upper_tickers(upper: str) -> list[str]:
+    tokens = re.findall(r"\b[A-Z]{1,5}\b", upper)
+    bl = get_websearcher_heuristics().ticker_blocklist
+    return [t for t in tokens if t not in bl]
 
 
-# Known index / fund name (lowercase) -> canonical symbol. Index-like phrases map to SPX.
-_QUERY_TO_SYMBOL_MAP = {
-    "s&p 500": "SPX",
-    "s&p500": "SPX",
-    "sp500": "SPX",
-    "spx": "SPX",
-    "spy": "SPY",
-}
+def _symbol_from_known_company_phrase(lower: str) -> str | None:
+    for phrase, sym in get_websearcher_heuristics().known_company_phrases:
+        if phrase in lower:
+            return sym
+    return None
 
-# Preferred tickers (indices/ETFs) to pick when multiple tokens match; longer tokens preferred otherwise.
-_PREFERRED_TICKERS = ("SPX", "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "NVDA", "AAPL", "MSFT", "GOOGL", "TSLA", "AMZN", "META")
 
-# Index symbols (not ETFs); ETFdb may 404 for these — skip or ignore.
-KNOWN_INDEX_SYMBOLS = frozenset({"SPX"})
+def get_known_index_symbols() -> frozenset[str]:
+    """Index symbols (not ETFs); ETFdb may skip these. Data: database/agent_heuristics.json."""
+    return get_websearcher_heuristics().known_index_symbols
+
+
+def _prefer_etf_over_sp500_index_phrase(lower: str, upper: str) -> str | None:
+    """If text names an ETF ticker and also S&P 500 wording, return that ETF symbol."""
+    h = get_websearcher_heuristics()
+    etf_hits = [
+        t for t in _standalone_upper_tickers(upper) if t in h.etf_tickers_override_sp500_phrase
+    ]
+    if not etf_hits:
+        return None
+    if not any(p in lower for p in h.sp500_verbiage_substrings):
+        return None
+    return etf_hits[0]
+
+
+def _merge_catalog_symbols_for_query(symbols: list[str], query: str) -> list[str]:
+    """Prefer explicit query ETFs over SPX when catalog + S&P 500 phrasing collide."""
+    lower = query.lower()
+    upper = query.upper()
+    out = [str(s).strip().upper() for s in symbols if s]
+    ovr = _prefer_etf_over_sp500_index_phrase(lower, upper)
+    if ovr:
+        out = [ovr if s == "SPX" else s for s in out]
+        if ovr not in out:
+            out.append(ovr)
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for s in out:
+        if s and s not in seen:
+            seen.add(s)
+            deduped.append(s)
+    return deduped
 
 
 def extract_symbol_from_query(raw: str) -> str:
     """Extract expected ticker from free-form query text. Same logic as WebSearcherAgent._normalize_symbol.
     Used by planner for symbol-mismatch validation."""
+    h = get_websearcher_heuristics()
     text = (raw or "").strip()
     if not text:
-        return "AAPL"
+        return h.default_fallback_symbol
     upper = text.upper()
     lower = text.lower()
     # Prefer ticker in parentheses
     paren = re.search(r"\(([A-Z]{2,5})\)", upper)
     if paren:
         sym = paren.group(1)
-        if sym not in _TICKER_BLOCKLIST:
+        if sym not in h.ticker_blocklist:
             return sym
-    # Known map
-    for key, sym in _QUERY_TO_SYMBOL_MAP.items():
+    etf_over_index = _prefer_etf_over_sp500_index_phrase(lower, upper)
+    if etf_over_index:
+        return etf_over_index
+    for key, sym in h.query_substring_to_symbol:
         if key in lower:
             return sym
+    phrase_sym = _symbol_from_known_company_phrase(lower)
+    if phrase_sym:
+        return phrase_sym
     # Token preference
     tokens = re.findall(r"\b[A-Z]{1,5}\b", upper)
-    candidates = [t for t in tokens if t not in _TICKER_BLOCKLIST]
+    candidates = [t for t in tokens if t not in h.ticker_blocklist]
     if candidates:
-        preferred_set = set(_PREFERRED_TICKERS)
+        preferred_set = set(h.preferred_tickers)
         in_preferred = [t for t in candidates if t in preferred_set]
         if in_preferred:
             return in_preferred[0]
         return max(candidates, key=len)
-    known = {
-        "nvidia": "NVDA", "apple": "AAPL", "tesla": "TSLA", "microsoft": "MSFT",
-        "google": "GOOGL", "alphabet": "GOOGL", "vanguard": "VTI",
-    }
-    for key, sym in known.items():
-        if key in lower:
-            return sym
-    return "AAPL"
+    return h.default_fallback_symbol
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _by_tool_should_call(by_tool: dict[str, Any] | None, tool_id: str) -> bool:
+    """If planner sent symbol_resolution.by_tool, honor skip; missing entry means call (legacy)."""
+    if not by_tool or not isinstance(by_tool, dict):
+        return True
+    entry = by_tool.get(tool_id)
+    if entry is None:
+        return True
+    if not isinstance(entry, dict):
+        return True
+    return entry.get("action") != "skip"
+
+
+def _by_tool_symbol(by_tool: dict[str, Any] | None, tool_id: str, default_symbol: str) -> str:
+    """Symbol string for MCP payload when action is call."""
+    if not by_tool or not isinstance(by_tool, dict):
+        return default_symbol
+    entry = by_tool.get(tool_id)
+    if isinstance(entry, dict) and entry.get("action") == "call":
+        sym = entry.get("symbol")
+        if isinstance(sym, str) and sym.strip():
+            return sym.strip()
+    return default_symbol
+
+
+def _ticker_base(sym: str) -> str:
+    """Compare tickers loosely: same root before exchange suffix (e.g. 000002.SZ vs 000002)."""
+    s = (sym or "").strip().upper()
+    if "." in s:
+        return s.split(".", 1)[0]
+    return s
+
+
+def _pin_matches_iteration(pinned: str, iteration: str) -> bool:
+    """True if planner-pinned symbol refers to the same security as the parallel-loop symbol."""
+    p = (pinned or "").strip().upper()
+    i = (iteration or "").strip().upper()
+    if not i:
+        return True
+    if p == i:
+        return True
+    return _ticker_base(p) == _ticker_base(i) and bool(_ticker_base(i))
+
+
+def _by_tool_symbol_for_iteration(
+    by_tool: dict[str, Any] | None, tool_id: str, iteration_symbol: str
+) -> str:
+    """Use by_tool's symbol only when it matches this iteration; else use iteration (multi-ticker queries)."""
+    it = (iteration_symbol or "").strip()
+    pinned = _by_tool_symbol(by_tool, tool_id, it)
+    if _pin_matches_iteration(pinned, it):
+        return pinned
+    return it
 
 
 def _extract_price_from_text(text: str) -> Optional[float]:
@@ -183,9 +256,10 @@ class WebSearcherAgent(BaseAgent):
 
     def _normalize_symbol(self, raw: str) -> str:
         """Best-effort ticker extraction for free-form planner query text."""
+        h = get_websearcher_heuristics()
         text = (raw or "").strip()
         if not text:
-            return "AAPL"
+            return h.default_fallback_symbol
         upper = text.upper()
         lower = text.lower()
 
@@ -193,21 +267,30 @@ class WebSearcherAgent(BaseAgent):
         paren = re.search(r"\(([A-Z]{2,5})\)", upper)
         if paren:
             sym = paren.group(1)
-            if sym not in _TICKER_BLOCKLIST:
+            if sym not in h.ticker_blocklist:
                 return sym
 
-        # 1.2 Known index/name -> symbol (lowercased text)
-        for key, sym in _QUERY_TO_SYMBOL_MAP.items():
+        # 1.2 ETF ticker + "S&P 500" text -> ETF, not SPX
+        etf_over_index = _prefer_etf_over_sp500_index_phrase(lower, upper)
+        if etf_over_index:
+            return etf_over_index
+
+        # 1.3 Known index/name -> symbol (lowercased text)
+        for key, sym in h.query_substring_to_symbol:
             if key in lower:
                 return sym
 
-        # 1.3 Collect non-blocklisted tokens; prefer (a) preferred list, (b) longer length
+        phrase_sym = _symbol_from_known_company_phrase(lower)
+        if phrase_sym:
+            return phrase_sym
+
+        # 1.4 Collect non-blocklisted tokens; prefer (a) preferred list, (b) longer length
         tokens = re.findall(r"\b[A-Z]{1,5}\b", upper)
-        candidates = [t for t in tokens if t not in _TICKER_BLOCKLIST]
+        candidates = [t for t in tokens if t not in h.ticker_blocklist]
         if not candidates:
             pass
         else:
-            preferred_set = set(_PREFERRED_TICKERS)
+            preferred_set = set(h.preferred_tickers)
             in_preferred = [t for t in candidates if t in preferred_set]
             if in_preferred:
                 return in_preferred[0]
@@ -215,20 +298,7 @@ class WebSearcherAgent(BaseAgent):
             best = max(candidates, key=len)
             return best
 
-        # Fallback: known company names
-        known = {
-            "nvidia": "NVDA",
-            "apple": "AAPL",
-            "tesla": "TSLA",
-            "microsoft": "MSFT",
-            "google": "GOOGL",
-            "alphabet": "GOOGL",
-            "vanguard": "VTI",
-        }
-        for key, sym in known.items():
-            if key in lower:
-                return sym
-        return "AAPL"
+        return h.default_fallback_symbol
 
     def _resolve_symbols(self, content: dict) -> tuple[list[str], list[dict]]:
         """Resolve symbol(s) from REQUEST content. Returns (symbols, static_matches).
@@ -240,15 +310,16 @@ class WebSearcherAgent(BaseAgent):
         query = (content.get("query") or "").strip()
         fund = (content.get("fund") or content.get("symbol") or "").strip()
         fund_upper = fund.upper().split(".")[0] if fund else ""
+        bl = get_websearcher_heuristics().ticker_blocklist
         # Explicit ticker only if not a blocklisted word (e.g. WHAT from "What is the price of SPY?")
         if (
             fund
             and re.match(r"^[A-Z]{1,5}(\.[A-Z]{2})?$", fund.upper())
-            and fund_upper not in _TICKER_BLOCKLIST
+            and fund_upper not in bl
         ):
             return [fund_upper], []
         # Blocklisted or empty fund: try catalog + query first
-        if fund_upper in _TICKER_BLOCKLIST:
+        if fund_upper in bl:
             fund = ""
 
         # Try fund_catalog
@@ -263,12 +334,13 @@ class WebSearcherAgent(BaseAgent):
                     matches = (r or {}).get("matches") or []
                     if matches:
                         syms = [m["symbol"] for m in matches if m.get("symbol")]
+                        syms = _merge_catalog_symbols_for_query(syms, query)
                         return syms[:3], matches
             except Exception:
                 pass
 
         # Fallback heuristic
-        raw = query or fund or "AAPL"
+        raw = query or fund or get_websearcher_heuristics().default_fallback_symbol
         return [self._normalize_symbol(raw)], []
 
     def _has_price_conflict(self, rec: dict) -> bool:
@@ -399,7 +471,11 @@ class WebSearcherAgent(BaseAgent):
         return "; ".join(parts) if parts else "No price data."
 
     def _fetch_news_sources(
-        self, query: str, symbol: str, days: int = 7
+        self,
+        query: str,
+        symbol: str,
+        days: int = 7,
+        by_tool: dict[str, Any] | None = None,
     ) -> tuple[list[dict], list[dict], list[dict]]:
         """Fetch news in parallel: RSS, market_tool.get_news, market_tool.get_global_news.
         Returns (rss_items, sentiment_items, regulatory_items) as raw item lists.
@@ -412,19 +488,35 @@ class WebSearcherAgent(BaseAgent):
         reg = self.mcp_client.get_registered_tool_names() or []
         call = self.mcp_client.call_tool
         tasks: list[tuple[str, str, dict]] = []
-        if "news_tool.search_rss" in reg:
+        news_sym = _by_tool_symbol(by_tool, "market_tool.get_news", symbol)
+        if "news_tool.search_rss" in reg and _by_tool_should_call(by_tool, "news_tool.search_rss"):
             tasks.append(("rss", "news_tool.search_rss", {"query": query, "days": days}))
-        if "news_tool.search_yahoo_rss" in reg:
+        if "news_tool.search_yahoo_rss" in reg and _by_tool_should_call(
+            by_tool, "news_tool.search_yahoo_rss"
+        ):
             tasks.append(("rss_yahoo", "news_tool.search_yahoo_rss", {"limit": 15}))
-        if "news_tool.search_gdelt" in reg:
+        if "news_tool.search_gdelt" in reg and _by_tool_should_call(
+            by_tool, "news_tool.search_gdelt"
+        ):
             tasks.append(("rss_gdelt", "news_tool.search_gdelt", {"query": query, "limit": 10}))
         today = date.today().isoformat()
         start = (date.today() - timedelta(days=days)).isoformat()
-        if "market_tool.get_news" in reg:
+        if "market_tool.get_news" in reg and _by_tool_should_call(by_tool, "market_tool.get_news"):
             tasks.append(
-                ("sentiment", "market_tool.get_news", {"symbol": symbol, "start_date": start, "end_date": today, "limit": 5})
+                (
+                    "sentiment",
+                    "market_tool.get_news",
+                    {
+                        "symbol": news_sym,
+                        "start_date": start,
+                        "end_date": today,
+                        "limit": 5,
+                    },
+                )
             )
-        if "market_tool.get_global_news" in reg:
+        if "market_tool.get_global_news" in reg and _by_tool_should_call(
+            by_tool, "market_tool.get_global_news"
+        ):
             tasks.append(
                 ("regulatory", "market_tool.get_global_news", {"as_of_date": today, "look_back_days": days, "limit": 5})
             )
@@ -581,7 +673,9 @@ class WebSearcherAgent(BaseAgent):
                 })
         return self._build_news_with_citations(items[:10])
 
-    def _fetch_all_sources_for_symbol(self, symbol: str) -> dict[str, Any]:
+    def _fetch_all_sources_for_symbol(
+        self, symbol: str, by_tool: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Fetch all data sources in parallel: stooq, yahoo, etfdb, market_tool (fundamentals, news, global_news)."""
         stooq_res: dict[str, Any] = {}
         yahoo_res: dict[str, Any] = {}
@@ -595,29 +689,45 @@ class WebSearcherAgent(BaseAgent):
         reg = self.mcp_client.get_registered_tool_names() or []
         call = self.mcp_client.call_tool
         tasks: list[tuple[str, str, dict]] = []
-        if "stooq_tool.get_price" in reg:
-            tasks.append(("stooq", "stooq_tool.get_price", {"symbol": symbol}))
+        stooq_sym = _by_tool_symbol_for_iteration(by_tool, "stooq_tool.get_price", symbol)
         yahoo_tool = "yahoo_finance_tool.get_fundamental"         if "yahoo_finance_tool.get_fundamental" in reg else "yahoo_finance_tool.get_price"
-        if yahoo_tool in reg:
-            tasks.append(("yahoo", yahoo_tool, {"symbol": symbol}))
+        yahoo_sym = _by_tool_symbol_for_iteration(by_tool, yahoo_tool, symbol)
+        etf_sym = _by_tool_symbol_for_iteration(by_tool, "etfdb_tool.get_fund_data", symbol)
+        mkt_f_sym = _by_tool_symbol_for_iteration(by_tool, "market_tool.get_fundamentals", symbol)
+        mkt_n_sym = _by_tool_symbol_for_iteration(by_tool, "market_tool.get_news", symbol)
+
+        if "stooq_tool.get_price" in reg and _by_tool_should_call(by_tool, "stooq_tool.get_price"):
+            tasks.append(("stooq", "stooq_tool.get_price", {"symbol": stooq_sym}))
+        if yahoo_tool in reg and _by_tool_should_call(by_tool, yahoo_tool):
+            tasks.append(("yahoo", yahoo_tool, {"symbol": yahoo_sym}))
         # Skip ETFdb for known index symbols (e.g. SPX); ETFdb is for ETFs and may 404.
-        if "etfdb_tool.get_fund_data" in reg and symbol not in KNOWN_INDEX_SYMBOLS:
-            tasks.append(("etfdb", "etfdb_tool.get_fund_data", {"symbol": symbol}))
-        if "market_tool.get_fundamentals" in reg:
-            tasks.append(("market", "market_tool.get_fundamentals", {"ticker": symbol, "symbol": symbol}))
+        if (
+            "etfdb_tool.get_fund_data" in reg
+            and symbol not in get_websearcher_heuristics().known_index_symbols
+            and _by_tool_should_call(by_tool, "etfdb_tool.get_fund_data")
+        ):
+            tasks.append(("etfdb", "etfdb_tool.get_fund_data", {"symbol": etf_sym}))
+        if "market_tool.get_fundamentals" in reg and _by_tool_should_call(
+            by_tool, "market_tool.get_fundamentals"
+        ):
+            tasks.append(
+                ("market", "market_tool.get_fundamentals", {"ticker": mkt_f_sym, "symbol": mkt_f_sym})
+            )
         # market_tool news paths require dates for Alpha Vantage; empty payload caused
         # "time data '' does not match format" for get_global_news in logs.
         today = date.today().isoformat()
         start = (date.today() - timedelta(days=7)).isoformat()
-        if "market_tool.get_news" in reg:
+        if "market_tool.get_news" in reg and _by_tool_should_call(by_tool, "market_tool.get_news"):
             tasks.append(
                 (
                     "sentiment",
                     "market_tool.get_news",
-                    {"symbol": symbol, "start_date": start, "end_date": today, "limit": 5},
+                    {"symbol": mkt_n_sym, "start_date": start, "end_date": today, "limit": 5},
                 )
             )
-        if "market_tool.get_global_news" in reg:
+        if "market_tool.get_global_news" in reg and _by_tool_should_call(
+            by_tool, "market_tool.get_global_news"
+        ):
             tasks.append(
                 (
                     "regulatory",
@@ -796,8 +906,27 @@ class WebSearcherAgent(BaseAgent):
 
     def _run_parallel_flow(self, content: dict) -> dict[str, Any]:
         """Query all sources in parallel: Financial Data + News Search. Merge and return reply_content."""
+        sr = content.get("symbol_resolution")
+        by_tool: dict[str, Any] | None = None
+        if isinstance(sr, dict) and int(sr.get("schema_version", 0)) >= 1:
+            bt = sr.get("by_tool")
+            by_tool = bt if isinstance(bt, dict) else None
+
         symbols, static_matches = self._resolve_symbols(content)
         query = (content.get("query") or content.get("fund") or content.get("symbol") or "AAPL").strip()
+        if (
+            by_tool
+            and isinstance(sr, dict)
+            and sr.get("status") == "resolved"
+            and isinstance(sr.get("listings"), list)
+            and sr["listings"]
+        ):
+            first = sr["listings"][0]
+            if isinstance(first, dict):
+                primary_sym = first.get("symbol_yahoo") or first.get("symbol_compact")
+                if primary_sym:
+                    ps = str(primary_sym).strip()
+                    symbols = [ps] + [s for s in symbols if s.upper() != ps.upper()]
         symbol = symbols[0] if symbols else "AAPL"
         days = 7
         try:
@@ -820,7 +949,10 @@ class WebSearcherAgent(BaseAgent):
         def do_financial() -> dict[str, Any]:
             all_results: dict[str, dict] = {}
             with ThreadPoolExecutor(max_workers=4) as ex:
-                futures = {ex.submit(self._fetch_all_sources_for_symbol, s): s for s in symbols[:3]}
+                futures = {
+                    ex.submit(self._fetch_all_sources_for_symbol, s, by_tool): s
+                    for s in symbols[:3]
+                }
                 for fut in as_completed(futures):
                     sym = futures[fut]
                     try:
@@ -831,7 +963,7 @@ class WebSearcherAgent(BaseAgent):
             return self._merge_financial_results(all_results, symbols, static_by_sym)
 
         def do_news() -> tuple[list[dict], list[dict], list[dict]]:
-            return self._fetch_news_sources(str(query)[:200], symbol, days)
+            return self._fetch_news_sources(str(query)[:200], symbol, days, by_tool)
 
         with ThreadPoolExecutor(max_workers=2) as ex:
             fut_fin = ex.submit(do_financial)

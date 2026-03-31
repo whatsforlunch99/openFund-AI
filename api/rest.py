@@ -660,5 +660,6 @@ def _state_to_json(state: ConversationState) -> dict[str, Any]:
         "final_response": state.final_response,
         "created_at": state.created_at.isoformat() if state.created_at else None,
         "flow": getattr(state, "flow_events", []),
+        "data_sources": getattr(state, "data_sources", {}),
     }
 

@@ -108,6 +108,9 @@ Stop local backends:
 | `./scripts/run.sh --install-deps` | Install Python extras [backends, llm] |
 | `./scripts/run.sh --no-chat` | Start API only; do not launch interactive chat client |
 | `./scripts/stop.sh` | Stop local backends (Postgres, Neo4j, Milvus) |
+| `python scripts/load_neo4j_graph_bundle.py --validate-only` | Check `database/graph_data/neo4j_export` CSVs |
+| `python scripts/load_neo4j_graph_bundle.py --load` | Import that bundle into Neo4j (needs `NEO4J_*` in `.env`; large) |
+| `python scripts/load_neo4j_graph_bundle.py --probe-vanke` | Quick `get_relations("China Vanke Co Ltd")` against live Neo4j |
 | `python main.py --serve --port 8000` | Run API directly (no run.sh) |
 | `python main.py --e2e-once` | Run one E2E conversation and exit (for CI) |
 | `python -m openfund_mcp` | Run MCP server over stdio (for external clients) |

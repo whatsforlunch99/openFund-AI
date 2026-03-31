@@ -245,7 +245,11 @@ fi
 
 if [[ $SEED_DEMO -eq 1 ]]; then
   echo "==> Seeding backend demo baseline"
-  "$PYTHON" -m data_manager populate || true
+  if "$PYTHON" -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('data_manager') else 1)" 2>/dev/null; then
+    "$PYTHON" -m data_manager populate || true
+  else
+    echo "Skipping: no Python module 'data_manager' (optional seed step)." >&2
+  fi
 fi
 
 if [[ "$LOAD_FUNDS" != "skip" ]] && [[ -f "$ROOT/datasets/combined_funds.json" ]]; then
@@ -274,11 +278,23 @@ except Exception:
   echo "==> Loading fund dataset (${LOAD_FUNDS})"
   case "$LOAD_FUNDS" in
     existing)
-      "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode existing || true ;;
+      if "$PYTHON" -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('data_manager') else 1)" 2>/dev/null; then
+        "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode existing || true
+      else
+        echo "Skipping fund load: no Python module 'data_manager'." >&2
+      fi ;;
     fresh-symbols)
-      "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode fresh --fresh-scope symbols || true ;;
+      if "$PYTHON" -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('data_manager') else 1)" 2>/dev/null; then
+        "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode fresh --fresh-scope symbols || true
+      else
+        echo "Skipping fund load: no Python module 'data_manager'." >&2
+      fi ;;
     fresh-all)
-      "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode fresh --fresh-scope all || true ;;
+      if "$PYTHON" -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('data_manager') else 1)" 2>/dev/null; then
+        "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode fresh --fresh-scope all || true
+      else
+        echo "Skipping fund load: no Python module 'data_manager'." >&2
+      fi ;;
     *)
       echo "Unknown --funds mode: $LOAD_FUNDS" >&2
       exit 1 ;;

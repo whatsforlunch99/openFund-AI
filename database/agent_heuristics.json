@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "websearcher": {
+    "ticker_blocklist": [
+      "WHAT", "WHEN", "WHERE", "WHICH", "WHO", "WHOM", "WHOSE", "WHY", "HOW",
+      "IS", "ARE", "WAS", "WERE", "BE", "BEEN", "BEING", "HAVE", "HAS", "HAD", "DO", "DOES", "DID",
+      "THE", "A", "AN", "AND", "OR", "BUT", "IF", "THEN", "ELSE", "FOR", "TO", "OF", "IN", "ON", "AT",
+      "BY", "FROM", "AS", "INTO", "THROUGH", "DURING", "BEFORE", "AFTER", "ABOVE", "BELOW",
+      "NOT", "NO", "YES", "ALL", "ANY", "BOTH", "EACH", "FEW", "MORE", "MOST", "OTHER", "SOME", "SUCH",
+      "ONLY", "OWN", "SAME", "SO", "THAN", "TOO", "VERY", "CAN", "WILL", "JUST", "SHOULD", "NOW",
+      "THERE", "HERE", "THIS", "THAT", "THESE", "THOSE", "WITH", "WITHOUT", "ABOUT", "AGAINST",
+      "CURRENT", "RECENT", "LATEST", "PRICE", "NEWS", "STOCK", "FUND", "ETF", "DATA", "INFO",
+      "P"
+    ],
+    "known_company_phrases": [
+      ["china vanke", "000002.SZ"],
+      ["vanke", "000002.SZ"]
+    ],
+    "query_substring_to_symbol": [
+      ["nvidia", "NVDA"],
+      ["nvda", "NVDA"],
+      ["apple", "AAPL"],
+      ["aapl", "AAPL"],
+      ["tesla", "TSLA"],
+      ["tsla", "TSLA"],
+      ["microsoft", "MSFT"],
+      ["msft", "MSFT"],
+      ["google", "GOOGL"],
+      ["googl", "GOOGL"],
+      ["alphabet", "GOOGL"],
+      ["vanguard", "VTI"],
+      ["s&p 500", "SPX"],
+      ["s&p500", "SPX"],
+      ["sp500", "SPX"],
+      ["spx", "SPX"],
+      ["spy", "SPY"]
+    ],
+    "preferred_tickers": [
+      "SPX", "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO",
+      "NVDA", "AAPL", "MSFT", "GOOGL", "TSLA", "AMZN", "META"
+    ],
+    "known_index_symbols": ["SPX"],
+    "etf_tickers_override_sp500_phrase": [
+      "SPY", "VOO", "IVV", "SPLG", "RSP", "QQQ", "IWM", "DIA", "VTI", "VEA", "VWO"
+    ],
+    "sp500_verbiage_substrings": [
+      "s&p 500",
+      "s&p500",
+      "sp500",
+      "s.p. 500",
+      "s and p 500"
+    ],
+    "default_fallback_symbol": "AAPL"
+  },
+  "planner": {
+    "partial_insufficient_prefix": "The research did not fully answer every part of your question. Here is what was gathered:\n\n",
+    "partial_insufficient_suffix": "\n\nSome details you asked for may still be missing; you can ask a narrower follow-up for a specific symbol, timeframe, or metric."
+  },
+  "analyst": {
+    "default_symbol": "NVDA",
+    "query_scan_tickers": ["NVDA", "AAPL", "TSLA", "MSFT", "GOOGL"]
+  }
+}

@@ -9,19 +9,21 @@ from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util import interaction_log
+from util.agent_heuristics import get_analyst_heuristics
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
 
-# Common tickers for fallback when symbol cannot be derived from context.
-_DEFAULT_SYMBOL = "NVDA"
-
 
 def _derive_symbol(structured_data: dict, market_data: dict) -> str:
     """Derive a ticker symbol from structured_data or market_data for fallback get_indicators calls."""
+    ah = get_analyst_heuristics()
     if isinstance(structured_data, dict):
+        rs = structured_data.get("resolved_symbol")
+        if isinstance(rs, str) and rs.strip():
+            return rs.strip().upper()
         for key in ("symbol", "fund", "ticker"):
             val = structured_data.get(key)
             if isinstance(val, str) and val.strip():
@@ -29,15 +31,16 @@ def _derive_symbol(structured_data: dict, market_data: dict) -> str:
         query = structured_data.get("query") or structured_data.get("vector_query")
         if isinstance(query, str) and query.strip():
             q = query.strip().upper()
-            for ticker in ("NVDA", "AAPL", "TSLA", "MSFT", "GOOGL"):
-                if ticker in q or ticker.lower() in query.lower():
+            q_lower = query.lower()
+            for ticker in ah.query_scan_tickers:
+                if ticker in q or ticker.lower() in q_lower:
                     return ticker
     if isinstance(market_data, dict):
         for key in ("symbol", "ticker", "fund"):
             val = market_data.get(key)
             if isinstance(val, str) and val.strip():
                 return val.strip().upper()
-    return _DEFAULT_SYMBOL
+    return ah.default_symbol
 
 
 class AnalystAgent(BaseAgent):
@@ -76,6 +79,7 @@ class AnalystAgent(BaseAgent):
                 market_data, documents, graph, and query (decomposed from planner).
         """
         content = message.content or {}
+        query = content.get("query") or ""
         conversation_id = getattr(message, "conversation_id", "") or ""
         if not isinstance(conversation_id, str):
             conversation_id = str(conversation_id) if conversation_id else ""
@@ -90,8 +94,16 @@ class AnalystAgent(BaseAgent):
                 **interaction_log.content_preview_for_log(content),
             },
         )
-        if message.performative == Performative.REQUEST:
-            query = content.get("query") or ""
+        def _inject_resolved_symbol(base: dict) -> dict:
+            out = dict(base) if isinstance(base, dict) else {"data": base}
+            sr = content.get("symbol_resolution")
+            if isinstance(sr, dict) and sr.get("status") == "resolved":
+                lst = sr.get("listings") or []
+                if lst and isinstance(lst[0], dict):
+                    sym = lst[0].get("symbol_yahoo") or lst[0].get("symbol_compact")
+                    if isinstance(sym, str) and sym.strip():
+                        out["resolved_symbol"] = sym.strip()
+            return out
 
         # When LLM is available, try tool selection first; fall back to content-based if empty/fail
         if self._llm_client is not None:
@@ -130,7 +142,7 @@ class AnalystAgent(BaseAgent):
                         structured_data = {"data": structured_data}
                     if not isinstance(market_data, dict):
                         market_data = {"data": market_data}
-                    structured_data = dict(structured_data)
+                    structured_data = _inject_resolved_symbol(dict(structured_data))
                     structured_data["tool_results"] = gathered
                     result = self.analyze(structured_data, market_data)
                     if self._llm_client is not None:
@@ -161,6 +173,7 @@ class AnalystAgent(BaseAgent):
             structured_data = {"data": structured_data}
         if not isinstance(market_data, dict):
             market_data = {"data": market_data}
+        structured_data = _inject_resolved_symbol(dict(structured_data))
         if self.conversation_manager and conversation_id:
             self.conversation_manager.append_flow(
                 conversation_id,

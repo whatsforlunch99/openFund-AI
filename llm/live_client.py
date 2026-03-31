@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from llm.prompts import PLANNER_DECOMPOSE
@@ -58,9 +59,11 @@ class LiveLLMClient:
         try:
             # Build request payload: combine current query with optional user memory context.
             client = self._get_client()
-            user_input = query
+            today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            user_input = f"Today's date (UTC): {today_utc}\n\nUser query:\n{query}"
             if isinstance(memory_context, str) and memory_context.strip():
                 user_input = (
+                    f"Today's date (UTC): {today_utc}\n\n"
                     f"User query:\n{query}\n\n"
                     f"Prior memory context (use when relevant):\n{memory_context.strip()}"
                 )

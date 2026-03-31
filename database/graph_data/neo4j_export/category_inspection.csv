@@ -1,0 +1,33 @@
+dataset,field,unique_count,sample_values
+cryptos,cryptocurrency,351,aave|abbc|ach|act|ada|adk|adx|ae|aib|aion
+cryptos,currency,12,aud|btc|cad|cny|eth|eur|gbp|inr|jpy|krw
+cryptos,exchange,1,ccc
+currencies,base_currency,164,aed|afn|all|amd|ang|aoa|ars|aud|aus|aux
+currencies,exchange,1,ccy
+currencies,quote_currency,175,aed|afn|all|amd|ang|aoa|ars|aud|awg|azn
+equities,country,111,afghanistan|anguilla|argentina|australia|austria|azerbaijan|bahamas|bangladesh|barbados|belgium
+equities,currency,41,ars|aud|brl|cad|chf|clp|cny|cop|czk|dkk
+equities,exchange,82,ams|aqs|ase|asx|ath|ber|bru|bse|bts|bud
+equities,industry,62,aerospace & defense|air freight & logistics|airlines|auto components|automobiles|banks|beverages|biotechnology|building products|capital markets
+equities,industry_group,24,"automobiles & components|banks|capital goods|commercial & professional services|consumer durables & apparel|consumer services|diversified financials|energy|food & staples retailing|food, beverage & tobacco"
+equities,market,80,aequitas neo exchange (lit book)|aktie torget|aquis exchange|athens stock exchange|australian securities exchange|bats bzx exchange|berlin stock exchange|bolsa de comercio de santiago de chile|bolsa de valores de caracas|borsa istanbul
+equities,market_cap,6,large cap|mega cap|micro cap|mid cap|nano cap|small cap
+equities,sector,11,communication services|consumer discretionary|consumer staples|energy|financials|health care|industrials|information technology|materials|real estate
+equities,state,129,ab|act|ak|al|am|an|ap|ar|av|az
+etfs,category,45,alternative|alternatives|blend|bonds|cash|commercial real estate|commodities broad basket|communications|consumer discretionary|consumer staples
+etfs,category_group,26,(b) the opportunity for capital appreciation|(ii) the opportunity for capital appreciation|alternatives|and (ii) monthly cash distributions.|and (ii) monthly distributions.|cash|commodities|communication services|consumer discretionary|consumer staples
+etfs,currency,24,aud|cad|chf|cny|czk|dkk|eur|gbp|huf|ila
+etfs,exchange,64,ams|aqs|ase|asx|ath|ber|bru|bts|bud|caldwell investment management
+etfs,family,319,1832 asset management|21shares|2nd vote funds|3 banken-generali investment-gesellschaft|aberdeen standard investments|absolute investment advisers|acatis investment management|accelerate financial technologies|acquirers funds|acruence
+funds,category,74,allocation|alternative|asia|australia|blend|bonds|canada|cash|china|commercial real estate
+funds,category_group,21,alternative|alternatives|cash|commodities|communication services|consumer discretionary|consumer staples|currencies|derivatives|energy
+funds,currency,25,aud|cad|chf|cnh|cny|czk|eur|gbp|hkd|huf
+funds,exchange,33,ams|ber|bse|bud|cme|ebs|fra|hkg|ise|jkt
+funds,family,1534,1290 funds|13d activist fund|1919 funds|3 banken-generali investment|360 funds|3iq corporation|7im|8a+ investimenti|a plus finance|a&g fondos sgiic
+indices,category,42,alternative|blend|bonds|cash|commercial real estate|commodities broad basket|communications|consumer discretionary|consumer staples|corporate bonds
+indices,category_group,18,alternatives|cash|commodities|communication services|consumer discretionary|consumer staples|currencies|derivatives|energy|equities
+indices,currency,44,aed|aud|bgn|brl|cad|chf|clp|cny|cop|czk
+indices,exchange,63,ams|ase|asx|ath|bru|bse|bud|bue|cai|ccs
+moneymarkets,currency,2,chf|usd
+moneymarkets,exchange,2,ebs|nas
+moneymarkets,family,122,"ab fixed-income shares, inc.|aim investment secs fds (invesco invt secs fds)|aim investment securities funds (invesco investment securities funds)|aim treasurer's series trust (invesco treasurer's series trust)|aim treasurer's series trust (invesco treasurer's series trust)-invesco premier tax-exempt portfolio|alliancebernstein bond fund|american century california tax-free and municipal funds|american century government income trust|american century investment trust|american century municipal trust"

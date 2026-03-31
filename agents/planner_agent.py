@@ -12,6 +12,16 @@ from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from agents.websearch_agent import extract_symbol_from_query
 from util import interaction_log
+from util.planner_symbol_resolution import (
+    derive_cache_key,
+    get_cached_entry,
+    maybe_use_cached_resolution,
+    put_cached_entry,
+    resolution_summary_for_prompt,
+    resolve_symbol_resolution_for_query,
+)
+from util.agent_heuristics import get_planner_heuristics, planner_fallback_substring_symbol_pairs
+from util.specialist_snapshot import build_data_sources_from_collected
 
 logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
@@ -75,6 +85,8 @@ class PlannerAgent(BaseAgent):
         self._round_number: dict[str, int] = {}  # conversation_id -> round (capped by max_research_rounds)
         self._original_query_by_conversation: dict[str, str] = {}  # for sufficiency/refined
         self._max_rounds = max(1, max_research_rounds)
+        # Planner symbol resolution (cached via util.planner_symbol_resolution); reused round 2
+        self._symbol_resolution_by_conversation: dict[str, dict[str, Any]] = {}
 
     def handle_message(self, message: ACLMessage) -> None:
         """Handle incoming messages directed to the Planner.
@@ -188,7 +200,10 @@ class PlannerAgent(BaseAgent):
                                 # Dispatch each refined step as a new REQUEST to the target specialist.
                                 step.params = dict(step.params)
                                 req = self.create_research_request(
-                                    original_query, step, context=collected
+                                    original_query,
+                                    step,
+                                    context=collected,
+                                    conversation_id=conversation_id,
                                 )
                                 req.conversation_id = conversation_id
                                 req.reply_to = self.name
@@ -227,20 +242,49 @@ class PlannerAgent(BaseAgent):
                             insufficient = True
                     else:
                         insufficient = True
+                partial_insufficient = False
                 if send_to_responder:
                     if insufficient:
-                        final = "Insufficient information."
+                        if self._collected_has_answer_signal(collected):
+                            ph = get_planner_heuristics()
+                            final = (
+                                ph.partial_insufficient_prefix
+                                + final
+                                + ph.partial_insufficient_suffix
+                            )
+                            partial_insufficient = True
+                        else:
+                            final = "Insufficient information."
                     # Finalization phase: send one INFORM to responder and clean planner state.
                     if self._conversation_manager:
+                        complete_msg = (
+                            "All agents have responded. Sending combined results to Responder to format your answer."
+                        )
+                        if insufficient and partial_insufficient:
+                            complete_msg = (
+                                "Research was marked insufficient after max rounds, but substantive "
+                                "data exists; sending a partial answer with caveats to Responder."
+                            )
+                        elif insufficient:
+                            complete_msg = (
+                                f"Information still insufficient after {self._max_rounds} round(s). "
+                                "Responder will reply with insufficient."
+                            )
                         self._conversation_manager.append_flow(
                             conversation_id,
                             {
                                 "step": "planner_complete",
-                                "message": "All agents have responded. Sending combined results to Responder to format your answer."
-                                if not insufficient
-                                else f"Information still insufficient after {self._max_rounds} round(s). Responder will reply with insufficient.",
-                                "detail": {"final_length": len(final)},
+                                "message": complete_msg,
+                                "detail": {
+                                    "final_length": len(final),
+                                    "partial_insufficient": partial_insufficient,
+                                },
                             },
+                        )
+                    if self._conversation_manager:
+                        self._conversation_manager.merge_data_sources(
+                            conversation_id,
+                            build_data_sources_from_collected(collected),
                         )
                     self.bus.send(
                         ACLMessage(
@@ -252,6 +296,7 @@ class PlannerAgent(BaseAgent):
                                 "conversation_id": conversation_id,
                                 "user_profile": user_profile,
                                 "insufficient": insufficient,
+                                "partial_insufficient": partial_insufficient,
                             },
                             conversation_id=conversation_id,
                         )
@@ -265,6 +310,7 @@ class PlannerAgent(BaseAgent):
                     self._user_profile_by_conversation.pop(conversation_id, None)
                     self._round_number.pop(conversation_id, None)
                     self._original_query_by_conversation.pop(conversation_id, None)
+                    self._symbol_resolution_by_conversation.pop(conversation_id, None)
             return
 
         # New user request phase: decompose into specialist steps and dispatch round 1.
@@ -284,7 +330,38 @@ class PlannerAgent(BaseAgent):
         user_memory = content.get("user_memory")
         if not isinstance(user_memory, str):
             user_memory = ""
-        steps = self.decompose_task(query, user_memory=user_memory)
+
+        cache_key = derive_cache_key(query)
+        cached = get_cached_entry(cache_key) if cache_key else None
+        symbol_resolution = maybe_use_cached_resolution(query, cached)
+        if cached is None and cache_key:
+            put_cached_entry(cache_key, symbol_resolution)
+        self._symbol_resolution_by_conversation[conversation_id] = symbol_resolution
+
+        res_summary = resolution_summary_for_prompt(symbol_resolution)
+        if res_summary:
+            user_memory = (user_memory + "\n\n" + res_summary).strip()
+
+        if self._conversation_manager:
+            self._conversation_manager.append_flow(
+                conversation_id,
+                {
+                    "step": "planner_symbol_resolution",
+                    "message": (
+                        f"Symbol resolution: **{symbol_resolution.get('status', '')}** — "
+                        f"{symbol_resolution.get('canonical_name') or symbol_resolution.get('reason_code', '') or 'n/a'}"
+                    ),
+                    "detail": {
+                        "status": symbol_resolution.get("status"),
+                        "cache_key": cache_key,
+                        "listings_count": len(symbol_resolution.get("listings") or []),
+                    },
+                },
+            )
+
+        steps = self.decompose_task(
+            query, user_memory=user_memory, symbol_resolution=symbol_resolution
+        )
         if not steps:
             interaction_log.log_call(
                 "agents.planner_agent.PlannerAgent.handle_message",
@@ -334,7 +411,9 @@ class PlannerAgent(BaseAgent):
         for step in steps:
             step.params = dict(step.params)
             q = step.params.get("query", query)
-            req = self.create_research_request(query, step, context=None)
+            req = self.create_research_request(
+                query, step, context=None, conversation_id=conversation_id
+            )
             req.conversation_id = conversation_id
             req.reply_to = self.name
             self.bus.send(req)
@@ -573,6 +652,58 @@ class PlannerAgent(BaseAgent):
             return " | ".join(parts)
         return f"Result: {self._snippet(str(content), max_chars)}"
 
+    def _librarian_sql_signal_line(self, c: dict[str, Any]) -> str:
+        """Short line for sufficiency: whether SQL returned rows."""
+        sql = c.get("sql")
+        if not isinstance(sql, dict):
+            return ""
+        rc = sql.get("row_count")
+        try:
+            if isinstance(rc, int) and rc > 0:
+                return f"sql_row_count={rc}"
+        except (TypeError, ValueError):
+            pass
+        data = sql.get("data")
+        if isinstance(data, list) and len(data) > 0:
+            return f"sql_data_rows={len(data)}"
+        rows = sql.get("rows")
+        if isinstance(rows, list) and len(rows) > 0:
+            return f"sql_rows={len(rows)}"
+        return ""
+
+    def _collected_has_answer_signal(self, collected: dict[str, Any]) -> bool:
+        """True if at least one specialist returned usable facts (partial answer eligible)."""
+        w = collected.get("websearcher")
+        if isinstance(w, dict):
+            if self._websearcher_price_line(w).strip():
+                return True
+            summ = w.get("summary")
+            if isinstance(summ, str) and len(summ.strip()) >= 120:
+                return True
+        lib = collected.get("librarian")
+        if isinstance(lib, dict):
+            if self._librarian_sql_signal_line(lib):
+                return True
+            summ = lib.get("summary")
+            if isinstance(summ, str) and len(summ.strip()) >= 120:
+                return True
+            docs = lib.get("documents")
+            if isinstance(docs, list) and len(docs) > 0:
+                return True
+            g = lib.get("graph")
+            if isinstance(g, dict) and isinstance(g.get("nodes"), list) and len(g["nodes"]) > 0:
+                return True
+        an = collected.get("analyst")
+        if isinstance(an, dict):
+            av = an.get("analysis")
+            if isinstance(av, dict):
+                s = av.get("summary")
+                if isinstance(s, str) and len(s.strip()) >= 80:
+                    return True
+            elif av is not None and len(str(av).strip()) >= 80:
+                return True
+        return False
+
     def _format_aggregated_for_sufficiency(self, collected: dict[str, Any]) -> str:
         """Build a string from collected agent outputs for LLM sufficiency check."""
         parts = []
@@ -580,9 +711,32 @@ class PlannerAgent(BaseAgent):
             if agent not in collected:
                 continue
             c = collected[agent]
+            if not isinstance(c, dict):
+                parts.append(f"[{agent}] (non-dict payload)")
+                continue
+            chunk_lines: list[str] = []
             summary = c.get("summary")
             if isinstance(summary, str) and summary.strip():
-                parts.append(f"[{agent}]\n{summary.strip()}")
+                chunk_lines.append(summary.strip())
+            if agent == "websearcher":
+                pl = self._websearcher_price_line(c)
+                if pl:
+                    chunk_lines.append(f"normalized_fund_prices: {pl}")
+                nf = c.get("normalized_fund")
+                if isinstance(nf, list) and nf:
+                    syms = [
+                        str(rec.get("symbol", ""))
+                        for rec in nf
+                        if isinstance(rec, dict) and rec.get("symbol")
+                    ]
+                    if syms:
+                        chunk_lines.append(f"normalized_fund_symbols: {', '.join(syms[:8])}")
+            if agent == "librarian":
+                sql_line = self._librarian_sql_signal_line(c)
+                if sql_line:
+                    chunk_lines.append(sql_line)
+            if chunk_lines:
+                parts.append(f"[{agent}]\n" + "\n".join(chunk_lines))
             elif c.get("market_data") or c.get("sentiment"):
                 parts.append(f"[{agent}] market/sentiment data present.")
             elif c.get("analysis") is not None:
@@ -641,7 +795,12 @@ class PlannerAgent(BaseAgent):
             logger.debug("Refined steps parse failed: %s", e)
             return []
 
-    def decompose_task(self, query: str, user_memory: str = "") -> list[TaskStep]:
+    def decompose_task(
+        self,
+        query: str,
+        user_memory: str = "",
+        symbol_resolution: Optional[dict[str, Any]] = None,
+    ) -> list[TaskStep]:
         """Produce a ReAct-style task chain from the user query.
 
         Uses llm_client.decompose_to_steps when available (Stage 10.2); otherwise
@@ -657,7 +816,8 @@ class PlannerAgent(BaseAgent):
             try:
                 # Use LLM to get step dicts; filter to allowed agents and build TaskSteps
                 step_dicts = self._llm_client.decompose_to_steps(
-                    query, memory_context=user_memory
+                    query,
+                    memory_context=user_memory,
                 )
 
                 if step_dicts is not None:
@@ -684,22 +844,23 @@ class PlannerAgent(BaseAgent):
         # No LLM or parse failed; use fixed three steps (librarian, websearcher, analyst)
         # Pass vector_query and fund so the librarian calls vector_tool and kg_tool
         # (demo can then use populated backends)
-        # Fallback fund/symbol: small heuristic map; full decomposition requires LLM.
-        _QUERY_TO_SYMBOL = (
-            ("nvidia", "NVDA"), ("nvda", "NVDA"),
-            ("apple", "AAPL"), ("aapl", "AAPL"),
-            ("tesla", "TSLA"), ("tsla", "TSLA"),
-            ("microsoft", "MSFT"), ("msft", "MSFT"),
-            ("google", "GOOGL"), ("googl", "GOOGL"), ("alphabet", "GOOGL"),
-            ("s&p 500", "SPX"), ("s&p500", "SPX"), ("sp500", "SPX"), ("spx", "SPX"),
-            ("spy", "SPY"),
-        )
+        # Fallback fund/symbol: database/agent_heuristics.json query_substring_to_symbol
         q_lower = query.lower()
         fund = ""
-        for substring, symbol in _QUERY_TO_SYMBOL:
-            if substring in q_lower:
-                fund = symbol
-                break
+        if (
+            symbol_resolution
+            and symbol_resolution.get("status") == "resolved"
+            and isinstance(symbol_resolution.get("listings"), list)
+            and symbol_resolution["listings"]
+        ):
+            L0 = symbol_resolution["listings"][0]
+            if isinstance(L0, dict):
+                fund = str(L0.get("symbol_yahoo") or L0.get("symbol_compact") or "")
+        if not fund:
+            for substring, symbol in planner_fallback_substring_symbol_pairs():
+                if substring in q_lower:
+                    fund = symbol
+                    break
         return [
             TaskStep(
                 agent="librarian",
@@ -721,6 +882,7 @@ class PlannerAgent(BaseAgent):
         query: str,
         step: TaskStep,
         context: Optional[dict[str, Any]] = None,
+        conversation_id: str = "",
     ) -> ACLMessage:
         """Build a request ACL message for Librarian, WebSearcher, or Analyst.
 
@@ -728,6 +890,7 @@ class PlannerAgent(BaseAgent):
             query: User query.
             step: Current task step (TaskStep object that holds target agent and instructions for the specific step).
             context: Optional prior context (not used in this implementation).
+            conversation_id: When set, attaches planner symbol_resolution for specialists.
 
         Returns:
             ACL message addressed to the appropriate agent.
@@ -735,6 +898,19 @@ class PlannerAgent(BaseAgent):
         # Content includes query (role-specific from step.params or fallback) and any step params   
         step_query = step.params.get("query", query)
         content = {"query": step_query, **step.params} # ** dictionary unpacking, overwrite query with step.params if it exists
+        sr = self._symbol_resolution_by_conversation.get(conversation_id)
+        if isinstance(sr, dict) and sr:
+            content = {**content, "symbol_resolution": sr}
+            if sr.get("status") == "resolved":
+                listings = sr.get("listings")
+                if isinstance(listings, list) and listings:
+                    content["resolution_listings"] = listings
+                st = sr.get("symbol_type")
+                if isinstance(st, str) and st.strip():
+                    content["resolution_symbol_type"] = st.strip()
+                cn = sr.get("canonical_name")
+                if isinstance(cn, str) and cn.strip():
+                    content["resolution_canonical_name"] = cn.strip()
         return ACLMessage(
             performative=Performative.REQUEST,
             sender=self.name,

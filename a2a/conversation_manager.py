@@ -14,8 +14,20 @@ from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from memory.user_memory import append_user_memory
 from util import interaction_log
+from util.specialist_snapshot import SPECIALIST_AGENTS
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_data_sources(raw: Any) -> dict[str, dict[str, Any]]:
+    """Ensure fixed librarian/websearcher/analyst keys; values are dicts."""
+    base: dict[str, dict[str, Any]] = {a: {} for a in SPECIALIST_AGENTS}
+    if isinstance(raw, dict):
+        for a in SPECIALIST_AGENTS:
+            v = raw.get(a)
+            if isinstance(v, dict):
+                base[a] = dict(v)
+    return base
 
 
 class ConversationState:
@@ -31,6 +43,7 @@ class ConversationState:
         created_at: Creation datetime.
         completion_event: threading.Event set when final_response is written; callers block with event.wait(timeout=...).
         flow_events: Append-only list of flow step dicts for UI (e.g. {"step": "...", "message": "...", "detail": {...}}).
+        data_sources: Bounded snapshots of librarian/websearcher/analyst payloads (for conversations.json).
     """
 
     def __init__(
@@ -43,6 +56,7 @@ class ConversationState:
         final_response: Optional[str] = None,
         created_at: Optional[datetime] = None,
         completion_event: Optional[threading.Event] = None,
+        data_sources: Optional[dict[str, Any]] = None,
     ) -> None:
         self.id = conversation_id
         self.user_id = user_id
@@ -50,6 +64,7 @@ class ConversationState:
         self.messages = list(messages) if messages else []
         self.status = status
         self.final_response = final_response
+        self.data_sources = _normalize_data_sources(data_sources)
         self.created_at = created_at if created_at is not None else datetime.now(timezone.utc)
         self.completion_event = (
             completion_event if completion_event is not None else threading.Event()
@@ -123,6 +138,7 @@ class ConversationManager:
                     "created_at": (
                         state.created_at.isoformat() if state.created_at else None
                     ),
+                    "data_sources": state.data_sources,
                 }
         # Write JSON so conversations survive restart
         with open(path, "w", encoding="utf-8") as f:
@@ -185,6 +201,7 @@ class ConversationManager:
                 status=raw.get("status") or "active",
                 final_response=raw.get("final_response"),
                 created_at=created_at,
+                data_sources=raw.get("data_sources"),
             )
 
             # match the in-memory status with the persisted status 
@@ -383,6 +400,22 @@ class ConversationManager:
                 "a2a.conversation_manager.ConversationManager.register_reply",
                 result={"appended": True},
             )
+        self._save_user(state.user_id)
+
+    def merge_data_sources(
+        self, conversation_id: str, per_agent: dict[str, Any]
+    ) -> None:
+        """Merge specialist snapshots into conversation data_sources (by agent); then persist.
+
+        Only keys present in per_agent with non-empty dict values are updated;
+        other agents keep their previous snapshots (round-2 partial merge).
+        """
+        state = self._conversations.get(conversation_id)
+        if state is None or not isinstance(per_agent, dict):
+            return
+        for agent, snap in per_agent.items():
+            if agent in SPECIALIST_AGENTS and isinstance(snap, dict) and snap:
+                state.data_sources[agent] = snap
         self._save_user(state.user_id)
 
     def broadcast_stop(self, conversation_id: str) -> None:

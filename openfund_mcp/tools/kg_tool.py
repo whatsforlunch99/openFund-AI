@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import csv
+import json
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -13,6 +15,72 @@ logger = logging.getLogger(__name__)
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 _driver = None
+
+_DATASET_FILES: dict[str, str] = {
+    "funds": "funds.csv",
+    "equities": "equities.csv",
+    "etfs": "etfs.csv",
+    "indices": "indices.csv",
+    "currencies": "currencies.csv",
+    "cryptos": "cryptos.csv",
+    "moneymarkets": "moneymarkets.csv",
+}
+
+# Category-like fields per dataset used to build shared category nodes.
+_CATEGORY_FIELDS: dict[str, list[str]] = {
+    "funds": ["currency", "category_group", "category", "family", "exchange"],
+    "equities": [
+        "currency",
+        "sector",
+        "industry_group",
+        "industry",
+        "exchange",
+        "market",
+        "country",
+        "state",
+        "market_cap",
+    ],
+    "etfs": ["currency", "category_group", "category", "family", "exchange"],
+    "indices": ["currency", "category_group", "category", "exchange"],
+    "currencies": ["base_currency", "quote_currency", "exchange"],
+    "cryptos": ["cryptocurrency", "currency", "exchange"],
+    "moneymarkets": ["currency", "family", "exchange"],
+}
+
+_DIMENSION_REL: dict[str, tuple[str, str]] = {
+    "currency": ("Currency", "DENOMINATED_IN"),
+    "category_group": ("CategoryGroup", "IN_CATEGORY_GROUP"),
+    "category": ("Category", "IN_CATEGORY"),
+    "family": ("Family", "IN_FAMILY"),
+    "exchange": ("Exchange", "LISTED_ON"),
+    "sector": ("Sector", "IN_SECTOR"),
+    "industry_group": ("IndustryGroup", "IN_INDUSTRY_GROUP"),
+    "industry": ("Industry", "IN_INDUSTRY"),
+    "market": ("Market", "IN_MARKET"),
+    "country": ("Country", "IN_COUNTRY"),
+    "state": ("State", "IN_STATE"),
+    "market_cap": ("MarketCapClass", "IN_MARKET_CAP_CLASS"),
+    "base_currency": ("BaseCurrency", "HAS_BASE_CURRENCY"),
+    "quote_currency": ("QuoteCurrency", "HAS_QUOTE_CURRENCY"),
+    "cryptocurrency": ("CryptoTicker", "TRACKS_CRYPTO"),
+}
+
+
+def _norm_value(v: Any) -> str:
+    return str(v or "").strip().lower()
+
+
+def _record_labels_for_dataset(dataset: str) -> str:
+    mapping = {
+        "funds": "FundRecord",
+        "equities": "EquityRecord",
+        "etfs": "EtfRecord",
+        "indices": "IndexRecord",
+        "currencies": "CurrencyRecord",
+        "cryptos": "CryptoRecord",
+        "moneymarkets": "MoneyMarketRecord",
+    }
+    return "Record;" + mapping.get(dataset, "AssetRecord")
 
 
 def _get_driver():
@@ -481,6 +549,42 @@ def get_similar_nodes(node_id: str, id_key: str = "id", limit: int = 10) -> dict
     return {"nodes": [{"id": nid, "score": score} for nid, score in sorted_nodes]}
 
 
+def _fulltext_fallback_name_symbol_search(
+    driver: Any, db: str, query_string: str, limit: int
+) -> list[dict[str, Any]]:
+    """MATCH nodes where name or symbol CONTAINS query (no fulltext index required)."""
+    q = (query_string or "").strip()
+    if not q:
+        return []
+    q = q[:500]
+    cypher = """
+    MATCH (n)
+    WHERE (n.name IS NOT NULL AND toLower(toString(n.name)) CONTAINS toLower($q))
+       OR (n.symbol IS NOT NULL AND toLower(toString(n.symbol)) CONTAINS toLower($q))
+    RETURN DISTINCT n LIMIT $limit
+    """
+    records, _, _ = driver.execute_query(
+        cypher,
+        parameters_={"q": q, "limit": limit},
+        database_=db,
+    )
+    out: list[dict[str, Any]] = []
+    for record in records:
+        node = record.get("n")
+        if node is not None:
+            out.append(_node_to_dict(node))
+    return out
+
+
+def _fulltext_error_is_missing_index(msg: str) -> bool:
+    lower = (msg or "").lower()
+    return (
+        "no such fulltext" in lower
+        or "fulltext schema index" in lower
+        or "illegalargumentexception" in lower
+    )
+
+
 def fulltext_search(index_name: str, query_string: str, limit: int = 50) -> dict:
     """
     Query nodes via Neo4j full-text index: db.index.fulltext.queryNodes.
@@ -520,8 +624,29 @@ def fulltext_search(index_name: str, query_string: str, limit: int = 50) -> dict
                 nodes.append(_node_to_dict(node))
         return {"nodes": nodes}
     except Exception as e:
-        logger.exception("kg_tool.fulltext_search failed: %s", e)
-        return {"error": str(e), "nodes": []}
+        err_text = str(e)
+        if _fulltext_error_is_missing_index(err_text):
+            logger.warning(
+                "kg_tool.fulltext_search: index %r missing or invalid; using name/symbol CONTAINS fallback",
+                index_name,
+            )
+            try:
+                nodes = _fulltext_fallback_name_symbol_search(
+                    driver, db, query_string, limit
+                )
+                return {
+                    "nodes": nodes,
+                    "fallback": "property_contains",
+                    "index_name": index_name,
+                }
+            except Exception as e2:
+                logger.warning("kg_tool.fulltext_search fallback failed: %s", e2)
+                return {
+                    "error": f"Fulltext index unavailable ({err_text}); fallback failed: {e2}",
+                    "nodes": [],
+                }
+        logger.warning("kg_tool.fulltext_search failed: %s", e)
+        return {"error": err_text, "nodes": []}
 
 
 def bulk_export(
@@ -655,6 +780,33 @@ def bulk_create_nodes(
     return {"created": created}
 
 
+def _entity_compact_alnum(s: str) -> str:
+    """Lowercase alphanumerics only — matches planner text to stored names despite punctuation."""
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+
+# Predicate on node `e` for get_relations (shared by relationship hop and isolated-node fallback).
+_GET_RELATIONS_ENTITY_PREDICATE = """trim(toString($entity)) <> '' AND (
+        e.id = $entity
+        OR e.name = $entity
+        OR e.symbol = $entity
+        OR toString(elementId(e)) = $entity
+        OR (
+            size($entity_compact) >= 4
+            AND e.name IS NOT NULL
+            AND (
+                replace(replace(replace(lower(trim(toString(e.name))), '.', ''), ',', ''), ' ', '') CONTAINS $entity_compact
+                OR $entity_compact CONTAINS replace(replace(replace(lower(trim(toString(e.name))), '.', ''), ',', ''), ' ', '')
+            )
+        )
+        OR (
+            e.symbol IS NOT NULL
+            AND size(trim(toString(e.symbol))) >= 3
+            AND toLower(trim(toString($entity))) CONTAINS toLower(trim(toString(e.symbol)))
+        )
+    )"""
+
+
 def get_relations(entity: str) -> dict:
     """
     Get relations for an entity (e.g. fund, manager).
@@ -665,6 +817,8 @@ def get_relations(entity: str) -> dict:
     Returns:
         Dict with nodes, edges, and entity. When NEO4J_URI is unset, returns mock.
         On error returns {"error": "..."}.
+        Nodes with **no** incident relationships are still returned via a fallback
+        ``MATCH (e) WHERE ...`` when the one-hop pattern matches nothing.
     """
     if not os.environ.get("NEO4J_URI"):
         return {
@@ -680,33 +834,32 @@ def get_relations(entity: str) -> dict:
             "edges": [],
             "entity": entity,
         }
-    # One-hop: match (e)-[r]-(other) where e has id or name = entity (elementId for Neo4j 5+)
-    cypher = """
+    entity_s = (entity or "").strip()
+    ec = _entity_compact_alnum(entity_s)
+    if len(ec) < 4:
+        ec = ""
+    params = {"entity": entity_s, "entity_compact": ec}
+    db = os.environ.get("NEO4J_DATABASE", "neo4j")
+    # One-hop: match id/name/symbol/elementId, punctuation-insensitive name (entity_compact),
+    # or entity text containing a multi-char ticker. Isolated nodes (degree 0) do not match
+    # ``(e)-[r]-(other)``; see fallback below.
+    cypher_rels = """
     MATCH (e)-[r]-(other)
-    WHERE e.id = $entity OR e.name = $entity OR e.symbol = $entity OR toString(elementId(e)) = $entity
+    WHERE """ + _GET_RELATIONS_ENTITY_PREDICATE + """
     RETURN e, type(r) AS rel_type, other
     LIMIT 100
     """
-    # #region debug log
+    cypher_isolated = """
+    MATCH (e)
+    WHERE """ + _GET_RELATIONS_ENTITY_PREDICATE + """
+    RETURN e
+    LIMIT 25
+    """
     try:
-        import time
-        _has_el = "elementId(e)" in cypher
-        _has_id = "id(e)" in cypher
-        _dbg = open("/Users/jiani/Desktop/openFund AI/.cursor/debug-0f3c81.log", "a")
-        _dbg.write('{"sessionId":"0f3c81","location":"kg_tool.py:get_relations","message":"cypher check","data":{"has_elementId":%s,"has_deprecated_id":%s},"timestamp":%d}\n' % (str(_has_el).lower(), str(_has_id).lower(), int(time.time() * 1000)))
-        _dbg.close()
-    except Exception:
-        pass
-    # #endregion
-    try:
-        records, summary, keys = driver.execute_query(
-            cypher,
-            parameters_={"entity": entity},
-            database_=os.environ.get("NEO4J_DATABASE", "neo4j"),
-        )
-        nodes = []
-        edges = []
-        seen = set()
+        records, _, _ = driver.execute_query(cypher_rels, parameters_=params, database_=db)
+        nodes: list[dict] = []
+        edges: list[dict] = []
+        seen: set[str] = set()
         for record in records:
             e, rel_type, other = record["e"], record["rel_type"], record["other"]
             nd_e = _node_to_dict(e)
@@ -720,6 +873,17 @@ def get_relations(entity: str) -> dict:
                 nodes.append(nd_o)
                 seen.add(oid)
             edges.append({"source": eid, "target": oid, "type": rel_type})
+        if not records:
+            rec2, _, _ = driver.execute_query(
+                cypher_isolated, parameters_=params, database_=db
+            )
+            for record in rec2:
+                e = record.get("e")
+                nd_e = _node_to_dict(e)
+                eid = nd_e.get("id") or ""
+                if eid and eid not in seen:
+                    nodes.append(nd_e)
+                    seen.add(eid)
         return {"nodes": nodes, "edges": edges, "entity": entity}
     except Exception as e:
         logger.exception("kg_tool.get_relations failed: %s", e)
@@ -748,6 +912,1012 @@ def populate_demo() -> tuple[bool, str]:
             err += " Ensure NEO4J_PASSWORD in .env matches the password you set in Neo4j Browser (http://localhost:7474)."
         return False, f"Neo4j failed: {err}"
     return True, "Neo4j: merged Company NVDA, Sector Technology, IN_SECTOR edge."
+
+
+def _canonical_slug(v: Any) -> str:
+    s = str(v or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s
+
+
+# Dimension parent keys (also used as Dimension node ids).
+_DIM_CURRENCY = "currency"
+_DIM_DATASET = "dataset"
+
+
+def _bare_record_id(symbol: str) -> str:
+    """Bare Record id from symbol (no record_ prefix)."""
+    return _canonical_slug(symbol)
+
+
+def _bare_dataset_id(dataset: str) -> str:
+    """Bare Dataset id (no dataset_ prefix)."""
+    return _canonical_slug(dataset)
+
+
+def _bare_currency_id(code_norm: str) -> str:
+    """Bare Currency id (no currency_ prefix)."""
+    return _canonical_slug(code_norm)
+
+
+def _bare_tag_id(value_norm: str) -> str:
+    """Bare Tag id: one node per normalized value across categorical fields."""
+    return _canonical_slug(value_norm)
+
+
+def _build_global_id_map(entries: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
+    """
+    Map (node_kind, bare_id) -> import id for a single nodes file / global id space.
+    When the same bare slug appears for more than one kind, only the first kind (sorted
+    alphabetically) keeps the bare id; others get ``{bare}_{kind.lower()}``.
+    """
+    by_bare: dict[str, set[str]] = {}
+    for kind, bare in entries:
+        by_bare.setdefault(bare, set()).add(kind)
+    out: dict[tuple[str, str], str] = {}
+    for bare, kinds_set in sorted(by_bare.items()):
+        kinds = sorted(kinds_set)
+        if len(kinds) == 1:
+            out[(kinds[0], bare)] = bare
+            continue
+        for i, k in enumerate(kinds):
+            if i == 0:
+                out[(k, bare)] = bare
+            else:
+                out[(k, bare)] = f"{bare}_{k.lower()}"
+    return out
+
+
+def _is_narrative_like_category_value(v: str) -> bool:
+    """
+    Heuristic guard for noisy category text.
+    Keep simple, deterministic checks only.
+    """
+    s = (v or "").strip()
+    if not s:
+        return False
+    if len(s) > 120:
+        return True
+    lower = s.lower()
+    sentence_markers = (
+        " aims to ",
+        " seeks to ",
+        " according to ",
+        " investment returns ",
+        " lower overall volatility ",
+    )
+    if any(m in lower for m in sentence_markers):
+        return True
+    punct = sum(1 for ch in s if ch in ".,;:()")
+    if punct >= 4:
+        return True
+    return False
+
+
+# Bare import ids: lowercase slug, underscores, digits only.
+_BARE_IMPORT_ID_RE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*$")
+_SUSPICIOUS_CURRENCY_CODE_RE = re.compile(r"^[a-z]{3}$")
+
+
+def build_graph_csvs(
+    data_dir: str = "database/graph_data",
+    output_dir: str = "database/graph_data/neo4j_export",
+) -> dict:
+    """
+    Build normalized Neo4j import CSV bundle (bare ids, global Tag values, Dimension parents).
+
+    Emits:
+    - graph_nodes.csv (all node labels in one file; columns: node_id:ID, symbol, name, dataset, record_type, :LABEL)
+    - graph_relationships.csv (all edges; columns: :START_ID, :END_ID, :TYPE, source_field)
+    - category_inspection.csv
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    graph_nodes_csv = os.path.join(output_dir, "graph_nodes.csv")
+    graph_relationships_csv = os.path.join(output_dir, "graph_relationships.csv")
+    inspection_csv = os.path.join(output_dir, "category_inspection.csv")
+
+    records: dict[str, dict[str, Any]] = {}
+    datasets: dict[str, dict[str, Any]] = {}
+    tags: dict[str, dict[str, Any]] = {}
+    currencies: dict[str, dict[str, Any]] = {}
+    dimensions: dict[str, dict[str, Any]] = {
+        _DIM_CURRENCY: {"name": _DIM_CURRENCY},
+        _DIM_DATASET: {"name": _DIM_DATASET},
+    }
+
+    rel_dataset: set[tuple[str, str]] = set()
+    rel_tag: set[tuple[str, str, str, str]] = set()  # rid, tag_id, rel_type, source_field
+    rel_cur_denom: set[tuple[str, str]] = set()
+    rel_cur_base: set[tuple[str, str]] = set()
+    rel_cur_quote: set[tuple[str, str]] = set()
+    rel_cur_crypto: set[tuple[str, str]] = set()
+    rel_currency_dim: set[tuple[str, str]] = set()
+    rel_dataset_dim: set[tuple[str, str]] = set()
+
+    inspection_rows: list[dict[str, Any]] = []
+    filtered_narrative_categories = 0
+
+    category_values: dict[tuple[str, str], set[str]] = {}
+    category_display: dict[tuple[str, str, str], str] = {}
+    tag_display: dict[str, str] = {}
+
+    def _merge_display(existing: str, new: str) -> str:
+        a, b = (existing or "").strip(), (new or "").strip()
+        if not a:
+            return b or new
+        if not b:
+            return a
+        return b if len(b) > len(a) else a
+
+    # 1) scan unique values for inspection; build currency + global tag nodes.
+    for dataset, filename in _DATASET_FILES.items():
+        path = os.path.join(data_dir, filename)
+        if not os.path.exists(path):
+            continue
+        fields = list(_CATEGORY_FIELDS.get(dataset, []))
+        for field in fields:
+            category_values.setdefault((dataset, field), set())
+        with open(path, encoding="utf-8", errors="ignore", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                for field in fields:
+                    raw = (row.get(field) or "").strip()
+                    if not raw:
+                        continue
+                    if field not in {
+                        "currency",
+                        "base_currency",
+                        "quote_currency",
+                        "cryptocurrency",
+                    }:
+                        if _is_narrative_like_category_value(raw):
+                            filtered_narrative_categories += 1
+                            continue
+                    norm = _norm_value(raw)
+                    if not norm:
+                        continue
+                    category_values[(dataset, field)].add(norm)
+                    key = (dataset, field, norm)
+                    if key not in category_display:
+                        category_display[key] = raw
+                    if field in {
+                        "currency",
+                        "base_currency",
+                        "quote_currency",
+                        "cryptocurrency",
+                    }:
+                        cid = _bare_currency_id(norm)
+                        disp = category_display[key]
+                        cur = currencies.get(cid)
+                        if cur is None:
+                            currencies[cid] = {"name": disp}
+                        else:
+                            cur["name"] = _merge_display(cur.get("name", ""), disp)
+                        rel_currency_dim.add((cid, _DIM_CURRENCY))
+                    else:
+                        tid = _bare_tag_id(norm)
+                        tag_display[tid] = _merge_display(tag_display.get(tid, ""), category_display[key])
+                        tags.setdefault(tid, {})
+
+    # inspection artifact (per dataset, field)
+    for (dataset, field), vals in sorted(category_values.items()):
+        sample_values = sorted(list(vals))[:10]
+        inspection_rows.append(
+            {
+                "dataset": dataset,
+                "field": field,
+                "unique_count": len(vals),
+                "sample_values": "|".join(sample_values),
+            }
+        )
+    with open(inspection_csv, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(
+            f, fieldnames=["dataset", "field", "unique_count", "sample_values"]
+        )
+        writer.writeheader()
+        for row in inspection_rows:
+            writer.writerow(row)
+
+    for tid in tags:
+        tags[tid]["name"] = tag_display.get(tid, "")
+
+    # Dataset nodes + dimension link
+    for dataset in _DATASET_FILES:
+        did = _bare_dataset_id(dataset)
+        datasets[did] = {"name": dataset}
+        rel_dataset_dim.add((did, _DIM_DATASET))
+
+    # 4) records and relationships
+    for dataset, filename in _DATASET_FILES.items():
+        path = os.path.join(data_dir, filename)
+        if not os.path.exists(path):
+            continue
+        fields = list(_CATEGORY_FIELDS.get(dataset, []))
+        with open(path, encoding="utf-8", errors="ignore", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                symbol = (row.get("symbol") or "").strip()
+                if not symbol:
+                    continue
+                name = (row.get("name") or "").strip()
+                rid = _bare_record_id(symbol)
+                rec = records.get(
+                    rid,
+                    {
+                        "symbol": symbol,
+                        "name": name,
+                        "dataset": dataset,
+                        "record_type": dataset,
+                    },
+                )
+                if not rec.get("name") and name:
+                    rec["name"] = name
+                records[rid] = rec
+
+                did = _bare_dataset_id(dataset)
+                rel_dataset.add((rid, did))
+
+                for field in fields:
+                    raw = (row.get(field) or "").strip()
+                    if not raw:
+                        continue
+                    if field not in {
+                        "currency",
+                        "base_currency",
+                        "quote_currency",
+                        "cryptocurrency",
+                    }:
+                        if _is_narrative_like_category_value(raw):
+                            continue
+                    norm = _norm_value(raw)
+                    if not norm:
+                        continue
+                    if field == "currency":
+                        cid = _bare_currency_id(norm)
+                        rel_cur_denom.add((rid, cid))
+                    elif field == "base_currency":
+                        cid = _bare_currency_id(norm)
+                        rel_cur_base.add((rid, cid))
+                    elif field == "quote_currency":
+                        cid = _bare_currency_id(norm)
+                        rel_cur_quote.add((rid, cid))
+                    elif field == "cryptocurrency":
+                        cid = _bare_currency_id(norm)
+                        rel_cur_crypto.add((rid, cid))
+                    else:
+                        tag_id = _bare_tag_id(norm)
+                        _, rel_type = _DIMENSION_REL.get(
+                            field, ("CategoryValue", "HAS_CATEGORY_VALUE")
+                        )
+                        rel_tag.add((rid, tag_id, rel_type, field))
+
+    entries: list[tuple[str, str]] = []
+    for rid in records:
+        entries.append(("Record", rid))
+    for did in datasets:
+        entries.append(("Dataset", did))
+    for tid in tags:
+        entries.append(("Tag", tid))
+    for cid in currencies:
+        entries.append(("Currency", cid))
+    for dk in dimensions:
+        entries.append(("Dimension", dk))
+    gid_map = _build_global_id_map(entries)
+
+    def gid(kind: str, bare: str) -> str:
+        return gid_map[(kind, bare)]
+
+    # 5) single node file + 6) relationship files (global id space)
+    node_fieldnames = ["node_id:ID", "symbol", "name", "dataset", "record_type", ":LABEL"]
+    graph_rows: list[dict[str, str]] = []
+    for dk in sorted(dimensions):
+        graph_rows.append(
+            {
+                "node_id:ID": gid("Dimension", dk),
+                "symbol": "",
+                "name": dimensions[dk]["name"],
+                "dataset": "",
+                "record_type": "",
+                ":LABEL": "Dimension",
+            }
+        )
+    for did in sorted(datasets):
+        d = datasets[did]
+        graph_rows.append(
+            {
+                "node_id:ID": gid("Dataset", did),
+                "symbol": "",
+                "name": d["name"],
+                "dataset": "",
+                "record_type": "",
+                ":LABEL": "Dataset",
+            }
+        )
+    for rid in sorted(records):
+        r = records[rid]
+        graph_rows.append(
+            {
+                "node_id:ID": gid("Record", rid),
+                "symbol": r.get("symbol", ""),
+                "name": r.get("name", ""),
+                "dataset": r.get("dataset", ""),
+                "record_type": r.get("record_type", ""),
+                ":LABEL": _record_labels_for_dataset(r.get("record_type", "")),
+            }
+        )
+    for cid in sorted(currencies):
+        c = currencies[cid]
+        graph_rows.append(
+            {
+                "node_id:ID": gid("Currency", cid),
+                "symbol": "",
+                "name": c.get("name", ""),
+                "dataset": "",
+                "record_type": "",
+                ":LABEL": "Currency",
+            }
+        )
+    for tid in sorted(tags):
+        t = tags[tid]
+        graph_rows.append(
+            {
+                "node_id:ID": gid("Tag", tid),
+                "symbol": "",
+                "name": t.get("name", ""),
+                "dataset": "",
+                "record_type": "",
+                ":LABEL": "Tag",
+            }
+        )
+    graph_rows.sort(key=lambda row: row["node_id:ID"])
+    with open(graph_nodes_csv, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=node_fieldnames)
+        w.writeheader()
+        for row in graph_rows:
+            w.writerow(row)
+
+    unified_rel_rows: list[dict[str, str]] = []
+    for s, e in sorted(rel_dataset):
+        unified_rel_rows.append(
+            {
+                ":START_ID": gid("Record", s),
+                ":END_ID": gid("Dataset", e),
+                ":TYPE": "BELONGS_TO_DATASET",
+                "source_field": "",
+            }
+        )
+    for s, e, rtype, sf in sorted(rel_tag):
+        unified_rel_rows.append(
+            {
+                ":START_ID": gid("Record", s),
+                ":END_ID": gid("Tag", e),
+                ":TYPE": rtype,
+                "source_field": sf,
+            }
+        )
+    for s, e in sorted(rel_cur_denom):
+        unified_rel_rows.append(
+            {
+                ":START_ID": gid("Record", s),
+                ":END_ID": gid("Currency", e),
+                ":TYPE": "DENOMINATED_IN",
+                "source_field": "currency",
+            }
+        )
+    for s, e in sorted(rel_cur_base):
+        unified_rel_rows.append(
+            {
+                ":START_ID": gid("Record", s),
+                ":END_ID": gid("Currency", e),
+                ":TYPE": "HAS_BASE_CURRENCY",
+                "source_field": "base_currency",
+            }
+        )
+    for s, e in sorted(rel_cur_quote):
+        unified_rel_rows.append(
+            {
+                ":START_ID": gid("Record", s),
+                ":END_ID": gid("Currency", e),
+                ":TYPE": "HAS_QUOTE_CURRENCY",
+                "source_field": "quote_currency",
+            }
+        )
+    for s, e in sorted(rel_cur_crypto):
+        unified_rel_rows.append(
+            {
+                ":START_ID": gid("Record", s),
+                ":END_ID": gid("Currency", e),
+                ":TYPE": "TRACKS_CRYPTO",
+                "source_field": "cryptocurrency",
+            }
+        )
+    for s, e in sorted(rel_currency_dim):
+        unified_rel_rows.append(
+            {
+                ":START_ID": gid("Currency", s),
+                ":END_ID": gid("Dimension", e),
+                ":TYPE": "CURRENCY_IN_DIMENSION",
+                "source_field": "",
+            }
+        )
+    for s, e in sorted(rel_dataset_dim):
+        unified_rel_rows.append(
+            {
+                ":START_ID": gid("Dataset", s),
+                ":END_ID": gid("Dimension", e),
+                ":TYPE": "DATASET_IN_DIMENSION",
+                "source_field": "",
+            }
+        )
+    unified_rel_rows.sort(
+        key=lambda r: (
+            r[":START_ID"],
+            r[":END_ID"],
+            r[":TYPE"],
+            r["source_field"],
+        )
+    )
+    with open(graph_relationships_csv, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(
+            f, fieldnames=[":START_ID", ":END_ID", ":TYPE", "source_field"]
+        )
+        w.writeheader()
+        for row in unified_rel_rows:
+            w.writerow(row)
+
+    rel_count = (
+        len(rel_dataset)
+        + len(rel_tag)
+        + len(rel_cur_denom)
+        + len(rel_cur_base)
+        + len(rel_cur_quote)
+        + len(rel_cur_crypto)
+        + len(rel_currency_dim)
+        + len(rel_dataset_dim)
+    )
+
+    import_files = {
+        "graph_nodes": graph_nodes_csv,
+        "graph_relationships": graph_relationships_csv,
+        "category_inspection": inspection_csv,
+    }
+    import_command = (
+        "neo4j-admin database import full "
+        f"--nodes={graph_nodes_csv} "
+        f"--relationships={graph_relationships_csv}"
+        "  # graph_relationships.csv uses :TYPE per row; source_field set where applicable."
+    )
+
+    return {
+        "ok": True,
+        "mode": "normalized_bundle_primary",
+        "output_dir": output_dir,
+        "graph_nodes_csv": graph_nodes_csv,
+        "graph_relationships_csv": graph_relationships_csv,
+        "category_inspection_csv": inspection_csv,
+        "record_count": len(records),
+        "dataset_count": len(datasets),
+        "tag_count": len(tags),
+        "currency_count": len(currencies),
+        "dimension_count": len(dimensions),
+        "relationship_count": rel_count,
+        "filtered_narrative_category_values": filtered_narrative_categories,
+        "import_files": import_files,
+        "neo4j_import_command_hint": import_command,
+        "category_nodes_csv": graph_nodes_csv,
+        "record_to_category_rels_csv": graph_relationships_csv,
+        "record_to_currency_rels_csv": graph_relationships_csv,
+    }
+
+
+def load_graph_csvs_to_neo4j(
+    nodes_csv: str,
+    relationships_csv: str,
+    mode: str = "append",
+    output_dir: str | None = None,
+) -> dict:
+    """
+    Load graph CSVs into Neo4j using MERGE.
+
+    With output_dir set, loads graph_nodes.csv and graph_relationships.csv from that directory.
+    Otherwise loads the given nodes_csv and relationships_csv (ad-hoc two-file format:
+    node_id / labels / … and start_node_id / end_node_id / rel_type / source_field).
+    """
+    if mode != "append":
+        return {"error": "Only append mode is supported."}
+    # Bundle mode: output_dir; else ad-hoc two-file load.
+    if output_dir:
+        graph_nodes_csv = os.path.join(output_dir, "graph_nodes.csv")
+        graph_relationships_csv = os.path.join(output_dir, "graph_relationships.csv")
+        required = [graph_nodes_csv, graph_relationships_csv]
+        missing = [p for p in required if not os.path.exists(p)]
+        if missing:
+            return {"error": f"Missing bundle files: {missing}"}
+    else:
+        if not os.path.exists(nodes_csv):
+            return {"error": f"nodes_csv not found: {nodes_csv}"}
+        if not os.path.exists(relationships_csv):
+            return {"error": f"relationships_csv not found: {relationships_csv}"}
+    if not os.environ.get("NEO4J_URI"):
+        # Mock-mode behavior mirrors other kg_tool functions.
+        return {"ok": True, "nodes_loaded": 0, "relationships_loaded": 0, "mock": True}
+
+    driver, err = _get_driver()
+    if driver is None:
+        return {"error": err or "Neo4j driver not available."}
+    db = os.environ.get("NEO4J_DATABASE", "neo4j")
+
+    nodes_loaded = 0
+    rels_loaded = 0
+
+    def _load_nodes_file(path: str, id_col: str, labels: str, map_props: list[str]) -> tuple[int, str | None]:
+        loaded = 0
+        with open(path, encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                node_id = (row.get(id_col) or "").strip()
+                if not node_id:
+                    continue
+                label_part = ":" + ":".join([x for x in labels.split(";") if _IDENTIFIER_RE.match(x)])
+                props = {"node_id": node_id}
+                for k in map_props:
+                    props[k] = (row.get(k) or "").strip()
+                sym = (props.get("symbol") or "").strip()
+                props["id"] = sym if sym else node_id
+                cypher = f"MERGE (n{label_part} {{node_id: $node_id}}) SET n += $props"
+                try:
+                    driver.execute_query(
+                        cypher,
+                        parameters_={"node_id": node_id, "props": props},
+                        database_=db,
+                    )
+                    loaded += 1
+                except Exception as e:
+                    return loaded, str(e)
+        return loaded, None
+
+    def _load_rels_file(path: str, start_col: str, end_col: str, type_col: str, source_col: str | None = None) -> tuple[int, str | None]:
+        loaded = 0
+        with open(path, encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                s = (row.get(start_col) or "").strip()
+                e = (row.get(end_col) or "").strip()
+                t = (row.get(type_col) or "").strip()
+                if not s or not e or not _IDENTIFIER_RE.match(t):
+                    continue
+                cypher = (
+                    "MATCH (a {node_id: $start_id}), (b {node_id: $end_id}) "
+                    f"MERGE (a)-[r:{t}]->(b)"
+                )
+                params = {"start_id": s, "end_id": e}
+                if source_col:
+                    cypher += " SET r.source_field = $source_field"
+                    params["source_field"] = (row.get(source_col) or "").strip()
+                try:
+                    driver.execute_query(cypher, parameters_=params, database_=db)
+                    loaded += 1
+                except Exception as e2:
+                    return loaded, str(e2)
+        return loaded, None
+
+    def _load_rels_fixed_type(
+        path: str, start_col: str, end_col: str, rel_type: str
+    ) -> tuple[int, str | None]:
+        if not _IDENTIFIER_RE.match(rel_type):
+            return 0, f"Invalid rel_type: {rel_type}"
+        loaded = 0
+        with open(path, encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                s = (row.get(start_col) or "").strip()
+                e = (row.get(end_col) or "").strip()
+                if not s or not e:
+                    continue
+                cypher = (
+                    "MATCH (a {node_id: $start_id}), (b {node_id: $end_id}) "
+                    f"MERGE (a)-[r:{rel_type}]->(b)"
+                )
+                try:
+                    driver.execute_query(
+                        cypher,
+                        parameters_={"start_id": s, "end_id": e},
+                        database_=db,
+                    )
+                    loaded += 1
+                except Exception as e2:
+                    return loaded, str(e2)
+        return loaded, None
+
+    def _load_unified_graph_nodes(path: str) -> tuple[int, str | None]:
+        loaded = 0
+        with open(path, encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                node_id = (row.get("node_id:ID") or "").strip()
+                labels_raw = (row.get(":LABEL") or "").strip()
+                if not node_id:
+                    continue
+                label_tokens = [
+                    x.strip()
+                    for x in labels_raw.split(";")
+                    if x.strip() and _IDENTIFIER_RE.match(x.strip())
+                ]
+                if not label_tokens:
+                    continue
+                label_part = ":" + ":".join(label_tokens)
+                props = {"node_id": node_id}
+                for k in ("symbol", "name", "dataset", "record_type"):
+                    props[k] = (row.get(k) or "").strip()
+                sym = (props.get("symbol") or "").strip()
+                props["id"] = sym if sym else node_id
+                cypher = f"MERGE (n{label_part} {{node_id: $node_id}}) SET n += $props"
+                try:
+                    driver.execute_query(
+                        cypher,
+                        parameters_={"node_id": node_id, "props": props},
+                        database_=db,
+                    )
+                    loaded += 1
+                except Exception as e:
+                    return loaded, str(e)
+        return loaded, None
+
+    def _load_unified_graph_rels(path: str) -> tuple[int, str | None]:
+        loaded = 0
+        with open(path, encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                s = (row.get(":START_ID") or "").strip()
+                e = (row.get(":END_ID") or "").strip()
+                t = (row.get(":TYPE") or "").strip()
+                sf = (row.get("source_field") or "").strip()
+                if not s or not e or not t:
+                    continue
+                if not _IDENTIFIER_RE.match(t):
+                    continue
+                cypher = (
+                    "MATCH (a {node_id: $start_id}), (b {node_id: $end_id}) "
+                    f"MERGE (a)-[r:{t}]->(b)"
+                )
+                params: dict[str, Any] = {"start_id": s, "end_id": e}
+                if sf:
+                    cypher += " SET r.source_field = $source_field"
+                    params["source_field"] = sf
+                try:
+                    driver.execute_query(cypher, parameters_=params, database_=db)
+                    loaded += 1
+                except Exception as e2:
+                    return loaded, str(e2)
+        return loaded, None
+
+    if output_dir:
+        n, err2 = _load_unified_graph_nodes(graph_nodes_csv)
+        nodes_loaded += n
+        if err2:
+            return {"error": err2, "nodes_loaded": nodes_loaded, "relationships_loaded": rels_loaded}
+
+        n, err2 = _load_unified_graph_rels(graph_relationships_csv)
+        rels_loaded += n
+        if err2:
+            return {"error": err2, "nodes_loaded": nodes_loaded, "relationships_loaded": rels_loaded}
+    else:
+        # legacy single-file mode
+        n, err2 = _load_nodes_file(
+            nodes_csv,
+            "node_id",
+            "Node",
+            ["node_type", "symbol", "name", "dataset", "record_type"],
+        )
+        nodes_loaded += n
+        if err2:
+            return {"error": err2, "nodes_loaded": nodes_loaded, "relationships_loaded": rels_loaded}
+        n, err2 = _load_rels_file(
+            relationships_csv,
+            "start_node_id",
+            "end_node_id",
+            "rel_type",
+            "source_field",
+        )
+        rels_loaded += n
+        if err2:
+            return {"error": err2, "nodes_loaded": nodes_loaded, "relationships_loaded": rels_loaded}
+
+    return {
+        "ok": True,
+        "nodes_loaded": nodes_loaded,
+        "relationships_loaded": rels_loaded,
+    }
+
+
+def validate_graph_csvs_for_neo4j(
+    nodes_csv: str,
+    relationships_csv: str,
+    sample_limit: int = 20,
+    output_dir: str | None = None,
+) -> dict:
+    """
+    Validate Neo4j import CSVs and return import-risk errors.
+    """
+    if output_dir:
+        return validate_graph_csv_bundle_for_neo4j(output_dir, sample_limit=sample_limit)
+    if not os.path.exists(nodes_csv):
+        return {"error": f"nodes_csv not found: {nodes_csv}"}
+    if not os.path.exists(relationships_csv):
+        return {"error": f"relationships_csv not found: {relationships_csv}"}
+
+    node_ids: set[str] = set()
+    dup_node_ids: list[str] = []
+    empty_node_id_rows = 0
+    bad_labels_rows = 0
+    node_rows = 0
+    with open(nodes_csv, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            node_rows += 1
+            nid = (row.get("node_id") or "").strip()
+            labels = (row.get("labels") or "").strip()
+            if not nid:
+                empty_node_id_rows += 1
+                continue
+            if nid in node_ids and len(dup_node_ids) < sample_limit:
+                dup_node_ids.append(nid)
+            node_ids.add(nid)
+            if labels:
+                for lb in labels.split(";"):
+                    s = lb.strip()
+                    if s and not _IDENTIFIER_RE.match(s):
+                        bad_labels_rows += 1
+                        break
+
+    # H1: dangling relationship refs.
+    missing_start_refs: list[str] = []
+    missing_end_refs: list[str] = []
+    # H2: invalid relationship types.
+    invalid_rel_types: list[str] = []
+    # H3: duplicate relationships.
+    rel_seen: set[tuple[str, str, str]] = set()
+    duplicate_rels = 0
+    rel_rows = 0
+    with open(relationships_csv, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rel_rows += 1
+            s = (row.get("start_node_id") or "").strip()
+            e = (row.get("end_node_id") or "").strip()
+            t = (row.get("rel_type") or "").strip()
+            if s and s not in node_ids and len(missing_start_refs) < sample_limit:
+                missing_start_refs.append(s)
+            if e and e not in node_ids and len(missing_end_refs) < sample_limit:
+                missing_end_refs.append(e)
+            if not t or not _IDENTIFIER_RE.match(t):
+                if len(invalid_rel_types) < sample_limit:
+                    invalid_rel_types.append(t)
+            key = (s, e, t)
+            if key in rel_seen:
+                duplicate_rels += 1
+            rel_seen.add(key)
+
+    # H4: suspicious node type rows
+    unknown_node_type_rows = 0
+    with open(nodes_csv, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            ntype = (row.get("node_type") or "").strip()
+            if ntype and ntype not in {"Record", "Dataset", "Category", "Tag", "Currency", "Dimension"}:
+                unknown_node_type_rows += 1
+
+    summary = {
+        "ok": True,
+        "node_rows": node_rows,
+        "relationship_rows": rel_rows,
+        "errors": {
+            "empty_node_id_rows": empty_node_id_rows,
+            "duplicate_node_ids_count": len(dup_node_ids),
+            "duplicate_node_ids_sample": dup_node_ids,
+            "bad_labels_rows": bad_labels_rows,
+            "missing_start_refs_count": len(missing_start_refs),
+            "missing_start_refs_sample": missing_start_refs,
+            "missing_end_refs_count": len(missing_end_refs),
+            "missing_end_refs_sample": missing_end_refs,
+            "invalid_rel_types_count": len(invalid_rel_types),
+            "invalid_rel_types_sample": invalid_rel_types,
+            "duplicate_relationship_rows": duplicate_rels,
+            "unknown_node_type_rows": unknown_node_type_rows,
+        },
+    }
+    return summary
+
+
+
+
+def validate_graph_csv_bundle_for_neo4j(
+    output_dir: str,
+    sample_limit: int = 20,
+) -> dict:
+    """
+    Validate normalized neo4j_export bundle (graph_nodes + graph_relationships + optional inspection).
+    """
+    req_files = ["graph_nodes.csv", "graph_relationships.csv"]
+    paths = {fn: os.path.join(output_dir, fn) for fn in req_files}
+    missing_files = [fn for fn, p in paths.items() if not os.path.exists(p)]
+    if missing_files:
+        return {"error": f"Missing files: {missing_files}"}
+
+    rec_ids: set[str] = set()
+    ds_ids: set[str] = set()
+    tag_ids: set[str] = set()
+    cur_ids: set[str] = set()
+    dim_ids: set[str] = set()
+    rec_dups = ds_dups = tag_dups = cur_dups = dim_dups = 0
+    seen_nid: set[str] = set()
+    graph_dups = 0
+
+    with open(paths["graph_nodes.csv"], encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            nid = (row.get("node_id:ID") or "").strip()
+            lb = (row.get(":LABEL") or "").strip()
+            if not nid:
+                continue
+            if nid in seen_nid:
+                graph_dups += 1
+            seen_nid.add(nid)
+            if lb == "Dimension":
+                if nid in dim_ids:
+                    dim_dups += 1
+                dim_ids.add(nid)
+            elif lb == "Dataset":
+                if nid in ds_ids:
+                    ds_dups += 1
+                ds_ids.add(nid)
+            elif lb == "Currency":
+                if nid in cur_ids:
+                    cur_dups += 1
+                cur_ids.add(nid)
+            elif lb == "Tag":
+                if nid in tag_ids:
+                    tag_dups += 1
+                tag_ids.add(nid)
+            elif lb.startswith("Record"):
+                if nid in rec_ids:
+                    rec_dups += 1
+                rec_ids.add(nid)
+
+    all_node_ids = rec_ids | ds_ids | tag_ids | cur_ids | dim_ids
+
+    non_canonical_ids: dict[str, list[str]] = {
+        "record": [],
+        "dataset": [],
+        "tag": [],
+        "currency": [],
+        "dimension": [],
+    }
+    for rid in rec_ids:
+        if not _BARE_IMPORT_ID_RE.match(rid) and len(non_canonical_ids["record"]) < sample_limit:
+            non_canonical_ids["record"].append(rid)
+    for did in ds_ids:
+        if not _BARE_IMPORT_ID_RE.match(did) and len(non_canonical_ids["dataset"]) < sample_limit:
+            non_canonical_ids["dataset"].append(did)
+    for tid in tag_ids:
+        if not _BARE_IMPORT_ID_RE.match(tid) and len(non_canonical_ids["tag"]) < sample_limit:
+            non_canonical_ids["tag"].append(tid)
+    for cid in cur_ids:
+        if not _BARE_IMPORT_ID_RE.match(cid) and len(non_canonical_ids["currency"]) < sample_limit:
+            non_canonical_ids["currency"].append(cid)
+    for dk in dim_ids:
+        if not _BARE_IMPORT_ID_RE.match(dk) and len(non_canonical_ids["dimension"]) < sample_limit:
+            non_canonical_ids["dimension"].append(dk)
+
+    narrative_tag_values_sample: list[str] = []
+    overlong_tag_values_sample: list[str] = []
+    with open(paths["graph_nodes.csv"], encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if (row.get(":LABEL") or "").strip() != "Tag":
+                continue
+            name_val = (row.get("name") or "").strip()
+            if name_val and len(name_val) > 120 and len(overlong_tag_values_sample) < sample_limit:
+                overlong_tag_values_sample.append(name_val)
+            if name_val and _is_narrative_like_category_value(name_val):
+                if len(narrative_tag_values_sample) < sample_limit:
+                    narrative_tag_values_sample.append(name_val)
+
+    suspicious_currency_codes_sample: list[str] = []
+    with open(paths["graph_nodes.csv"], encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if (row.get(":LABEL") or "").strip() != "Currency":
+                continue
+            cid = (row.get("node_id:ID") or "").strip()
+            if cid and not _SUSPICIOUS_CURRENCY_CODE_RE.match(cid):
+                if len(suspicious_currency_codes_sample) < sample_limit:
+                    suspicious_currency_codes_sample.append(cid)
+
+    miss_s: list[str] = []
+    miss_e: list[str] = []
+    bad_types: list[str] = []
+    bad_sf: list[str] = []
+    dup_rels = 0
+    rel_rows = 0
+    seen_rel: set[tuple[str, str, str, str]] = set()
+    by_type: dict[str, int] = {}
+
+    with open(paths["graph_relationships.csv"], encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rel_rows += 1
+            s = (row.get(":START_ID") or "").strip()
+            e = (row.get(":END_ID") or "").strip()
+            rt = (row.get(":TYPE") or "").strip()
+            sf = (row.get("source_field") or "").strip()
+            if s and s not in all_node_ids and len(miss_s) < sample_limit:
+                miss_s.append(s)
+            if e and e not in all_node_ids and len(miss_e) < sample_limit:
+                miss_e.append(e)
+            if rt and not _IDENTIFIER_RE.match(rt) and len(bad_types) < sample_limit:
+                bad_types.append(rt)
+            if rt:
+                by_type[rt] = by_type.get(rt, 0) + 1
+            if sf and sf not in _DIMENSION_REL and len(bad_sf) < sample_limit:
+                bad_sf.append(sf)
+            key = (s, e, rt, sf)
+            if key in seen_rel:
+                dup_rels += 1
+            seen_rel.add(key)
+
+    unified_rel = {
+        "rows": rel_rows,
+        "missing_start_sample": miss_s,
+        "missing_end_sample": miss_e,
+        "invalid_rel_type_sample": bad_types,
+        "unknown_source_field_sample": bad_sf,
+        "duplicate_rows": dup_rels,
+        "relationship_type_counts": dict(sorted(by_type.items())),
+    }
+
+    return {
+        "ok": True,
+        "schema": "normalized_bundle_v4",
+        "node_counts": {
+            "record": len(rec_ids),
+            "dataset": len(ds_ids),
+            "tag": len(tag_ids),
+            "currency": len(cur_ids),
+            "dimension": len(dim_ids),
+        },
+        "duplicate_node_ids": {
+            "graph_nodes": graph_dups,
+            "record": rec_dups,
+            "dataset": ds_dups,
+            "tag": tag_dups,
+            "currency": cur_dups,
+            "dimension": dim_dups,
+        },
+        "canonical_id_checks": {
+            "non_canonical_id_count": sum(len(v) for v in non_canonical_ids.values()),
+            "non_canonical_id_sample": non_canonical_ids,
+        },
+        "tag_quality_checks": {
+            "overlong_value_count": len(overlong_tag_values_sample),
+            "overlong_value_sample": overlong_tag_values_sample,
+            "narrative_like_value_count": len(narrative_tag_values_sample),
+            "narrative_like_value_sample": narrative_tag_values_sample,
+        },
+        "warnings": {
+            "suspicious_currency_codes_count": len(suspicious_currency_codes_sample),
+            "suspicious_currency_codes_sample": suspicious_currency_codes_sample,
+        },
+        "relationship_checks": {
+            "graph_relationships": unified_rel,
+        },
+    }
+
+
+
+
 
 
 # MCP registration: (name, func_name, required_keys, arg_specs, result_key).
@@ -791,5 +1961,25 @@ TOOL_SPECS: list[tuple[str, str, list[str], list, str | None]] = [
         ("nodes", ["nodes"], [], None),
         ("label", ["label"], None, None),
         ("id_key", ["id_key"], "id", None),
+    ], None),
+    ("kg_tool.build_graph_csvs", "build_graph_csvs", [], [
+        ("data_dir", ["data_dir"], "database/graph_data", None),
+        ("output_dir", ["output_dir"], "database/graph_data/neo4j_export", None),
+    ], None),
+    ("kg_tool.load_graph_csvs_to_neo4j", "load_graph_csvs_to_neo4j", [], [
+        ("nodes_csv", ["nodes_csv"], "", None),
+        ("relationships_csv", ["relationships_csv"], "", None),
+        ("mode", ["mode"], "append", None),
+        ("output_dir", ["output_dir"], None, None),
+    ], None),
+    ("kg_tool.validate_graph_csvs_for_neo4j", "validate_graph_csvs_for_neo4j", [], [
+        ("nodes_csv", ["nodes_csv"], "", None),
+        ("relationships_csv", ["relationships_csv"], "", None),
+        ("sample_limit", ["sample_limit"], 20, int),
+        ("output_dir", ["output_dir"], None, None),
+    ], None),
+    ("kg_tool.validate_graph_csv_bundle_for_neo4j", "validate_graph_csv_bundle_for_neo4j", ["output_dir"], [
+        ("output_dir", ["output_dir"], "", None),
+        ("sample_limit", ["sample_limit"], 20, int),
     ], None),
 ]

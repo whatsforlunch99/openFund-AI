@@ -24,7 +24,7 @@ TOOL_DESCRIPTIONS_BY_NAME: dict[str, str] = {
     "vector_tool.create_collection_from_config": "Create a new Milvus collection. Payload: name (string), dimension (optional int), primary_key_field (optional), scalar_fields (optional), index_params (optional).",
     # kg_tool
     "kg_tool.query_graph": "Run Cypher query. Payload: cypher (string), params (optional dict).",
-    "kg_tool.get_relations": "Get relationships for an entity (fund/company). Payload: entity (string).",
+    "kg_tool.get_relations": "Get 1-hop Neo4j relationships for a company/fund. Payload: entity (string)—symbol (e.g. 000002.SZ), node id, exact name, or planner text naming the issuer (punctuation-insensitive name match; multi-char symbols only for substring match).",
     "kg_tool.get_node_by_id": "Look up a node by property. Payload: id_val (string), id_key (optional, default 'id').",
     "kg_tool.get_neighbors": "Get neighbors of a node. Payload: node_id (string), id_key, direction ('in'|'out'|'both'), relationship_type (optional), limit (optional int).",
     "kg_tool.get_graph_schema": "List node labels and relationship types. Payload: {}.",

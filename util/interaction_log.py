@@ -14,6 +14,7 @@ import re
 import threading
 from contextvars import ContextVar
 from datetime import datetime, timezone
+from logging import LogRecord
 from typing import Any, Optional
 
 _CONVERSATION_ID: ContextVar[str] = ContextVar("interaction_log_conversation_id", default="")
@@ -273,3 +274,33 @@ def log_call(
     else:
         message = f"TRACE {sequence}\n{line1}\n"
     logger.info("%s", message)
+
+
+# ---------------------------------------------------------------------------
+# Root log line format (uvicorn / app); pass-through for openfund.interaction
+# ---------------------------------------------------------------------------
+
+ROOT_LOG_CATEGORY_WIDTH = 28
+ROOT_LOG_MESSAGE_INDENT = 45
+
+
+class OpenFundFormatter(logging.Formatter):
+    """Format log records as [ISO8601Z] LEVEL  category   message (multiline indented)."""
+
+    def format(self, record: LogRecord) -> str:
+        if record.name == "openfund.interaction":
+            return record.getMessage()
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        level = "WARN" if record.levelno == logging.WARNING else record.levelname
+        category = getattr(record, "openfund_category", None) or record.name
+        if len(category) > ROOT_LOG_CATEGORY_WIDTH:
+            category = category[: ROOT_LOG_CATEGORY_WIDTH - 1] + "…"
+        else:
+            category = category + " " * (ROOT_LOG_CATEGORY_WIDTH - len(category))
+        msg = record.getMessage()
+        if "\n" in msg:
+            lines = msg.split("\n")
+            first = lines[0]
+            rest = "\n".join(" " * ROOT_LOG_MESSAGE_INDENT + line for line in lines[1:])
+            msg = first + ("\n" + rest if rest else "")
+        return f"[{ts}] {level:4}  {category}   {msg}"

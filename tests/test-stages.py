@@ -229,6 +229,96 @@ def test_stage_1_3() -> None:
     assert stop_msg.performative is Performative.STOP
 
 
+def test_stage_1_3_data_sources_persist() -> None:
+    """merge_data_sources writes librarian/websearcher/analyst snapshots; load restores them."""
+    from a2a.conversation_manager import ConversationManager
+    from a2a.message_bus import InMemoryMessageBus
+
+    bus = InMemoryMessageBus()
+    bus.register_agent("observer")
+    with tempfile.TemporaryDirectory() as tmp:
+        prev = os.environ.get("MEMORY_STORE_PATH")
+        os.environ["MEMORY_STORE_PATH"] = tmp
+        try:
+            mgr = ConversationManager(bus)
+            cid = mgr.create_conversation("ds_user", "hello")
+            state = mgr.get_conversation(cid)
+            assert state is not None
+            assert state.data_sources["librarian"] == {}
+            assert state.data_sources["websearcher"] == {}
+            assert state.data_sources["analyst"] == {}
+
+            per_agent = {
+                "librarian": {
+                    "recorded_at": "2026-01-01T00:00:00Z",
+                    "summary": "lib sum",
+                    "document_count": 2,
+                },
+                "websearcher": {
+                    "recorded_at": "2026-01-01T00:00:00Z",
+                    "summary": "web sum",
+                    "news_count": 1,
+                },
+                "analyst": {
+                    "recorded_at": "2026-01-01T00:00:00Z",
+                    "confidence": 0.9,
+                    "summary": "an sum",
+                },
+            }
+            mgr.merge_data_sources(cid, per_agent)
+
+            path = os.path.join(tmp, "ds_user", "conversations.json")
+            assert os.path.exists(path)
+            with open(path, encoding="utf-8") as f:
+                raw = json.load(f)
+            assert cid in raw
+            ds = raw[cid].get("data_sources")
+            assert isinstance(ds, dict)
+            assert ds["librarian"]["summary"] == "lib sum"
+            assert ds["websearcher"]["news_count"] == 1
+            assert ds["analyst"]["confidence"] == 0.9
+
+            mgr2 = ConversationManager(bus)
+            mgr2.load_user_conversations("ds_user")
+            st2 = mgr2.get_conversation(cid)
+            assert st2 is not None
+            assert st2.data_sources["librarian"]["summary"] == "lib sum"
+        finally:
+            if prev is not None:
+                os.environ["MEMORY_STORE_PATH"] = prev
+            else:
+                os.environ.pop("MEMORY_STORE_PATH", None)
+
+
+def test_stage_1_3_merge_data_sources_partial_round2() -> None:
+    """merge_data_sources updates only agents with non-empty snapshots; others unchanged."""
+    from a2a.conversation_manager import ConversationManager
+    from a2a.message_bus import InMemoryMessageBus
+
+    bus = InMemoryMessageBus()
+    bus.register_agent("observer")
+    with tempfile.TemporaryDirectory() as tmp:
+        prev = os.environ.get("MEMORY_STORE_PATH")
+        os.environ["MEMORY_STORE_PATH"] = tmp
+        try:
+            mgr = ConversationManager(bus)
+            cid = mgr.create_conversation("ds_user2", "q")
+            mgr.merge_data_sources(cid, {"librarian": {"keep": "round1"}})
+            mgr.merge_data_sources(
+                cid, {"websearcher": {"round": 2, "summary": "updated"}}
+            )
+            st = mgr.get_conversation(cid)
+            assert st is not None
+            assert st.data_sources["librarian"] == {"keep": "round1"}
+            assert st.data_sources["websearcher"]["summary"] == "updated"
+            assert st.data_sources["analyst"] == {}
+        finally:
+            if prev is not None:
+                os.environ["MEMORY_STORE_PATH"] = prev
+            else:
+                os.environ.pop("MEMORY_STORE_PATH", None)
+
+
 # --- Placeholder stages: one function per stage so -k stage_N_M always matches ---
 
 

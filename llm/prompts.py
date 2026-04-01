@@ -97,28 +97,20 @@ def get_planner_refined_user_content(user_query: str, aggregated: str) -> str:
 
 # --- Librarian: retrieve and combine (vector, graph, SQL, files) ---
 # Used when/if Librarian uses LLM to summarize combined docs+graph+sql into a brief for the planner.
-# PostgreSQL schema for sql_tool: must match docs/fund-data-schema.md and data_manager/schemas.py.
+# PostgreSQL schema for sql_tool: must match docs/data_prep/stats-data-schema.md and loader-managed SQL tables.
 POSTGRES_SCHEMA_FOR_SQL_TOOL = """
 PostgreSQL schema (use ONLY these tables and columns when calling sql_tool.run_query or sql_tool.export_results):
 
-Fund tables:
-- fund_info: id, symbol, name, category, index_tracked, investment_style, total_assets_billion, expense_ratio, dividend_yield, holdings_count, as_of_date, collected_at
-- fund_performance: id, symbol, as_of_date, ytd_return, return_1yr, return_3yr, return_5yr, return_10yr, collected_at
-- fund_risk_metrics: id, symbol, as_of_date, beta, standard_deviation, sharpe_ratio, max_drawdown, collected_at
-- fund_holdings: id, fund_symbol, holding_symbol, holding_name, weight, sector, as_of_date, collected_at  (join on fund_symbol, not fund_id)
-- fund_sector_allocation: id, symbol, sector, weight, as_of_date, collected_at
-- fund_flows: id, symbol, period, inflow_billion, outflow_billion, net_flow_billion, pct_of_aum, as_of_date, collected_at
+Stats/market tables loaded by scripts/data_loader.py from database/stats_data/*.csv
+:
+- yahoo_quote_metrics: symbol, timestamp, price, change, change_percent, prev_close, open, volume, avg_volume, market_cap, market_cap_intraday, beta_5y_monthly, pe_ttm, eps_ttm, earnings_date_est, ex_dividend_date, target_est_1y, currency, source_url, status, day_low, day_high, week_52_low, week_52_high, bid_price, bid_size, ask_price, ask_size, forward_dividend, forward_yield_percent, market_cap_intraday_parsed
+- yahoo_fundamentals_metrics: symbol, as_of_timestamp, metric_source, metric_group, metric_name, metric_value, source_url, status
+- yahoo_timeseries: symbol, date, level_open, level_high, level_low, level_close, total_return_level, ma_50, ma_200, rsi_14, macd, macd_signal, macd_hist, bb_upper, bb_mid, bb_lower, stoch_k, stoch_d, source_url, source, technical_source_url
+- index_symbol_map: symbol, index_id, confidence, quotetype, matched_name, source_url
 
-Stock/company tables:
-- stock_ohlcv: id, symbol, trade_date, open, high, low, close, volume, collected_at
-- company_fundamentals: id, symbol, as_of_date, name, sector, industry, market_cap, pe_ratio, forward_pe, peg_ratio, price_to_book, eps_ttm, dividend_yield, beta, fifty_two_week_high, fifty_two_week_low, collected_at  (standard_deviation is NOT in this table; it is only in fund_risk_metrics)
-- financial_statements: id, symbol, statement_type, report_date, fiscal_period, line_item, value, collected_at
-- insider_transactions: id, symbol, insider_name, relation, transaction_type, shares, value, transaction_date, collected_at
-- technical_indicators: id, symbol, indicator_name, indicator_date, value, collected_at
-
-Demo table (minimal): funds(symbol, name). Prefer fund_info for full fund data.
-
-Do NOT use: financials, revenue_segments, fund_returns, fund_sector_exposures (invalid). Use fund_symbol in fund_holdings (no fund_id). Use fund_sector_allocation not fund_sector_exposures. Use fund_performance not fund_returns.
+Do NOT use old fund_* schema:
+- fund_info, fund_performance, fund_risk_metrics, fund_holdings, fund_sector_allocation, fund_flows
+- stock_ohlcv, company_fundamentals, financial_statements, insider_transactions, technical_indicators
 """
 
 LIBRARIAN_SYSTEM = """You are the Librarian specialist.

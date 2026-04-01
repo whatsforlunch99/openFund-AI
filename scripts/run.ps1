@@ -18,7 +18,6 @@ $env:PYTHONWARNINGS = "ignore:.*OpenSSL.*::,ignore:.*leaked semaphore.*::"
 
 $port = 8000
 $startBackends = 1
-$seedDemo = 1
 $loadFunds = "existing"   # existing | fresh-symbols | fresh-all | skip
 $installDeps = 0
 $waitSecs = 8
@@ -29,7 +28,6 @@ for ($i = 0; $i -lt $args.Count; $i++) {
   switch ($arg) {
     "--port" { $port = [int]$args[$i + 1]; $i++; break }
     "--no-backends" { $startBackends = 0; break }
-    "--no-seed" { $seedDemo = 0; break }
     "--funds" { $loadFunds = $args[$i + 1]; $i++; break }
     "--install-deps" { $installDeps = 1; break }
     "--wait" { $waitSecs = [int]$args[$i + 1]; $i++; break }
@@ -42,7 +40,6 @@ OpenFund-AI single runner (PowerShell)
 Options:
   --port <n>           API port (default 8000)
   --no-backends        Skip starting Postgres/Neo4j/Milvus
-  --no-seed            Skip `python -m data_manager populate`
   --funds <mode>       existing | fresh-symbols | fresh-all | skip
   --install-deps       Install Python extras [backends,llm]
   --wait <secs>        Wait after backend start before seed (default 8)
@@ -250,6 +247,9 @@ if ($startBackends -eq 1) {
 
   Write-Host "==> Starting configured local backends"
   Start-Postgres
+  if (Get-Command createdb -ErrorAction SilentlyContinue) {
+    & createdb openfund | Out-Null
+  }
   Start-Neo4j
   Start-Milvus
   Write-Host "==> Waiting ${waitSecs}s for backends..."
@@ -258,48 +258,24 @@ if ($startBackends -eq 1) {
     if (Wait-Port "127.0.0.1" 7687 45) { Write-Host "Neo4j: port 7687 ready" }
     else { Write-Host "Neo4j: port 7687 not ready after 45s" }
   }
-}
 
-if (Get-Command createdb -ErrorAction SilentlyContinue) {
-  & createdb openfund | Out-Null
-}
-
-if ($seedDemo -eq 1) {
-  Write-Host "==> Seeding backend demo baseline"
-  try { & $PYTHON -m data_manager populate } catch { }
-}
-
-$fundsFile = Join-Path $ROOT "datasets\combined_funds.json"
-if ($loadFunds -ne "skip" -and (Test-Path $fundsFile)) {
-  $skipFundLoad = 0
-  if ($loadFunds -eq "existing" -and $env:DATABASE_URL) {
-    $check = @"
-import os, sys
-try:
-    import psycopg2
-    conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
-    cur = conn.cursor()
-    cur.execute('SELECT 1 FROM fund_info LIMIT 1')
-    if cur.fetchone():
-        sys.exit(0)
-    sys.exit(1)
-except Exception:
-    sys.exit(2)
-"@
-    & $PYTHON -c $check
-    if ($LASTEXITCODE -eq 0) { $skipFundLoad = 1 }
+  # Populate all backends from repo datasets (stats_data/text_data/neo4j_export).
+  # Map legacy flag values to loader load-mode values.
+  $loaderMode = "existing"
+  switch ($loadFunds) {
+    "existing" { $loaderMode = "existing" ; break }
+    "fresh-symbols" { $loaderMode = "existing" ; break }  # no symbol-scoped refresh in loader
+    "fresh-all" { $loaderMode = "fresh-all" ; break }
+    "skip" { $loaderMode = "skip" ; break }
+    default { throw "Unknown --funds mode: $loadFunds" }
   }
-  if ($skipFundLoad -eq 1) {
-    Write-Host "==> Skipping fund load (backend already has fund data)"
-  } else {
-    Write-Host "==> Loading fund dataset ($loadFunds)"
-    switch ($loadFunds) {
-      "existing" { & $PYTHON -m data_manager distribute-funds --file $fundsFile --load-mode existing }
-      "fresh-symbols" { & $PYTHON -m data_manager distribute-funds --file $fundsFile --load-mode fresh --fresh-scope symbols }
-      "fresh-all" { & $PYTHON -m data_manager distribute-funds --file $fundsFile --load-mode fresh --fresh-scope all }
-      default { Write-Error "Unknown --funds mode: $loadFunds"; exit 1 }
-    }
-  }
+
+  Write-Host "==> Loading backends (data_loader mode: $loaderMode)"
+  & $PYTHON (Join-Path $ROOT "scripts\data_loader.py") `
+    --load-mode $loaderMode `
+    --stats-dir (Join-Path $ROOT "database\stats_data") `
+    --text-dir (Join-Path $ROOT "database\text_data") `
+    --neo4j-csv-dir (Join-Path $ROOT "database\graph_data\neo4j_export") | Out-Null
 }
 
 Write-Host "==> Starting live API on port ${port}"

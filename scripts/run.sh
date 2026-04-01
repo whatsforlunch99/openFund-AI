@@ -19,7 +19,6 @@ export PYTHONWARNINGS="ignore:.*OpenSSL.*::,ignore:.*leaked semaphore.*::"
 
 PORT=8000
 START_BACKENDS=1
-SEED_DEMO=1
 LOAD_FUNDS="existing"   # existing | fresh-symbols | fresh-all | skip
 INSTALL_DEPS=0
 WAIT_SECS=8
@@ -31,8 +30,6 @@ while [[ $# -gt 0 ]]; do
       PORT="${2:-8000}"; shift 2 ;;
     --no-backends)
       START_BACKENDS=0; shift ;;
-    --no-seed)
-      SEED_DEMO=0; shift ;;
     --funds)
       LOAD_FUNDS="${2:-existing}"; shift 2 ;;
     --install-deps)
@@ -48,10 +45,9 @@ OpenFund-AI single runner
 Options:
   --port <n>           API port (default 8000)
   --no-backends        Skip starting Postgres/Neo4j/Milvus
-  --no-seed            Skip `python -m data_manager populate`
   --funds <mode>       existing | fresh-symbols | fresh-all | skip
   --install-deps       Install Python extras [backends,llm]
-  --wait <secs>        Wait after backend start before seed (default 8)
+  --wait <secs>        Wait after backend start (default 8)
   --no-chat            Start API only; do not launch interactive chat client
 EOF
       exit 0 ;;
@@ -225,6 +221,9 @@ YAML
 if [[ $START_BACKENDS -eq 1 ]]; then
   echo "==> Starting configured local backends"
   start_postgres
+  if command -v createdb >/dev/null 2>&1; then
+    createdb openfund >/dev/null 2>&1 || true
+  fi
   start_neo4j
   start_milvus
   echo "==> Waiting ${WAIT_SECS}s for backends..."
@@ -237,69 +236,30 @@ if [[ $START_BACKENDS -eq 1 ]]; then
       echo "Neo4j: port 7687 not ready after 45s. If Neo4j says already running, remove stale pid: 'rm -f \$(find /opt/homebrew -name neo4j.pid 2>/dev/null)' then run 'neo4j console' and wait for 'Bolt enabled'. Or unset NEO4J_URI in .env to skip." >&2
     fi
   fi
-fi
 
-if command -v createdb >/dev/null 2>&1; then
-  createdb openfund >/dev/null 2>&1 || true
-fi
-
-if [[ $SEED_DEMO -eq 1 ]]; then
-  echo "==> Seeding backend demo baseline"
-  if "$PYTHON" -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('data_manager') else 1)" 2>/dev/null; then
-    "$PYTHON" -m data_manager populate || true
-  else
-    echo "Skipping: no Python module 'data_manager' (optional seed step)." >&2
-  fi
-fi
-
-if [[ "$LOAD_FUNDS" != "skip" ]] && [[ -f "$ROOT/datasets/combined_funds.json" ]]; then
-  # When --funds existing and backend already has fund data, skip loading to avoid redundant work.
-  SKIP_FUND_LOAD=0
-  if [[ "$LOAD_FUNDS" == "existing" ]] && [[ -n "${DATABASE_URL:-}" ]]; then
-    if "$PYTHON" -c "
-import os, sys
-try:
-    import psycopg2
-    conn = psycopg2.connect(os.environ.get('DATABASE_URL'))
-    cur = conn.cursor()
-    cur.execute('SELECT 1 FROM fund_info LIMIT 1')
-    if cur.fetchone():
-        sys.exit(0)
-    sys.exit(1)
-except Exception:
-    sys.exit(2)
-" 2>/dev/null; then
-      SKIP_FUND_LOAD=1
-    fi
-  fi
-  if [[ $SKIP_FUND_LOAD -eq 1 ]]; then
-    echo "==> Skipping fund load (backend already has fund data)"
-  else
-  echo "==> Loading fund dataset (${LOAD_FUNDS})"
+  # Populate all backends from repo datasets (stats_data/text_data/neo4j_export).
+  # Map legacy flag values to loader load-mode values.
   case "$LOAD_FUNDS" in
     existing)
-      if "$PYTHON" -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('data_manager') else 1)" 2>/dev/null; then
-        "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode existing || true
-      else
-        echo "Skipping fund load: no Python module 'data_manager'." >&2
-      fi ;;
+      LOADER_MODE="existing" ;;
     fresh-symbols)
-      if "$PYTHON" -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('data_manager') else 1)" 2>/dev/null; then
-        "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode fresh --fresh-scope symbols || true
-      else
-        echo "Skipping fund load: no Python module 'data_manager'." >&2
-      fi ;;
+      # Loader does not implement symbol-scoped refresh; existing upsert is the closest behavior.
+      LOADER_MODE="existing" ;;
     fresh-all)
-      if "$PYTHON" -c "import importlib.util; raise SystemExit(0 if importlib.util.find_spec('data_manager') else 1)" 2>/dev/null; then
-        "$PYTHON" -m data_manager distribute-funds --file "$ROOT/datasets/combined_funds.json" --load-mode fresh --fresh-scope all || true
-      else
-        echo "Skipping fund load: no Python module 'data_manager'." >&2
-      fi ;;
+      LOADER_MODE="fresh-all" ;;
+    skip)
+      LOADER_MODE="skip" ;;
     *)
       echo "Unknown --funds mode: $LOAD_FUNDS" >&2
       exit 1 ;;
   esac
-  fi
+
+  echo "==> Loading backends (data_loader mode: ${LOADER_MODE})"
+  "$PYTHON" "$ROOT/scripts/data_loader.py" \
+    --load-mode "$LOADER_MODE" \
+    --stats-dir "$ROOT/database/stats_data" \
+    --text-dir "$ROOT/database/text_data" \
+    --neo4j-csv-dir "$ROOT/database/graph_data/neo4j_export" || true
 fi
 
 echo "==> Starting live API on port ${PORT}"

@@ -1,5 +1,7 @@
 # MCP Server (FastMCP)
 
+**Scope:** How to **run** the MCP server and wire MCP clients (stdio, env). For **tool names, payloads, and per-agent lists**, use [agent-tools-reference.md](agent-tools-reference.md). For the folder layout of this doc set, see [README.md](README.md).
+
 OpenFund-AI exposes all tools through a single **MCP server** (FastMCP over stdio). The server is implemented in **one module**: `openfund_mcp/mcp_server.py`, which provides both the **FastMCP** stdio app (for production and external clients) and **MCPServer** (for in-process tests). Both the OpenFund API/agents and external MCP clients (e.g. Claude Desktop) use this server. Run it with `python -m openfund_mcp`.
 
 ## Running the server

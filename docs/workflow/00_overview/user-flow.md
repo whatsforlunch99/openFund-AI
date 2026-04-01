@@ -1,10 +1,10 @@
 # User Flow Document
 
-Application behavioral flow from the user perspective. See [prd.md](prd.md) for requirements and [backend.md](backend.md) for API contracts.
+Application behavioral flow from the user perspective. See [prd.md](../90_product/prd.md) for requirements and [backend.md](../02_planning/backend.md) for API contracts.
 
 ---
 
-## Current implementation (Slices 1–10.2)
+## Current implementation
 
 The codebase implements REST and WebSocket with planner-driven orchestration: `python main.py --e2e-once` runs a single conversation (api → planner → librarian + websearcher + analyst → responder). The planner sends the initial planner round REQUESTs to specialists, aggregates INFORMs, and uses the planner sufficiency check (LLM-based) to decide whether to run refined planner round(s) (capped by `MAX_RESEARCH_ROUNDS`) or forward to responder. The responder formats final text via responder-LLM path when `llm_client` is set, otherwise via OutputRail; then it checks compliance, calls register_reply, and broadcasts STOP. **POST /register**, **POST /login**, **POST /chat**, and **GET /conversations/{id}** are implemented. **SafetyGateway** runs on all chat input. **WebSocket /ws** follows the same core flow as POST /chat. The flow below applies to both REST and WebSocket chat paths.
 
@@ -78,7 +78,9 @@ Invalid or unknown `user_profile` is rejected before processing.
 
 # OpenFund-AI — Use Case Flows by Target Audience
 
-This section describes the pipeline at a **high level** (shared flow summary and audience-specific differences). For a **step-by-step function trace** of one beginner request from API entry to final response, see [use-case-trace-beginner.md](use-case-trace-beginner.md). That document aligns with [prd.md](prd.md), [backend.md](backend.md), and the function-level contracts in [file-structure.md](file-structure.md).
+This section describes the pipeline at a **high level** (shared flow summary and audience-specific differences). For a **step-by-step function trace** of one beginner request from API entry to final response, see [use-case-trace-beginner.md](use-case-trace-beginner.md). That document aligns with [prd.md](../90_product/prd.md), [backend.md](../02_planning/backend.md), and the function-level contracts in [file-structure.md](../02_planning/file-structure.md).
+
+Offline data (PostgreSQL stats, Neo4j graph, Milvus text) is loaded with [`scripts/data_loader.py`](../../../scripts/data_loader.py); schema and run modes are documented under [`docs/data_prep/`](../../data_prep/revision_plan.md). That step is not part of the per-request chat flow.
 
 ---
 

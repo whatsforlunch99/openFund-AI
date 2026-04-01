@@ -365,32 +365,6 @@ def connection_health_check() -> dict:
                 pass
 
 
-def populate_demo() -> tuple[bool, str]:
-    """
-    Create funds table (if not exists) and insert NVDA row. Uses DATABASE_URL.
-    Caller should load .env before calling. Returns (success, message).
-    """
-    if not os.environ.get("DATABASE_URL"):
-        return False, "DATABASE_URL not set; skipping PostgreSQL."
-    ddl = """
-    CREATE TABLE IF NOT EXISTS funds (
-        symbol VARCHAR(32) PRIMARY KEY,
-        name VARCHAR(256)
-    )
-    """
-    r = run_query(ddl)
-    if r.get("error"):
-        return False, f"PostgreSQL DDL failed: {r['error']}"
-    insert = """
-    INSERT INTO funds (symbol, name) VALUES ('NVDA', 'NVIDIA Corporation')
-    ON CONFLICT (symbol) DO UPDATE SET name = EXCLUDED.name
-    """
-    r = run_query(insert)
-    if r.get("error"):
-        return False, f"PostgreSQL insert failed: {r['error']}"
-    return True, "PostgreSQL: created/updated funds, inserted NVDA."
-
-
 def _coerce_analyze(x: Any) -> bool:
     """Coerce payload 'analyze' to True only when explicitly True (for explain_query)."""
     return x is True

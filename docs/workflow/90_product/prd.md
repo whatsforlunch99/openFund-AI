@@ -76,4 +76,4 @@ Users need investment-research answers tailored to their expertise (beginner, lo
 - Correct behavior per user profile (beginner vs long_term vs analyst wording).
 - All user input passes safety; blocked or invalid input is rejected.
 - Timeout and error paths behave as specified (no silent failures).
-- Documentation (PRD, user flow, backend, file structure, progress, project status) stays aligned with implementation.
+- Documentation stays aligned with implementation: product docs in `docs/workflow/90_product/` (this file, [progress.md](progress.md), [project-status.md](project-status.md)); behavior and traces in `docs/workflow/00_overview/`; contracts and code map in `docs/workflow/02_planning/`.

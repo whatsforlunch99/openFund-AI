@@ -1,8 +1,10 @@
-"""Tool descriptions per agent for LLM tool selection. Mirrors docs/agent-tools-reference.md.
+"""Tool descriptions per agent for LLM tool selection.
 
-The allowed tool sets and descriptions here are the single source of truth in code.
-Any change to the "Summary: tools available per agent" table in docs/agent-tools-reference.md
-should be reflected here (and vice versa).
+Keep in sync with docs/workflow/03_tools_and_mcp/agent-tools-reference.md
+("Summary: tools available per agent" and tool selection guides).
+
+The allowed tool sets and descriptions here are the single source of truth in code;
+the doc is the human-readable mirror—update both when tools change.
 """
 
 from __future__ import annotations
@@ -34,7 +36,7 @@ TOOL_DESCRIPTIONS_BY_NAME: dict[str, str] = {
     "kg_tool.bulk_export": "Read-only Cypher export as JSON or CSV. Payload: cypher (string), params (optional), format ('json'|'csv'), row_limit (optional int).",
     "kg_tool.bulk_create_nodes": "Create/merge nodes. Payload: nodes (list of dicts), label (optional string), id_key (optional string).",
     # sql_tool
-    "sql_tool.run_query": "Execute SQL on PostgreSQL. Use only tables/columns from the schema in your instructions (e.g. fund_info, fund_performance, fund_holdings with fund_symbol, fund_sector_allocation). Payload: query (string), params (optional).",
+    "sql_tool.run_query": "Execute SQL on PostgreSQL. Use only tables/columns from the schema in your instructions (e.g. yahoo_quote_metrics, yahoo_fundamentals_metrics, yahoo_timeseries, index_symbol_map). Payload: query (string), params (optional).",
     "sql_tool.explain_query": "Return SQL query plan. Payload: query (string), params (optional), analyze (optional bool).",
     "sql_tool.export_results": "Run SQL and return JSON/CSV. Use only schema from instructions. Payload: query (string), params (optional), format ('json'|'csv'), row_limit (optional int).",
     "sql_tool.connection_health_check": "Test PostgreSQL connectivity. Payload: {}.",
@@ -63,8 +65,8 @@ TOOL_DESCRIPTIONS_BY_NAME: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# Allowed tool name sets per agent — derived from docs/agent-tools-reference.md
-# "Summary: tools available per agent" table.
+# Allowed tool name sets per agent — derived from agent-tools-reference.md
+# "Summary: tools available per agent" table (docs/workflow/03_tools_and_mcp/).
 # ---------------------------------------------------------------------------
 LIBRARIAN_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
     "file_tool.read_file",

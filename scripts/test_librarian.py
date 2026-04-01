@@ -10,7 +10,7 @@ Runs:
 - handle_message with sql_query -> sql_tool.run_query (schema-aligned)
 
 Uses real backends when DATABASE_URL, NEO4J_URI, MILVUS_URI are set (e.g. after
-./scripts/run.sh or data_manager distribute-funds); otherwise tools return mock/empty.
+./scripts/run.sh or `python scripts/data_loader.py`); otherwise tools return mock/empty.
 Run from project root: python scripts/test_librarian.py
 """
 
@@ -95,8 +95,8 @@ def run(
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.librarian_agent import LibrarianAgent
-from openfund_mcp.mcp_client import MCPClient
-from openfund_mcp.mcp_server import MCPServer
+        from openfund_mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         print(f"FAIL: Import error: {e}")
         return 1
@@ -213,7 +213,7 @@ from openfund_mcp.mcp_server import MCPServer
                 sender="planner",
                 receiver="librarian",
                 content={
-                    "sql_query": "SELECT symbol, name FROM fund_info LIMIT 3",
+                    "sql_query": "SELECT symbol, price, timestamp FROM yahoo_quote_metrics LIMIT 3",
                     "query": "fund info",
                 },
                 conversation_id=cid,

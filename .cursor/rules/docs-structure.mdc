@@ -21,7 +21,9 @@ All docs live in `/docs`. Each document has a single responsibility; no overlap 
 
 | Document | Purpose |
 |----------|---------|
-| **agent-tools-reference.md** | MCP tool reference: payloads, samples, per-agent tool lists; single source for LLM tool descriptions. |
+| **docs/workflow/03_tools_and_mcp/README.md** | Index for MCP docs: which file owns contracts vs agent design vs server runbook. |
+| **docs/workflow/03_tools_and_mcp/agent-tools-reference.md** | MCP tool reference: payloads, samples, per-agent tool lists; keep in sync with `llm/tool_descriptions.py`. |
+| **docs/shared/websearcher-git-sync-notes.md** | Historical git/MCP migration notes only (not API reference). |
 | **data-manager-agent.md** | Data Manager Agent design: collection, distribution, CLI, triggers; no duplication of backend system overview. |
 | **fund-data-schema.md** | Fund data schema: JSON fields and DB mapping for datasets/funds; companion to data-manager-agent. |
 | **test_plan.md** | Test matrix and docs-consistency checklist; references progress for slice context. |
@@ -39,7 +41,8 @@ All docs live in `/docs`. Each document has a single responsibility; no overlap 
 - **file-structure.md:** New module, changed file responsibility, function added/removed/refactored, directory structure change.
 - **progress.md:** Task completed/created, architectural decision, recurring error identified, behavioral change from a fix, dependency change. Update right after implementation. For **changelog entries** (features, fixes, refactors), update **CHANGELOG.md** at repo root.
 - **project-status.md:** Capability becomes operational, state change, deprecated, or release milestone.
-- **agent-tools-reference.md:** MCP tools added/removed/renamed or payload contract changed; keep in sync with llm/tool_descriptions.py.
+- **03_tools_and_mcp/README.md:** New file in this folder or change to doc boundaries.
+- **03_tools_and_mcp/agent-tools-reference.md:** MCP tools added/removed/renamed or payload contract changed; keep in sync with llm/tool_descriptions.py.
 - **data-manager-agent.md:** Data Manager design, CLI, or trigger behavior changed.
 - **fund-data-schema.md:** Fund JSON or DB schema for datasets/funds changed.
 - **test_plan.md:** Stage/test matrix or docs checklist updated.

@@ -1,0 +1,72 @@
+[
+    {
+      "id": 1,
+      "title": "What is Diversification?",
+      "content": "Diversification is an investment strategy that involves spreading investments across various financial instruments, industries, and other categories to reduce risk.",
+      "category": "Risk Management",
+      "embedding": [-0.021, 0.134, -0.082, 0.441, -0.233, 0.095, 0.301, -0.156, 0.072, -0.311, 0.228, 0.019, -0.145, 0.267, -0.054, 0.188]
+    },
+    {
+      "id": 2,
+      "title": "Understanding Compound Interest",
+      "content": "Compound interest is the process where the value of an investment increases because the earnings on an investment earn interest as time passes.",
+      "category": "Fundamentals",
+      "embedding": [0.112, -0.245, 0.334, -0.091, 0.278, -0.401, 0.052, 0.199, -0.177, 0.366, -0.289, 0.084, 0.141, -0.058, 0.223, -0.317]
+    },
+    {
+      "id": 3,
+      "title": "Stocks vs Bonds",
+      "content": "Stocks represent ownership in a company and offer potential for high returns, while bonds are fixed-income instruments that provide regular interest payments with lower risk.",
+      "category": "Asset Classes",
+      "embedding": [-0.301, 0.087, 0.215, -0.142, 0.399, 0.064, -0.278, 0.193, 0.255, -0.367, 0.118, 0.041, -0.222, 0.309, -0.091, 0.174]
+    },
+    {
+      "id": 4,
+      "title": "What is an ETF?",
+      "content": "An Exchange-Traded Fund (ETF) is a type of investment fund that is traded on stock exchanges, much like stocks, and typically tracks an index.",
+      "category": "Instruments",
+      "embedding": [0.044, 0.298, -0.155, 0.377, -0.266, 0.182, -0.094, 0.211, -0.315, 0.129, 0.352, -0.073, 0.268, -0.147, 0.089, -0.234]
+    },
+    {
+      "id": 5,
+      "title": "Risk vs Return Tradeoff",
+      "content": "The risk-return tradeoff is the principle that potential return rises with an increase in risk. Low levels of uncertainty are associated with low potential returns.",
+      "category": "Fundamentals",
+      "embedding": [-0.188, 0.276, 0.091, -0.334, 0.417, -0.059, 0.204, -0.147, 0.322, -0.281, 0.067, 0.153, -0.209, 0.384, -0.118, 0.025]
+    },
+    {
+      "id": 6,
+      "title": "What is Dollar-Cost Averaging?",
+      "content": "Dollar-cost averaging is an investment strategy where a fixed amount of money is invested at regular intervals regardless of market conditions.",
+      "category": "Strategies",
+      "embedding": [0.233, -0.119, 0.348, 0.051, -0.292, 0.407, -0.061, 0.178, -0.245, 0.326, -0.184, 0.097, 0.261, -0.138, 0.056, -0.372]
+    },
+    {
+      "id": 7,
+      "title": "Index Funds Explained",
+      "content": "Index funds are mutual funds or ETFs designed to follow certain preset rules so that the fund can track a specified basket of underlying investments.",
+      "category": "Instruments",
+      "embedding": [-0.072, 0.351, -0.214, 0.289, -0.337, 0.126, 0.198, -0.041, 0.309, -0.266, 0.144, 0.058, -0.173, 0.395, -0.087, 0.211]
+    },
+    {
+      "id": 8,
+      "title": "What is Market Volatility?",
+      "content": "Market volatility refers to the rate at which the price of assets increases or decreases for a given set of returns.",
+      "category": "Market Concepts",
+      "embedding": [0.167, -0.283, 0.074, 0.318, -0.401, 0.092, 0.255, -0.198, 0.136, 0.342, -0.221, 0.063, 0.287, -0.119, 0.044, -0.356]
+    },
+    {
+      "id": 9,
+      "title": "Asset Allocation Basics",
+      "content": "Asset allocation involves dividing an investment portfolio among different asset categories such as stocks, bonds, and cash.",
+      "category": "Portfolio Management",
+      "embedding": [-0.254, 0.198, 0.321, -0.087, 0.276, -0.315, 0.109, 0.241, -0.338, 0.157, 0.284, -0.052, 0.193, -0.267, 0.071, 0.348]
+    },
+    {
+      "id": 10,
+      "title": "What is a Bull Market?",
+      "content": "A bull market is a period of time in financial markets when the price of an asset or security rises continuously.",
+      "category": "Market Concepts",
+      "embedding": [0.098, -0.364, 0.205, 0.277, -0.143, 0.389, -0.077, 0.162, -0.298, 0.341, -0.216, 0.053, 0.312, -0.185, 0.067, -0.244]
+    }
+  ]

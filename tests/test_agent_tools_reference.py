@@ -1,4 +1,4 @@
-"""Validate that every tool in docs/agent-tools-reference.md is registered and callable.
+"""Validate that every tool in docs/workflow/03_tools_and_mcp/agent-tools-reference.md is registered.
 
 Uses llm/tool_descriptions.TOOL_DESCRIPTIONS_BY_NAME as the source of tool names.
 Calls each registered tool with a minimal payload; asserts the server does not
@@ -15,7 +15,7 @@ from openfund_mcp.mcp_client import MCPClient
 from openfund_mcp.mcp_server import MCPServer
 
 
-# Minimal payloads per tool (from docs/agent-tools-reference.md sample calls).
+# Minimal payloads per tool (from agent-tools-reference.md sample calls).
 # Used to verify each tool is registered and accepts the documented payload shape.
 SAMPLE_PAYLOADS: dict[str, dict] = {
     "vector_tool.search": {"query": "NVDA fund performance 2024", "top_k": 5},
@@ -33,9 +33,9 @@ SAMPLE_PAYLOADS: dict[str, dict] = {
     "kg_tool.fulltext_search": {"index_name": "fund_fulltext", "query_string": "semiconductor", "limit": 10},
     "kg_tool.bulk_export": {"cypher": "MATCH (f:Fund) RETURN f.symbol, f.name LIMIT 100", "format": "json"},
     "kg_tool.bulk_create_nodes": {"nodes": [{"id": "TSMC", "name": "Taiwan Semiconductor"}], "label": "Company", "id_key": "id"},
-    "sql_tool.run_query": {"query": "SELECT symbol, name, total_assets_billion FROM fund_info WHERE symbol = %s", "params": ["VOO"]},
-    "sql_tool.explain_query": {"query": "SELECT symbol, total_assets_billion FROM fund_info WHERE total_assets_billion > 100", "analyze": False},
-    "sql_tool.export_results": {"query": "SELECT symbol, name, total_assets_billion FROM fund_info ORDER BY total_assets_billion DESC", "format": "csv", "row_limit": 500},
+    "sql_tool.run_query": {"query": "SELECT symbol, price, timestamp FROM yahoo_quote_metrics WHERE symbol = %s", "params": ["VOO"]},
+    "sql_tool.explain_query": {"query": "SELECT symbol, price, timestamp FROM yahoo_quote_metrics WHERE price > 100", "analyze": False},
+    "sql_tool.export_results": {"query": "SELECT symbol, price, timestamp FROM yahoo_quote_metrics ORDER BY price DESC", "format": "csv", "row_limit": 500},
     "sql_tool.connection_health_check": {},
     "market_tool.get_fundamentals": {"symbol": "AAPL"},
     "market_tool.get_stock_data": {"symbol": "NVDA", "start_date": "2024-01-01", "end_date": "2024-12-31"},

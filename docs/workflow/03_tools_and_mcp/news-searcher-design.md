@@ -41,17 +41,7 @@ Existing keys (`normalized_fund`, `market_data`, `sentiment`, `regulatory`) rema
 
 All news sources are queried **in parallel**; there is no priority or fallback chain. Each source that returns usable data is merged into the output.
 
-| Data source        | MCP tool                         | Typical data                     |
-|--------------------|----------------------------------|----------------------------------|
-| Google News RSS    | `news_tool.search_rss`           | Headlines, links, dates, sources |
-| Yahoo Finance RSS  | `news_tool.search_yahoo_rss`     | General finance news (fixed feed)|
-| GDELT API          | `news_tool.search_gdelt`         | Query-based news (may 429)       |
-| market_tool        | `market_tool.get_news`, `get_global_news` | Ticker and macro news (Alpha Vantage / Finnhub) |
-
-- **news_tool.search_rss** — Google News RSS. Input: `query` (string), `days` (int, default 7). Output: items with `title`, `link`, `published`, `source`.
-- **news_tool.search_yahoo_rss** — Yahoo Finance fixed feed. Input: `limit` (optional int, default 20). No query param.
-- **news_tool.search_gdelt** — GDELT API (free, no key). Input: `query` (string), `limit` (optional, default 10). Retries once on 429.
-- **market_tool** — Existing tools; WebSearcher calls `get_news` (ticker) and `get_global_news` (macro). Their output is normalised into the same schema as RSS-derived items.
+**Tool names and payloads** (authoritative list): [agent-tools-reference.md](agent-tools-reference.md) — sections **news_tool** and **market_tool** (`get_news`, `get_global_news`). This doc does not duplicate those tables.
 
 Future sources should be added as MCP tools and invoked in parallel. See [News source verification](#news-source-verification) for verified availability.
 
@@ -148,17 +138,9 @@ Supported values: `1`, `7`, `30` (or as implemented). The agent passes `days` to
 
 ## MCP tools for News Search
 
-Implemented in `openfund_mcp/tools/news_tool.py` and documented in [agent-tools-reference.md](agent-tools-reference.md):
+Implementation: `openfund_mcp/tools/news_tool.py` (and `market_tool` for ticker/macro news). **Contracts:** [agent-tools-reference.md](agent-tools-reference.md) § news_tool, § market_tool.
 
-- **news_tool.search_rss** — Google News RSS; payload: `query`, `days`.
-- **news_tool.search_yahoo_rss** — Yahoo Finance fixed feed; payload: `limit`.
-- **news_tool.search_gdelt** — GDELT API; payload: `query`, `limit`.
-
-### market_tool.get_news / get_global_news
-
-- **Purpose:** Ticker-specific and macro news (Alpha Vantage / Finnhub).
-- **Payload:** Per [agent-tools-reference.md](agent-tools-reference.md).
-- **Returns:** `{"content": str, "timestamp": str}` or `{"error": str}`. Content is typically unstructured text; the agent or a normaliser should parse and map to the standard news item schema where possible (e.g. extract title/source/url if present).
+`market_tool.get_news` / `get_global_news` return `{"content": str, "timestamp": str}` or `{"error": str}`; WebSearcher normalises unstructured text into the standard news item schema where possible.
 
 ---
 
@@ -214,7 +196,7 @@ All news tools must return a dict with either a normal payload or `{"error": "..
 
 ## File and module layout
 
-- **Agent:** `agents/websearch_agent.py` — Invokes news tools in parallel, normalises, merges, builds citations. See [file-structure.md](file-structure.md).
+- **Agent:** `agents/websearch_agent.py` — Invokes news tools in parallel, normalises, merges, builds citations. See [file-structure.md](../02_planning/file-structure.md).
 - **MCP tools:** `openfund_mcp/tools/news_tool.py` — `search_rss`, `search_yahoo_rss`, `search_gdelt`. Registered in `openfund_mcp/mcp_server.py` (FastMCP app and MCPServer.register_default_tools()).
 - **Tool list:** `llm/tool_descriptions.py` (`WEBSEARCHER_ALLOWED_TOOL_NAMES`); [agent-tools-reference.md](agent-tools-reference.md) for contracts.
 
@@ -235,7 +217,7 @@ All news tools must return a dict with either a normal payload or `{"error": "..
 - Output is a structured `news` array and `citations` map, enabling [NEWS1]‑style references in answers.
 - All external news access is via MCP tools (`news_tool.search_rss`, `search_yahoo_rss`, `search_gdelt`, plus market_tool).
 - Time range, caching, and optional article parsing are supported as specified above.
-- This design aligns with [websearcher-design.md](websearcher-design.md), [backend.md](backend.md), and [prd.md](prd.md).
+- This design aligns with [websearcher-design.md](websearcher-design.md), [backend.md](../02_planning/backend.md), and [prd.md](../90_product/prd.md).
 
 ---
 

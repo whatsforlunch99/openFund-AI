@@ -2,6 +2,15 @@
 
 This document lists every MCP tool available in OpenFund-AI, with callable format, payload parameters, and sample calls. It is intended as a reference for agents to know what they can call and how.
 
+## Scope (what belongs here)
+
+| In scope | Out of scope (link instead) |
+|----------|----------------------------|
+| Tool names, payloads, return shapes, sample JSON | WebSearcher merge logic, `normalized_fund` schema, symbol heuristics → [websearcher-design.md](websearcher-design.md) |
+| Per-agent allowlists and “tool selection guide” tables | News citation assignment and dedupe rules → [news-searcher-design.md](news-searcher-design.md) |
+| Sync note with `llm/tool_descriptions.py` | Running the stdio server, MCPClient env → [mcp-server.md](mcp-server.md) |
+| | Folder index → [README.md](README.md) |
+
 **How to call a tool:**
 
 ```python
@@ -12,7 +21,7 @@ result = mcp_client.call_tool("<tool_name>", { ...payload... })
 
 When **Librarian**, **WebSearcher**, or **Analyst** receive a request from the Planner, they use an **LLM call** with a prompt and the **tool descriptions in this document** (and their per-agent tool list) to determine **which tools to call and with what parameters**. They then execute those tool calls via `mcp_client.call_tool(tool_name, payload)`. The "Summary: tools available per agent" and the per-agent "tool selection guide" tables below are the **tool-description input** for that LLM (or for human reference).
 
-**Code sync:** The allowed tool sets for each agent are maintained in `llm/tool_descriptions.py` (`LIBRARIAN_ALLOWED_TOOL_NAMES`, `WEBSEARCHER_ALLOWED_TOOL_NAMES`, `ANALYST_ALLOWED_TOOL_NAMES`). The LLM prompt for each agent is injected with only that agent's tool descriptions, and any tool name the LLM returns outside the allowed set is discarded at runtime by `filter_tool_calls_to_allowed()` before execution. Keep this document and `llm/tool_descriptions.py` in sync when adding or removing tools.
+**Code sync:** The allowed tool sets for each agent are maintained in `llm/tool_descriptions.py` (`LIBRARIAN_ALLOWED_TOOL_NAMES`, `WEBSEARCHER_ALLOWED_TOOL_NAMES`, `ANALYST_ALLOWED_TOOL_NAMES`). The LLM prompt for each agent is injected with only that agent's tool descriptions, and any tool name the LLM returns outside the allowed set is discarded at runtime by `filter_tool_calls_to_allowed()` before execution. Keep this file and `llm/tool_descriptions.py` in sync when adding or removing tools (this path: `docs/workflow/03_tools_and_mcp/agent-tools-reference.md`).
 
 All tools are registered in the **single MCP server** (`openfund_mcp/mcp_server.py`): FastMCP app for production stdio and MCPServer.register_default_tools() for in-process tests. All tool implementations live under `openfund_mcp/tools/`. The API and agents use **MCPClient** to call the server over stdio. `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed.
 
@@ -198,16 +207,20 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls return mock data.
 
-**Schema:** Use only the tables and columns defined in [fund-data-schema.md](../../data_prep/fund-data-schema.md). Key tables: `fund_info`, `fund_performance`, `fund_risk_metrics`, `fund_holdings` (use `fund_symbol`, not `fund_id`), `fund_sector_allocation`, `fund_flows`; for stocks: `stock_ohlcv`, `company_fundamentals`, `financial_statements`. Do not use: `financials`, `revenue_segments`, `fund_returns`, `fund_sector_exposures`, or column `fund_id` in `fund_holdings`.
+**Schema:** Use only the tables and columns created by `scripts/data_loader.py` from `database/stats_data/*.csv`:
+- `yahoo_quote_metrics`
+- `yahoo_fundamentals_metrics`
+- `yahoo_timeseries`
+- `index_symbol_map`
 
 #### sql_tool.run_query
 
-- **Description:** Execute a SQL query with optional parameterized values. Returns rows as a list of dicts. Use only tables/columns from the documented schema (see fund-data-schema.md).
+- **Description:** Execute a SQL query with optional parameterized values. Returns rows as a list of dicts. Use only tables/columns from the documented schema (see `docs/data_prep/stats-data-schema.md`).
 - **Payload:** `query` (required, string — use `%s` or `%(name)s` for psycopg2 parameters), `params` (optional, dict or tuple).
 - **Returns:** `{"rows": [...], "schema": [...], "params": {...}}` or `{"error": str}`.
 - **Sample call:**
   ```json
-  { "query": "SELECT symbol, name, total_assets_billion FROM fund_info WHERE symbol = %s", "params": ["VOO"] }
+  { "query": "SELECT symbol, price, timestamp FROM yahoo_quote_metrics WHERE symbol = %s", "params": ["AAPL"] }
   ```
 
 #### sql_tool.explain_query
@@ -217,17 +230,17 @@ Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls retur
 - **Returns:** `{"plan": [...], "schema": [...], "params": {...}}` or `{"error": str}`.
 - **Sample call:**
   ```json
-  { "query": "SELECT symbol, total_assets_billion FROM fund_info WHERE total_assets_billion > 100", "analyze": false }
+  { "query": "SELECT symbol, price, timestamp FROM yahoo_quote_metrics WHERE price > 100", "analyze": false }
   ```
 
 #### sql_tool.export_results
 
-- **Description:** Run a SQL query and return results as JSON or CSV, with an optional row limit. Use only schema from fund-data-schema.md.
+- **Description:** Run a SQL query and return results as JSON or CSV, with an optional row limit. Use only schema from `scripts/data_loader.py` / `database/stats_data/*.csv`.
 - **Payload:** `query` (required, string), `params` (optional), `format` (optional: `"json"` | `"csv"`, default `"json"`), `row_limit` (optional, int, default 1000).
 - **Returns:** `{"data": ...}` (list of dicts for JSON, CSV string for CSV), `"schema": [...]`, `"row_count": int`; or `{"error": str}`.
 - **Sample call:**
   ```json
-  { "query": "SELECT symbol, name, total_assets_billion FROM fund_info ORDER BY total_assets_billion DESC", "format": "csv", "row_limit": 500 }
+  { "query": "SELECT symbol, price, timestamp FROM yahoo_quote_metrics ORDER BY price DESC", "format": "csv", "row_limit": 500 }
   ```
 
 #### sql_tool.connection_health_check

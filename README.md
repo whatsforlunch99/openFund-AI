@@ -20,7 +20,6 @@ This can:
 - bootstrap `.env` from `.env.example`
 - optionally install deps (`--install-deps`)
 - optionally start local backends (`--no-backends` to skip)
-- optionally seed baseline data (`--no-seed` to skip)
 - optionally load funds data (`--funds existing|fresh-symbols|fresh-all|skip`)
 - start API and interactive terminal chat (use `--no-chat` for API only)
 
@@ -30,7 +29,6 @@ This can:
 ./scripts/run.sh --help
 ./scripts/run.sh --port 8010
 ./scripts/run.sh --no-backends
-./scripts/run.sh --no-seed
 ./scripts/run.sh --funds existing
 ./scripts/run.sh --funds fresh-symbols
 ./scripts/run.sh --funds fresh-all
@@ -45,7 +43,6 @@ Windows (PowerShell):
 powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --help
 powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --port 8010
 powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --no-backends
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --no-seed
 powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --funds existing
 powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --funds fresh-symbols
 powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --funds fresh-all
@@ -100,10 +97,9 @@ Stop local backends:
 
 | Command | Description |
 |---------|-------------|
-| `./scripts/run.sh` | Single entrypoint: bootstrap .env, optional backends/seed/funds, start API and chat |
+| `./scripts/run.sh` | Single entrypoint: bootstrap .env, optional backends/funds, start API and chat |
 | `./scripts/run.sh --port 8010` | Run API on port 8010 |
 | `./scripts/run.sh --no-backends` | Skip starting Postgres/Neo4j/Milvus |
-| `./scripts/run.sh --no-seed` | Skip `python -m data_manager populate` |
 | `./scripts/run.sh --funds existing` | Load funds: existing \| fresh-symbols \| fresh-all \| skip |
 | `./scripts/run.sh --install-deps` | Install Python extras [backends, llm] |
 | `./scripts/run.sh --no-chat` | Start API only; do not launch interactive chat client |
@@ -115,12 +111,11 @@ Stop local backends:
 | `python main.py --e2e-once` | Run one E2E conversation and exit (for CI) |
 | `python -m openfund_mcp` | Run MCP server over stdio (for external clients) |
 | `python -m data_manager --help` | Data management CLI help |
-| `python -m data_manager populate` | Seed PostgreSQL, Neo4j, Milvus with demo data |
 | `python -m data_manager sql "SELECT ..."` | Run a SQL query on PostgreSQL |
 | `python -m data_manager neo4j "MATCH ..."` | Run Cypher on Neo4j |
 | `python -m data_manager milvus ...` | Milvus index/delete documents |
 | `python -m data_manager collect ...` | Collect data for symbols |
-| `python -m data_manager distribute-funds --file ... --load-mode existing` | Distribute fund data to DBs |
+| `python scripts/data_loader.py --load-mode existing` | Load SQL/Neo4j/Milvus from `database/*` sources |
 | `pytest tests/ -v` | Run test suite |
 | `ruff check .` | Lint (see pyproject.toml [tool.ruff]) |
 | `black .` | Format (see pyproject.toml [tool.black]) |
@@ -155,12 +150,10 @@ Auth model:
 ## Data CLI
 
 ```bash
-python -m data_manager --help
-python -m data_manager populate
-python -m data_manager distribute-funds --file datasets/combined_funds.json --load-mode existing
-python -m data_manager distribute-funds --file datasets/combined_funds.json --load-mode fresh --fresh-scope symbols
-python -m data_manager distribute-funds --file datasets/combined_funds.json --load-mode fresh --fresh-scope all
-python -m data_manager sql "SELECT * FROM fund_info LIMIT 5"
+python scripts/data_loader.py --load-mode existing
+python scripts/data_loader.py --load-mode fresh-all
+# Example SQL against loaded stats tables:
+python -c "import os; print('Set DATABASE_URL to run SQL via MCP/sql_tool')"
 ```
 
 ## Testing
@@ -193,8 +186,8 @@ python -m data_manager sql "SELECT * FROM fund_info LIMIT 5"
 
 1. **Prerequisites:** Python 3.11+, `.env` from `.env.example` with required vars (see [ENV.md](docs/shared/ENV.md)).
 2. **Install:** `pip install -e .` and optionally `pip install -e ".[llm]"` and `pip install -e ".[backends]"`.
-3. **Start (recommended):** From project root run `./scripts/run.sh`. This can bootstrap `.env`, start local backends (Postgres/Neo4j/Milvus), seed data, and start the API. Use `--no-chat` for API only.
-4. **Or start API only:** `python main.py --serve --port 8000` (no backends/seed).
+3. **Start (recommended):** From project root run `./scripts/run.sh`. This can bootstrap `.env`, start local backends (Postgres/Neo4j/Milvus), and load funds data, then start the API. Use `--no-chat` for API only.
+4. **Or start API only:** `python main.py --serve --port 8000` (no backends).
 5. **Stop local backends:** `./scripts/stop.sh`.
 
 <!-- END AUTO-GENERATED -->
@@ -219,7 +212,7 @@ Use **GET /health** to confirm the API is up and that MCP tools and LLM are conf
 | LLM not working / "LLM is required" at startup | Missing LLM_API_KEY or llm extra | Set `LLM_API_KEY` in `.env`; run `pip install -e ".[llm]"`. For DeepSeek set `LLM_BASE_URL` and `LLM_MODEL`. |
 | Neo4j connection refused on 7687 | Stale pid file or process not running | Remove stale pid file or run `neo4j console` in a separate terminal; wait for "Bolt enabled on localhost:7687". See [demo.md](docs/demo.md#troubleshooting). |
 | POST /chat timeout (408) | LLM slow or unreachable; timeout too low | Increase `E2E_TIMEOUT_SECONDS` in `.env`; verify LLM_API_KEY and LLM_BASE_URL (if used) and provider reachability. |
-| Empty or stub responses | Backends not running or no data | Run `python -m data_manager populate` and/or `distribute-funds`; ensure DATABASE_URL, NEO4J_URI, MILVUS_URI are set. |
+| Empty or stub responses | Backends not running or no data | Run `python scripts/data_loader.py --load-mode existing`; ensure DATABASE_URL, NEO4J_URI, MILVUS_URI are set. |
 | MCP server fails to start (subprocess) | MCP SDK not installed | Run `pip install mcp` (or install full deps). API spawns MCP server via `python -m openfund_mcp`. |
 
 More troubleshooting: [demo.md](docs/demo.md).
@@ -237,9 +230,9 @@ More troubleshooting: [demo.md](docs/demo.md).
 
 ## Docs
 
-- **Shared:** [ENV](docs/shared/ENV.md), [test_plan](docs/shared/test_plan.md)
-- **Workflow:** [user-flow](docs/workflow/00_overview/user-flow.md), [use-case-trace-beginner](docs/workflow/00_overview/use-case-trace-beginner.md) | [backend](docs/workflow/02_planning/backend.md), [file-structure](docs/workflow/02_planning/file-structure.md) | [agent-tools-reference](docs/workflow/03_tools_and_mcp/agent-tools-reference.md), [mcp-server](docs/workflow/03_tools_and_mcp/mcp-server.md) | [prd](docs/workflow/90_product/prd.md), [project-status](docs/workflow/90_product/project-status.md), [progress](docs/workflow/90_product/progress.md), [frontend](docs/workflow/90_product/frontend.md)
-- **Data prep:** [data-manager-agent](docs/data_prep/data-manager-agent.md), [fund-data-schema](docs/data_prep/fund-data-schema.md)
+- **Shared:** [ENV](docs/shared/ENV.md), [test_plan](docs/shared/test_plan.md), [websearcher-git-sync-notes](docs/shared/websearcher-git-sync-notes.md) (historical)
+- **Workflow:** [user-flow](docs/workflow/00_overview/user-flow.md), [use-case-trace-beginner](docs/workflow/00_overview/use-case-trace-beginner.md) | [backend](docs/workflow/02_planning/backend.md), [file-structure](docs/workflow/02_planning/file-structure.md) | [MCP docs index](docs/workflow/03_tools_and_mcp/README.md), [agent-tools-reference](docs/workflow/03_tools_and_mcp/agent-tools-reference.md), [mcp-server](docs/workflow/03_tools_and_mcp/mcp-server.md) | [prd](docs/workflow/90_product/prd.md), [project-status](docs/workflow/90_product/project-status.md), [progress](docs/workflow/90_product/progress.md), [frontend](docs/workflow/90_product/frontend.md)
+- **Data prep:** [revision_plan](docs/data_prep/revision_plan.md) (loader-first overview + verification), [stats-data-schema](docs/data_prep/stats-data-schema.md), [graph-data-schema](docs/data_prep/graph-data-schema.md), [text-data-schema](docs/data_prep/text-data-schema.md)
 - **RL pipeline:** [rl_pipeline/README](docs/rl_pipeline/README.md)
 
 ## Notes

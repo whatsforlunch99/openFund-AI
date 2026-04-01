@@ -890,30 +890,6 @@ def get_relations(entity: str) -> dict:
         return {"error": str(e), "nodes": [], "edges": [], "entity": entity}
 
 
-def populate_demo() -> tuple[bool, str]:
-    """
-    Create Company/Sector nodes and IN_SECTOR edge for NVDA. Uses NEO4J_URI.
-    Caller should load .env before calling. Returns (success, message).
-    Keeps CredentialsExpired/Unauthorized hint text in error messages.
-    """
-    if not os.environ.get("NEO4J_URI"):
-        return False, "NEO4J_URI not set; skipping Neo4j."
-    cypher = """
-    MERGE (e:Company {id: 'NVDA'})
-    MERGE (s:Sector {id: 'Technology'})
-    MERGE (e)-[:IN_SECTOR]->(s)
-    """
-    r = query_graph(cypher)
-    if r.get("error"):
-        err = r["error"]
-        if "CredentialsExpired" in err or "credentials" in err.lower():
-            err += " Change the default password: open http://localhost:7474, log in as neo4j, set a new password, then set NEO4J_PASSWORD in .env."
-        elif "Unauthorized" in err or "authentication failure" in err.lower():
-            err += " Ensure NEO4J_PASSWORD in .env matches the password you set in Neo4j Browser (http://localhost:7474)."
-        return False, f"Neo4j failed: {err}"
-    return True, "Neo4j: merged Company NVDA, Sector Technology, IN_SECTOR edge."
-
-
 def _canonical_slug(v: Any) -> str:
     s = str(v or "").strip().lower()
     s = re.sub(r"[^a-z0-9]+", "_", s)

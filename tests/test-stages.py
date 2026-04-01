@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from pathlib import Path
 from io import StringIO
 from unittest.mock import patch
 
@@ -1876,11 +1877,11 @@ def test_stage_10_2_analyst_tool_selection_when_llm_returns_tool_calls() -> None
     assert mock_llm.complete.called
 
 
-# --- Data populate (demo seed): no backends configured ---
+# --- Data loader (stats/graph/text): no backends configured ---
 
 
-def test_data_populate_skips_when_no_backends() -> None:
-    """data populate exits 0 and skips each backend when DATABASE_URL, NEO4J_URI, MILVUS_URI are unset."""
+def test_data_loader_skips_when_no_backends() -> None:
+    """data_loader exits 0 and skips each backend when DATABASE_URL, NEO4J_URI, MILVUS_URI are unset."""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     env = {
         k: v
@@ -1893,7 +1894,7 @@ def test_data_populate_skips_when_no_backends() -> None:
     env["NEO4J_URI"] = ""
     env["MILVUS_URI"] = ""
     result = subprocess.run(
-        [sys.executable, "-m", "data", "populate"],
+        [sys.executable, str(Path(root) / "scripts" / "data_loader.py"), "--load-mode", "existing"],
         cwd=root,
         env=env,
         timeout=30,
@@ -1901,12 +1902,12 @@ def test_data_populate_skips_when_no_backends() -> None:
         text=True,
     )
     assert result.returncode == 0, (
-        f"data populate exited {result.returncode}; stderr={result.stderr!r}"
+        f"data_loader exited {result.returncode}; stderr={result.stderr!r}"
     )
     out = result.stdout + result.stderr
-    assert "skipping PostgreSQL" in out or "DATABASE_URL" in out
-    assert "skipping Neo4j" in out or "NEO4J_URI" in out
-    assert "skipping Milvus" in out or "MILVUS_URI" in out
+    assert "DATABASE_URL not set" in out
+    assert "NEO4J_URI not set" in out
+    assert "MILVUS_URI not set" in out
 
 
 # --- Stage 10.3: tool call filtering ---

@@ -1,6 +1,6 @@
 # WebSearcher Agent Design
 
-Design for the WebSearcher specialist agent: parallel multi-source query, normalized output schema, and integration with the Planner and MCP tool layer. **Implementation:** `agents/websearch_agent.py` and MCP tools in `openfund_mcp/tools/` (fund_catalog_tool, yahoo_finance_tool, stooq_tool, etfdb_tool, market_tool, news_tool), all registered from `openfund_mcp/mcp_server.py`. See [backend.md](../02_planning/backend.md) for orchestration and [agent-tools-reference.md](agent-tools-reference.md) for tool contracts.
+Design for the WebSearcher specialist agent: parallel multi-source query, normalized output schema, and integration with the Planner and MCP tool layer. **Implementation:** `agents/websearch_agent.py` and MCP tools in `openfund_mcp/tools/` (fund_catalog_tool, yahoo_finance_tool, stooq_tool, etfdb_tool, market_tool, news_tool), all registered from `openfund_mcp/mcp_server.py`. See [backend.md](../02_planning/backend.md) for orchestration; [agent-tools-reference.md](agent-tools-reference.md) for tool payloads (do not duplicate here). Folder map: [README.md](README.md).
 
 ---
 
@@ -73,14 +73,7 @@ Design for the WebSearcher specialist agent: parallel multi-source query, normal
 
 ### News bundle (`_fetch_news_sources`, parallel with financial)
 
-| Source | MCP tool |
-|--------|----------|
-| RSS | `news_tool.search_rss` |
-| Yahoo RSS | `news_tool.search_yahoo_rss` |
-| GDELT | `news_tool.search_gdelt` |
-| market_tool | `get_news` / `get_global_news` with dates as above |
-
-See [news-searcher-design.md](news-searcher-design.md) for citation schema.
+Sources: `news_tool.search_rss`, `news_tool.search_yahoo_rss`, `news_tool.search_gdelt`, plus `market_tool.get_news` / `get_global_news` (with required date fields as in the Financial bundle table). **Payloads and return shapes:** [agent-tools-reference.md](agent-tools-reference.md) (§ `news_tool`, § `market_tool`). **Citations, merge order, dedupe:** [news-searcher-design.md](news-searcher-design.md).
 
 ---
 

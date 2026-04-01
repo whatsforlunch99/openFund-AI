@@ -566,42 +566,6 @@ def create_collection_from_config(
         return {"error": str(e)}
 
 
-# Demo docs for populate_demo (content from demo_data.VECTOR_SEARCH_RESPONSE)
-_DEMO_DOCS = [
-    {
-        "content": "NVIDIA (NVDA) is a leading semiconductor company focused on graphics and AI. Suitable for long-term growth investors; volatility can be high.",
-        "fund_id": "NVDA",
-        "source": "demo",
-    },
-    {
-        "content": "NVDA fundamentals: Technology sector, strong revenue growth. Not a recommendation to buy or sell.",
-        "fund_id": "NVDA",
-        "source": "demo",
-    },
-]
-
-
-def populate_demo() -> tuple[bool, str]:
-    """
-    Index two demo documents (idempotent: delete by source=='demo' then index).
-    Uses MILVUS_URI. Caller should load .env before calling. Returns (success, message).
-    Keeps connection-error hint (start_milvus.sh) in error message.
-    """
-    if not os.environ.get("MILVUS_URI"):
-        return False, "MILVUS_URI not set; skipping Milvus."
-    out = delete_by_expr('source == "demo"')
-    if out.get("error"):
-        logger.debug("Milvus delete_by_expr (pre-index): %s", out.get("error"))
-    out = index_documents(_DEMO_DOCS)
-    if out.get("status") == "error" or out.get("error"):
-        err = out.get("error", "unknown")
-        err = str(err)
-        if "Fail connecting" in err or "server unavailable" in err:
-            err += " Start Milvus with: ./scripts/start_milvus.sh (the plain 'docker run milvusdb/milvus' does not start the server). Wait ~60s then run populate again."
-        return False, f"Milvus failed: {err}"
-    return True, f"Milvus: indexed {out.get('indexed', 0)} demo document(s)."
-
-
 # MCP registration: (name, func_name, required_keys, arg_specs, result_key).
 # arg_specs: list of (param_name, payload_keys, default, coerce). coerce = int or callable or None.
 TOOL_SPECS: list[tuple[str, str, list[str], list, str | None]] = [

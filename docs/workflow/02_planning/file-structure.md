@@ -1,6 +1,6 @@
 # File-Structure Document
 
-Directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). See [backend.md](backend.md) for API and architecture, [prd.md](../90_product/prd.md) for product intent, [user-flow.md](../00_overview/user-flow.md) for user flow. This document covers the main application code only; the `data_prep/` folder is not included.
+Directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). See [backend.md](backend.md) for API and architecture, [prd.md](../90_product/prd.md) for product intent, [user-flow.md](../00_overview/user-flow.md) for user flow. This document focuses on application source layout; loader contracts and schema references live in [`docs/data_prep/`](../../data_prep/revision_plan.md) (`revision_plan.md`, `*-data-schema.md`).
 
 ---
 
@@ -25,7 +25,7 @@ OpenFund-AI/
 │   ├── __init__.py
 │   ├── rest.py
 │   └── websocket.py
-├── data_manager/              # CLI-based data collection/distribution workflows (see data-manager-agent.md)
+├── data_manager/              # Legacy/experimental data CLI modules (not used by startup ingestion path)
 │   ├── __init__.py
 │   ├── __main__.py            # Entry point for python -m data_manager
 │   ├── backend_cli.py         # Backend maintenance subcommands: populate, sql, neo4j, milvus
@@ -35,14 +35,17 @@ OpenFund-AI/
 │   ├── transformer.py         # DataTransformer: convert to PG rows / Neo4j nodes / Milvus docs
 │   ├── tasks.py               # CollectionTask definitions and COLLECTION_TASKS registry
 │   └── schemas.py             # Database schema definitions (SQL DDL, Cypher patterns)
-├── datasets/                     # Fund dataset files
-│   └── combined_funds.json       # Canonical combined fund dataset used by distribute-funds
-├── database/                     # Static data (graph bundles, planner symbol catalog, etc.)
+├── datasets/                     # Optional: raw collection outputs / ad-hoc JSON (not required for loader-first startup)
+├── database/                   # Loader inputs + static catalogs
+│   ├── stats_data/             # PostgreSQL CSV sources (`scripts/data_loader.py`)
+│   ├── graph_data/neo4j_export/  # Neo4j bundle: graph_nodes.csv, graph_relationships.csv
+│   ├── text_data/              # Milvus JSON arrays (e.g. sample_text.json)
 │   ├── agent_heuristics.json     # WebSearcher ticker blocklist / phrase→symbol maps; planner partial text; analyst defaults
 │   ├── symbol_resolution_known_issuers.json  # cache_key → canonical_name, symbol_type, listings
 │   └── symbol_resolution_routing.json        # phrase/symbol → cache_key; ticker → etf|stock hints
 ├── scripts/
-│   ├── run.sh                # Single entrypoint: backends, seed, API, and interactive chat (use --no-chat for API only)
+│   ├── data_loader.py        # Unified ingestion: SQL / Neo4j / Milvus from database/* (see docs/data_prep)
+│   ├── run.sh                # Single entrypoint: backends, loader-backed data ingestion, API, and interactive chat (use --no-chat for API only)
 │   └── chat_cli.py            # Interactive terminal client: POST /chat in a loop; --port, --profile
 ├── safety/
 │   ├── __init__.py
@@ -99,7 +102,8 @@ OpenFund-AI/
 └── docs/
     ├── shared/
     │   ├── ENV.md
-    │   └── test_plan.md
+    │   ├── test_plan.md
+    │   └── websearcher-git-sync-notes.md   # Historical git/MCP migration notes (not MCP API reference)
     ├── workflow/
     │   ├── 00_overview/
     │   │   ├── user-flow.md
@@ -109,17 +113,20 @@ OpenFund-AI/
     │   │   ├── file-structure.md
     │   │   └── frontend.md
     │   ├── 03_tools_and_mcp/
-    │   │   ├── agent-tools-reference.md   # MCP tool payloads and per-agent tool lists
-    │   │   ├── mcp-server.md
+    │   │   ├── README.md                  # Folder index: scope of each doc, dependency direction
+    │   │   ├── agent-tools-reference.md   # MCP tool payloads and per-agent tool lists (sync with llm/tool_descriptions.py)
+    │   │   ├── mcp-server.md              # Run stdio server + MCPClient / Claude Desktop only
     │   │   ├── websearcher-design.md      # WebSearcher agent design: parallel sources, schema, Planner contract
-    │   │   └── news-searcher-design.md    # News Search within WebSearcher: multi-source aggregation, citations
+    │   │   └── news-searcher-design.md    # News Search within WebSearcher: citations, merge rules (not full tool tables)
     │   └── 90_product/
     │       ├── prd.md
     │       ├── progress.md
     │       └── project-status.md
     ├── data_prep/
-    │   ├── data-manager-agent.md     # Data Manager Agent design; collection + distribution to DBs
-    │   └── fund-data-schema.md       # Fund data schema: JSON fields and DB mapping
+    │   ├── revision_plan.md          # Loader-first meta-plan + verification (see Verification section)
+    │   ├── stats-data-schema.md      # SQL schema loaded from database/stats_data/*.csv
+    │   ├── graph-data-schema.md      # Neo4j graph bundle schema loaded from database/graph_data/neo4j_export
+    │   └── text-data-schema.md       # Milvus text/mock data schema loaded from database/text_data/*.json
     └── rl_pipeline/
         ├── README.md
         ├── plan_a_reranking/         # idea.md, data_collection.md, dag_and_schemas.md, execution.md
@@ -652,7 +659,7 @@ result = planner.resolve_conflicts({"librarian": d1, "analyst": d2})
 
 # agents/librarian_agent.py
 
-**Purpose:** Retrieve structured data from knowledge graph, vector DB, SQL, and files via MCP. Tool selection may use LLM (see [backend.md](backend.md)); otherwise content-key dispatch. Tool list: [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md).
+**Purpose:** Retrieve structured data from knowledge graph, vector DB, and SQL via MCP (`vector_tool`, `kg_tool`, `sql_tool`; optional `file_tool` only when selected by the librarian LLM). Tool selection may use LLM (see [backend.md](backend.md)); otherwise content-key dispatch. Tool list: [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md).
 
 ---
 
@@ -979,7 +986,7 @@ state = get_conversation("uuid-here")
 
 ## scripts/run.sh
 
-**Purpose:** Single entrypoint for live runtime. Handles `.env` bootstrap, optional dependency install, optional local backend start (PostgreSQL/Neo4j/Milvus when configured), optional `python -m data_manager populate`, optional fund distribution load mode (`existing`, `fresh-symbols`, `fresh-all`, `skip`). By default starts the API in the background, waits for it to be ready, runs `scripts/chat_cli.py` in the foreground, and on chat exit kills the server. With `--no-chat`, execs `python main.py --serve` (API only).
+**Purpose:** Single entrypoint for live runtime. Handles `.env` bootstrap, optional dependency install, optional local backend start (PostgreSQL/Neo4j/Milvus when configured), optional fund distribution load mode (`existing`, `fresh-symbols`, `fresh-all`, `skip`). By default starts the API in the background, waits for it to be ready, runs `scripts/chat_cli.py` in the foreground, and on chat exit kills the server. With `--no-chat`, execs `python main.py --serve` (API only).
 
 **Example usage:**
 ```bash
@@ -999,13 +1006,13 @@ state = get_conversation("uuid-here")
 
 ## scripts/test_librarian.py
 
-**Purpose:** Single script to test all Librarian agent functions and MCP tools it uses. Runs: `combine_results`, `retrieve_documents` (vector_tool.search), `retrieve_knowledge_graph` (kg_tool.get_relations), and `handle_message` with path (file_tool), vector_query (vector_tool), fund (kg_tool), sql_query (sql_tool with schema-aligned query). Uses real backends when DATABASE_URL, NEO4J_URI, MILVUS_URI are set; otherwise tools return mock/empty. Run from project root: `python3 scripts/test_librarian.py`. Optional: `--skip-file`, `--skip-vector`, `--skip-kg`, `--skip-sql`.
+**Purpose:** Single script to test Librarian helpers and MCP tools used in production: `combine_results`, `retrieve_documents` (vector_tool.search), `retrieve_knowledge_graph` (kg_tool.get_relations), and `handle_message` with `vector_query`, `fund`, and `sql_query` (schema-aligned SQL). Uses real backends when DATABASE_URL, NEO4J_URI, MILVUS_URI are set (e.g. after `./scripts/run.sh` or `python scripts/data_loader.py`); otherwise tools return mock/empty. Run from project root: `python3 scripts/test_librarian.py`. Optional: `--skip-vector`, `--skip-kg`, `--skip-sql`.
 
 ---
 
 # data_manager/
 
-**Purpose:** Data collection, distribution, and backend CLI entrypoint. Includes both direct backend commands (`populate`, `sql`, `neo4j`, `milvus`) and collection/distribution commands (`collect`, `distribute`, `distribute-funds`, `status`, `list`, `global-news`). See [data-manager-agent.md](../../data_prep/data-manager-agent.md) for full design.
+**Purpose:** Legacy data collection/distribution and backend CLI entrypoint. Includes direct backend commands (`populate`, `sql`, `neo4j`, `milvus`) and collection/distribution commands (`collect`, `distribute`, `distribute-funds`, `status`, `list`, `global-news`). Current startup ingestion is loader-first via `scripts/data_loader.py`; schema references live in `docs/data_prep/stats-data-schema.md`, `docs/data_prep/graph-data-schema.md`, and `docs/data_prep/text-data-schema.md`.
 
 ---
 
@@ -1015,8 +1022,8 @@ state = get_conversation("uuid-here")
 
 **Functions:**
 - `add_backend_subcommands(subparsers)` — Add subparsers for populate, sql, neo4j, milvus and set their `func` to the corresponding cmd_*.
-- `run_populate()` — Seed PostgreSQL, Neo4j, and Milvus demo data (idempotent); calls load_config(), then sql_tool.populate_demo(), kg_tool.populate_demo(), vector_tool.populate_demo().
-- `cmd_populate(_args)` — Handler for `data_manager populate`.
+- `run_populate()` — Deprecated demo-baseline seeding (disabled; `populate_demo` helpers removed).
+- `cmd_populate(_args)` — Deprecated `data_manager populate` command (demo-only).
 - `cmd_sql(args)` — Run a SQL query via sql_tool.run_query; requires DATABASE_URL; prints JSON (rows, schema) or error.
 - `cmd_neo4j(args)` — Run a Cypher query via kg_tool.query_graph; requires NEO4J_URI.
 - `cmd_milvus_index(args)` — Index documents into Milvus (as registered).
@@ -1104,11 +1111,15 @@ state = get_conversation("uuid-here")
 
 **Usage:**
 ```bash
+# Startup / repo-baseline ingestion (preferred; see docs/data_prep/revision_plan.md)
+python scripts/data_loader.py --load-mode existing
+
 python -m data_manager collect --symbols NVDA,AAPL --date 2024-01-15
 python -m data_manager distribute --symbol NVDA
 python -m data_manager distribute --all
-python -m data_manager distribute-funds --file datasets/combined_funds.json --load-mode existing
-python -m data_manager distribute-funds --file datasets/combined_funds.json --load-mode fresh --fresh-scope symbols
+# Optional: legacy combined-fund JSON pipeline — supply your own file path (not shipped as repo baseline)
+python -m data_manager distribute-funds --file /path/to/combined_funds.json --load-mode existing
+python -m data_manager distribute-funds --file /path/to/combined_funds.json --load-mode fresh --fresh-scope symbols
 python -m data_manager status --symbol NVDA
 ```
 
@@ -1542,7 +1553,7 @@ PYTHONPATH=. python main.py --e2e-once
 
 ---
 
-# mcp/mcp_client.py
+# openfund_mcp/mcp_client.py
 
 **Purpose:** Client interface to the MCP tool server. All external data (Milvus, Neo4j, market via Alpha Vantage/Finnhub, Analyst API, Tavily when implemented) is accessed via call_tool; agents never call DBs or APIs directly.
 
@@ -1632,7 +1643,7 @@ result = server.dispatch("read_file", {"path": "CHANGELOG.md"})
 
 **Example usage:**
 ```python
-from mcp.tools.file_tool import read_file
+from openfund_mcp.tools.file_tool import read_file
 out = read_file("CHANGELOG.md")
 # out["content"], out["path"]
 ```
@@ -1652,9 +1663,9 @@ paths = list_files("docs/")
 
 ---
 
-# mcp/tools/vector_tool.py
+# openfund_mcp/tools/vector_tool.py
 
-**Purpose:** MCP tool for semantic search and indexing over Milvus. Config: MILVUS_URI, MILVUS_COLLECTION. Seed helper: `populate_demo()` deletes by source=="demo", indexes two NVDA docs (caller loads .env).
+**Purpose:** MCP tool for semantic search and indexing over Milvus. Config: MILVUS_URI, MILVUS_COLLECTION.
 
 ---
 
@@ -1702,15 +1713,9 @@ result = index_documents([{"content": "Fund X ...", "fund_id": "X"}])
 
 ---
 
-## Function: `populate_demo() -> tuple[bool, str]`
+# openfund_mcp/tools/kg_tool.py
 
-**Purpose:** Seed baseline vector documents (source=="demo"). Uses MILVUS_URI. Returns (success, message). Caller should load .env first.
-
----
-
-# mcp/tools/kg_tool.py
-
-**Purpose:** MCP tool for Cypher and relation queries against Neo4j. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD. Seed helper: `populate_demo()` MERGEs Company NVDA, Sector Technology, IN_SECTOR (caller loads .env).
+**Purpose:** MCP tool for Cypher and relation queries against Neo4j. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD.
 
 ---
 
@@ -1758,12 +1763,6 @@ rels = get_relations("FUND_X")
 
 ---
 
-## Function: `populate_demo() -> tuple[bool, str]`
-
-**Purpose:** MERGE Company NVDA, Sector Technology, IN_SECTOR edge. Uses NEO4J_URI. Returns (success, message). Keeps CredentialsExpired/Unauthorized hints in errors. Caller should load .env first.
-
----
-
 ## Function: `build_graph_csvs(data_dir: str = "database/graph_data", output_dir: str = "database/graph_data/neo4j_export") -> dict`
 
 **Purpose:** Build normalized Neo4j-import-ready CSV bundle from `database/graph_data/*.csv` using a category-first approach with canonical IDs.
@@ -1794,7 +1793,7 @@ rels = get_relations("FUND_X")
 
 ---
 
-# mcp/tools/market_tool.py
+# openfund_mcp/tools/market_tool.py
 
 **Purpose:** MCP tool for market/company data and news. **Vendor config:** get_market_vendor(), get_indicator_vendor(), get_data_cache_dir() (env: MCP_MARKET_VENDOR, MCP_INDICATOR_VENDOR, MCP_DATA_CACHE_DIR). **Alpha Vantage common** (in this file): get_api_key(), format_datetime_for_api(), AlphaVantageRateLimitError, _make_api_request(), _filter_csv_by_date_range(), _now_iso(). analyst_tool imports AlphaVantageRateLimitError, _make_api_request, _now_iso from this module. `fetch`, `fetch_bulk`, and `search_web` remain stubs. Implemented: Alpha Vantage functions (`*_av`) and Finnhub functions (`*_finnhub`) where applicable, plus vendor-routing `_route_*` helpers (alpha_vantage/finnhub; no yfinance). Config: TAVILY_API_KEY (for future search_web), ALPHA_VANTAGE_API_KEY, FINNHUB_API_KEY.
 
@@ -1830,7 +1829,7 @@ assert "timestamp" in data
 
 ---
 
-# mcp/tools/analyst_tool.py
+# openfund_mcp/tools/analyst_tool.py
 
 **Purpose:** MCP tool for quantitative/statistical analysis. run_analysis(payload): POST to custom Analyst API (payload dict). get_indicators_av(...): Alpha Vantage technical indicators (same file). **_route_indicators** calls get_indicators_av; on failure returns error (no yfinance). Timestamps use _now_iso() imported from market_tool. MCP handler decomposes payload into symbol, indicator, as_of_date, look_back_days. Returns include `timestamp`. Config: ANALYST_API_URL, optional ANALYST_API_KEY; MCP_INDICATOR_VENDOR via market_tool.
 
@@ -1863,9 +1862,9 @@ result = get_indicators("AAPL", "close_50_sma", "2024-01-15", 10)
 
 ---
 
-# mcp/tools/sql_tool.py
+# openfund_mcp/tools/sql_tool.py
 
-**Purpose:** MCP tool for executing SQL queries with optional parameters. Returns rows and optional schema. Seed helper: `populate_demo()` creates funds table and inserts NVDA (uses DATABASE_URL; caller loads .env).
+**Purpose:** MCP tool for executing SQL queries with optional parameters. Returns rows and optional schema.
 
 ---
 
@@ -1900,13 +1899,7 @@ result = run_query("SELECT * FROM funds WHERE id = :id", {"id": "X"})
 
 ---
 
-## Function: `populate_demo() -> tuple[bool, str]`
-
-**Purpose:** Create funds table (if not exists) and insert NVDA row. Uses DATABASE_URL. Returns (success, message). Caller should load .env first.
-
----
-
-# mcp/tools/capabilities.py
+# openfund_mcp/tools/capabilities.py
 
 **Purpose:** Introspection of which backends and tools are available. Used by MCP tool `get_capabilities`.
 

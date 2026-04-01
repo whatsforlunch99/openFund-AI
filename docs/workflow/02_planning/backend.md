@@ -1,6 +1,6 @@
 # Backend Document
 
-Server-side system behavior and architecture. See [prd.md](../90_product/prd.md) for product intent and [file-structure.md](file-structure.md) for code organization (main application code; data_prep folder not covered there). For a step-by-step function trace of one beginner request through the system, see [use-case-trace-beginner.md](../00_overview/use-case-trace-beginner.md).
+Server-side system behavior and architecture. See [prd.md](../90_product/prd.md) for product intent and [file-structure.md](file-structure.md) for code organization (loader/schema contracts: [`docs/data_prep/`](../../data_prep/revision_plan.md)). For a step-by-step function trace of one beginner request through the system, see [use-case-trace-beginner.md](../00_overview/use-case-trace-beginner.md).
 
 ---
 
@@ -12,7 +12,7 @@ Server-side system behavior and architecture. See [prd.md](../90_product/prd.md)
 - **Orchestration:** The Planner (orchestrator) decides **which** agents to call (one or more of Librarian, WebSearcher, Analyst) and **decomposes** the user query into **agent-specific sub-queries**. Decomposition is **LLM-driven**: the LLM selects which agents to use and what query to pass to each; the planner parses the LLM response as a list of steps (TaskSteps: agent + params) and dispatches REQUESTs only for those steps. Each REQUEST to a specialist carries that agent's decomposed query (and any shared context). When the LLM is unavailable or returns an empty list, the planner uses a fallback (fixed three steps or a single analyst step). After the planner sufficiency check passes, Planner sends consolidated data to Responder.
 - **Termination:** Only the Responder may signal conversation complete (broadcast STOP); all agent threads exit on STOP.
 - **Hub-and-spoke:** Planner is the sole orchestrator; specialists reply only to Planner. Planner sends consolidated data to Responder when the planner sufficiency check passes.
-- **Background data management:** Data-manager workflows handle data collection (from market_tool/analyst_tool) and distribution (to PostgreSQL/Neo4j/Milvus). This is not part of real-time query flow; primarily triggered via CLI/scheduler. See [data-manager-agent.md](../../data_prep/data-manager-agent.md).
+- **Background data loading:** `scripts/data_loader.py` loads CSV/JSON assets into PostgreSQL, Neo4j, and Milvus from `database/stats_data`, `database/graph_data/neo4j_export`, and `database/text_data`. This is not part of real-time query flow; it is run before or alongside runtime startup (for example via `scripts/run.sh` / `scripts/run.ps1`). See schema docs in `docs/data_prep/`.
 
 ---
 
@@ -33,7 +33,7 @@ Server-side system behavior and architecture. See [prd.md](../90_product/prd.md)
   - **Behavior:** loads persisted user conversations from `memory/<user_id>/conversations.json` into ConversationManager.
 
 - **POST /chat**  
-  - **Request body:** `query` (required), `user_profile` (beginner | long_term | analyst), `user_id` (optional, default `""`), `conversation_id` (optional), `path` (optional, for file_tool).  
+  - **Request body:** `query` (required), `user_profile` (beginner | long_term | analyst), `user_id` (optional, default `""`), `conversation_id` (optional).  
   - **Flow:** Validate body → safety (process_user_input) → create or get conversation → send to Planner → block on completion.  
   - **Success (200):** `{ "conversation_id", "status", "response", "flow" }` (flow: optional list of step dicts for UI).  
   - **Timeout (408):** `{ "status": "timeout", "conversation_id", "response": null, "flow" }`.  
@@ -46,7 +46,7 @@ Server-side system behavior and architecture. See [prd.md](../90_product/prd.md)
 ### WebSocket
 
 - **/ws** — Same logical flow as POST /chat.  
-- **Input JSON:** `query` (required), optional `user_profile`, `user_id`, `conversation_id`, `path`.  
+- **Input JSON:** `query` (required), optional `user_profile`, `user_id`, `conversation_id`.  
 - **Events:** multiple `flow` events while running, then exactly one terminal event:
   - `{"event": "response", "conversation_id", "status", "response", "flow"}` on success
   - `{"event": "timeout", "conversation_id", "response": null, "flow"}` on timeout
@@ -102,9 +102,9 @@ All external data via MCP tools only:
 | Web / market   | Tavily, Alpha Vantage, Finnhub | market_tool — TAVILY_API_KEY (for search_web when implemented); ALPHA_VANTAGE_API_KEY, FINNHUB_API_KEY; MCP_MARKET_VENDOR (alpha_vantage \| finnhub) |
 | Analyst        | Custom API, Alpha Vantage | analyst_tool — ANALYST_API_URL, ANALYST_API_KEY; optional MCP_INDICATOR_VENDOR |
 | SQL            | PostgreSQL  | sql_tool — DATABASE_URL |
-| Files          | —           | file_tool (read_file) |
+| Local files    | —           | `file_tool.read_file` (MCP only; optional `MCP_FILE_BASE_DIR`; not part of POST /chat or WebSocket bodies) |
 
-Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). All MCP tools accept a **payload** dict; required parameters (e.g. **symbol**, path, **as_of_date**, start_date, end_date, **limit**) must be passed in by the caller—no UI or client-side defaults. Payload keys: use **symbol** for the security identifier (ticker accepted for backward compatibility); **limit** for max items (e.g. get_news, get_global_news); **as_of_date** for reference date (curr_date accepted for backward compatibility). Analyst API stub: request `{ "returns", "horizon" }`; response `{ "sharpe", "max_drawdown", "distribution" }`. analyst_tool.get_indicators: symbol, indicator, as_of_date, look_back_days (routes to Alpha Vantage via MCP_INDICATOR_VENDOR). **Vendor-agnostic tools** (route by config): market_tool.get_stock_data, market_tool.get_fundamentals, market_tool.get_balance_sheet, market_tool.get_cashflow, market_tool.get_income_statement, market_tool.get_news, market_tool.get_global_news, market_tool.get_insider_transactions; analyst_tool.get_indicators. Embedding: sentence-transformers/all-MiniLM-L6-v2, 384 dims; config: EMBEDDING_MODEL, EMBEDDING_DIM.
+Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). All MCP tools accept a **payload** dict; required parameters (e.g. **symbol**, **path** for read_file, **as_of_date**, start_date, end_date, **limit**) must be passed in by the caller—no UI or client-side defaults. Payload keys: use **symbol** for the security identifier (ticker accepted for backward compatibility); **limit** for max items (e.g. get_news, get_global_news); **as_of_date** for reference date (curr_date accepted for backward compatibility). Analyst API stub: request `{ "returns", "horizon" }`; response `{ "sharpe", "max_drawdown", "distribution" }`. analyst_tool.get_indicators: symbol, indicator, as_of_date, look_back_days (routes to Alpha Vantage via MCP_INDICATOR_VENDOR). **Vendor-agnostic tools** (route by config): market_tool.get_stock_data, market_tool.get_fundamentals, market_tool.get_balance_sheet, market_tool.get_cashflow, market_tool.get_income_statement, market_tool.get_news, market_tool.get_global_news, market_tool.get_insider_transactions; analyst_tool.get_indicators. Embedding: sentence-transformers/all-MiniLM-L6-v2, 384 dims; config: EMBEDDING_MODEL, EMBEDDING_DIM.
 
 **Research execution — specialist tool selection:** Specialist agents (Librarian, WebSearcher, Analyst) determine **which MCP tools to call and with what parameters** via an **LLM call**: they receive the planner's request (including the decomposed query), are given a **prompt** and **tool descriptions** (see [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md)), and the LLM returns tool calls (tool name + payload); the agent then executes those tool calls and returns results (e.g. INFORM to Planner). If no LLM is available, behavior may fall back to content-key-based dispatch.
 

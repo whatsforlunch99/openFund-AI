@@ -32,6 +32,10 @@ class DataClassifier:
         "fund_performance": "postgres",
         "fund_risk": "postgres",
         "fund_flows": "postgres",
+        # CN fund ingestion assets (curated to PostgreSQL only in initial version).
+        "cn_fund_basic": "postgres",
+        "cn_fund_nav": "postgres",
+        "cn_fund_all": "postgres",
     }
 
     # Multi-target routing: one task can materialize into multiple storage backends.
@@ -43,6 +47,9 @@ class DataClassifier:
         "fund_info": ["postgres", "neo4j"],
         "fund_holdings": ["postgres", "neo4j"],
         "fund_sectors": ["postgres", "neo4j"],
+        # CN fund report extraction: structured sections/signals -> Postgres, chunks -> Milvus.
+        # Neo4j enrichment (themes/style) is planned for later phases.
+        "cn_fund_report_extract": ["postgres", "milvus"],
     }
 
     # Optional finer-grained routing hints used by downstream transformers.

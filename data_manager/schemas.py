@@ -161,6 +161,75 @@ CREATE TABLE IF NOT EXISTS fund_flows (
     collected_at TIMESTAMP DEFAULT NOW(),
     UNIQUE (symbol, period, as_of_date)
 );
+
+-- CN fund basic metadata table (offline ingestion domain)
+CREATE TABLE IF NOT EXISTS cn_fund_basic (
+    id SERIAL PRIMARY KEY,
+    fund_id VARCHAR(16) NOT NULL,
+    fund_name VARCHAR(256),
+    fund_type VARCHAR(64),
+    risk_level VARCHAR(32),
+    inception_date DATE,
+    fund_manager VARCHAR(256),
+    management_company VARCHAR(256),
+    tracking_index VARCHAR(256),
+    investment_scope TEXT,
+    latest_scale DECIMAL(18, 6),
+    description TEXT,
+    as_of_date DATE NOT NULL,
+    collected_at TIMESTAMP DEFAULT NOW(),
+    source VARCHAR(64),
+    UNIQUE (fund_id, as_of_date)
+);
+
+-- CN fund NAV time series (one record per fund_id + nav_date)
+CREATE TABLE IF NOT EXISTS cn_fund_nav (
+    id SERIAL PRIMARY KEY,
+    fund_id VARCHAR(16) NOT NULL,
+    nav_date DATE NOT NULL,
+    nav DECIMAL(18, 8),
+    nav_accumulated DECIMAL(18, 8),
+    collected_at TIMESTAMP DEFAULT NOW(),
+    source VARCHAR(64),
+    UNIQUE (fund_id, nav_date)
+);
+
+-- CN fund report sections extracted from PDFs
+CREATE TABLE IF NOT EXISTS cn_fund_report_sections (
+    id SERIAL PRIMARY KEY,
+    fund_id VARCHAR(16) NOT NULL,
+    report_id VARCHAR(64) NOT NULL,
+    section_id VARCHAR(64) NOT NULL,
+    section_title_raw TEXT,
+    section_text TEXT,
+    section_summary TEXT,
+    report_type VARCHAR(32),
+    report_date VARCHAR(32),
+    collected_at TIMESTAMP DEFAULT NOW(),
+    extractor_version VARCHAR(32),
+    parser_name VARCHAR(32),
+    parser_version VARCHAR(32),
+    UNIQUE (fund_id, report_id, section_id)
+);
+
+-- CN fund report signals extracted from PDFs (one row per report)
+CREATE TABLE IF NOT EXISTS cn_fund_report_signals (
+    id SERIAL PRIMARY KEY,
+    fund_id VARCHAR(16) NOT NULL,
+    report_id VARCHAR(64) NOT NULL,
+    strategy TEXT,
+    risk TEXT,
+    market_view TEXT,
+    style VARCHAR(64),
+    sector_preference_json TEXT,
+    report_type VARCHAR(32),
+    report_date VARCHAR(32),
+    collected_at TIMESTAMP DEFAULT NOW(),
+    extractor_version VARCHAR(32),
+    parser_name VARCHAR(32),
+    parser_version VARCHAR(32),
+    UNIQUE (fund_id, report_id)
+);
 """
 
 # Parameterized UPSERT SQL templates keyed by logical table name.
@@ -256,6 +325,82 @@ POSTGRES_UPSERT_TEMPLATES = {
         ON CONFLICT (symbol, period, as_of_date) DO UPDATE SET
             inflow_billion = EXCLUDED.inflow_billion, outflow_billion = EXCLUDED.outflow_billion,
             net_flow_billion = EXCLUDED.net_flow_billion, pct_of_aum = EXCLUDED.pct_of_aum, collected_at = EXCLUDED.collected_at
+    """,
+    "cn_fund_basic": """
+        INSERT INTO cn_fund_basic (
+            fund_id, fund_name, fund_type, risk_level, inception_date,
+            fund_manager, management_company, tracking_index, investment_scope,
+            latest_scale, description, as_of_date, collected_at, source
+        ) VALUES (
+            %(fund_id)s, %(fund_name)s, %(fund_type)s, %(risk_level)s, %(inception_date)s,
+            %(fund_manager)s, %(management_company)s, %(tracking_index)s, %(investment_scope)s,
+            %(latest_scale)s, %(description)s, %(as_of_date)s, %(collected_at)s, %(source)s
+        )
+        ON CONFLICT (fund_id, as_of_date) DO UPDATE SET
+            fund_name = EXCLUDED.fund_name,
+            fund_type = EXCLUDED.fund_type,
+            risk_level = EXCLUDED.risk_level,
+            inception_date = EXCLUDED.inception_date,
+            fund_manager = EXCLUDED.fund_manager,
+            management_company = EXCLUDED.management_company,
+            tracking_index = EXCLUDED.tracking_index,
+            investment_scope = EXCLUDED.investment_scope,
+            latest_scale = EXCLUDED.latest_scale,
+            description = EXCLUDED.description,
+            collected_at = EXCLUDED.collected_at,
+            source = EXCLUDED.source
+    """,
+    "cn_fund_nav": """
+        INSERT INTO cn_fund_nav (
+            fund_id, nav_date, nav, nav_accumulated, collected_at, source
+        ) VALUES (
+            %(fund_id)s, %(nav_date)s, %(nav)s, %(nav_accumulated)s, %(collected_at)s, %(source)s
+        )
+        ON CONFLICT (fund_id, nav_date) DO UPDATE SET
+            nav = EXCLUDED.nav,
+            nav_accumulated = EXCLUDED.nav_accumulated,
+            collected_at = EXCLUDED.collected_at,
+            source = EXCLUDED.source
+    """,
+    "cn_fund_report_sections": """
+        INSERT INTO cn_fund_report_sections (
+            fund_id, report_id, section_id, section_title_raw, section_text, section_summary,
+            report_type, report_date, collected_at, extractor_version, parser_name, parser_version
+        ) VALUES (
+            %(fund_id)s, %(report_id)s, %(section_id)s, %(section_title_raw)s, %(section_text)s, %(section_summary)s,
+            %(report_type)s, %(report_date)s, %(collected_at)s, %(extractor_version)s, %(parser_name)s, %(parser_version)s
+        )
+        ON CONFLICT (fund_id, report_id, section_id) DO UPDATE SET
+            section_title_raw = EXCLUDED.section_title_raw,
+            section_text = EXCLUDED.section_text,
+            section_summary = EXCLUDED.section_summary,
+            report_type = EXCLUDED.report_type,
+            report_date = EXCLUDED.report_date,
+            collected_at = EXCLUDED.collected_at,
+            extractor_version = EXCLUDED.extractor_version,
+            parser_name = EXCLUDED.parser_name,
+            parser_version = EXCLUDED.parser_version
+    """,
+    "cn_fund_report_signals": """
+        INSERT INTO cn_fund_report_signals (
+            fund_id, report_id, strategy, risk, market_view, style, sector_preference_json,
+            report_type, report_date, collected_at, extractor_version, parser_name, parser_version
+        ) VALUES (
+            %(fund_id)s, %(report_id)s, %(strategy)s, %(risk)s, %(market_view)s, %(style)s, %(sector_preference_json)s,
+            %(report_type)s, %(report_date)s, %(collected_at)s, %(extractor_version)s, %(parser_name)s, %(parser_version)s
+        )
+        ON CONFLICT (fund_id, report_id) DO UPDATE SET
+            strategy = EXCLUDED.strategy,
+            risk = EXCLUDED.risk,
+            market_view = EXCLUDED.market_view,
+            style = EXCLUDED.style,
+            sector_preference_json = EXCLUDED.sector_preference_json,
+            report_type = EXCLUDED.report_type,
+            report_date = EXCLUDED.report_date,
+            collected_at = EXCLUDED.collected_at,
+            extractor_version = EXCLUDED.extractor_version,
+            parser_name = EXCLUDED.parser_name,
+            parser_version = EXCLUDED.parser_version
     """,
 }
 

@@ -127,9 +127,78 @@ class DataTransformer:
             return self._transform_fund_sectors(symbol, content)
         elif task_type == "fund_flows":
             return self._transform_fund_flows(symbol, content)
+        elif task_type == "cn_fund_basic":
+            return self._transform_cn_fund_basic(symbol, content, as_of_date)
+        elif task_type == "cn_fund_nav":
+            return self._transform_cn_fund_nav(symbol, content)
+        elif task_type == "cn_fund_all":
+            # Aggregated payload is split in DataDistributor; transformer doesn't return multi-table rows.
+            return "", []
+        elif task_type == "cn_fund_report_extract":
+            # Multi-table payload is split in DataDistributor.
+            return "", []
         else:
             logger.warning("Unknown task_type for PostgreSQL: %s", task_type)
             return "", []
+
+    def _transform_cn_fund_basic(
+        self, fund_id: str, content: Any, as_of_date: str
+    ) -> tuple[str, list[dict]]:
+        """Transform CN fund basic metadata dict to cn_fund_basic row."""
+        # Tool may return dict or JSON string.
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except (json.JSONDecodeError, TypeError):
+                return "cn_fund_basic", []
+        if not isinstance(content, dict) or not content:
+            return "cn_fund_basic", []
+
+        row = {
+            "fund_id": str(fund_id),
+            "fund_name": content.get("fund_name"),
+            "fund_type": content.get("fund_type"),
+            "risk_level": content.get("risk_level"),
+            "inception_date": _parse_date(str(content.get("inception_date") or "")),
+            "fund_manager": content.get("fund_manager"),
+            "management_company": content.get("management_company"),
+            "tracking_index": content.get("tracking_index"),
+            "investment_scope": content.get("investment_scope"),
+            "latest_scale": _safe_float(content.get("latest_scale")),
+            "description": content.get("description"),
+            "as_of_date": as_of_date,
+            "collected_at": self.collected_at,
+            "source": content.get("source") or "akshare",
+        }
+        return "cn_fund_basic", [row]
+
+    def _transform_cn_fund_nav(self, fund_id: str, content: Any) -> tuple[str, list[dict]]:
+        """Transform CN fund NAV list to cn_fund_nav rows."""
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except (json.JSONDecodeError, TypeError):
+                return "cn_fund_nav", []
+        if not isinstance(content, list):
+            return "cn_fund_nav", []
+        rows: list[dict] = []
+        for it in content:
+            if not isinstance(it, dict):
+                continue
+            nav_date = _parse_date(str(it.get("nav_date") or it.get("date") or ""))
+            if not nav_date:
+                continue
+            rows.append(
+                {
+                    "fund_id": str(fund_id),
+                    "nav_date": nav_date,
+                    "nav": _safe_float(it.get("nav")),
+                    "nav_accumulated": _safe_float(it.get("nav_accumulated")),
+                    "collected_at": self.collected_at,
+                    "source": it.get("source") or "akshare",
+                }
+            )
+        return "cn_fund_nav", rows
 
     def _transform_stock_data(
         self, symbol: str, content: str
@@ -810,8 +879,84 @@ class DataTransformer:
             return self._global_news_to_milvus(content)
         elif task_type == "info":
             return self._info_description_to_milvus(symbol, content)
+        elif task_type == "cn_fund_report_extract":
+            return self._cn_fund_report_chunks_to_milvus(content)
         else:
             return []
+
+    def _cn_fund_report_chunks_to_milvus(self, content: Any) -> list[dict]:
+        """Convert report extraction chunks to Milvus documents.
+
+        Expected shape: content is dict with key "chunks" (list of dict).
+        """
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        if not isinstance(content, dict):
+            return []
+        chunks = content.get("chunks")
+        if not isinstance(chunks, list):
+            return []
+
+        docs: list[dict] = []
+        for ch in chunks:
+            if not isinstance(ch, dict):
+                continue
+            text = str(ch.get("text") or "").strip()
+            if not text:
+                continue
+            doc_id = str(ch.get("chunk_id") or "").strip()
+            if not doc_id:
+                # Fallback deterministic-ish id; extractor should normally provide chunk_id.
+                doc_id = f"{ch.get('report_id','')}-{ch.get('section_id','other')}-{int(ch.get('chunk_index') or 0):04d}"
+
+            fund_id = str(ch.get("fund_id") or "").strip()
+            report_id = str(ch.get("report_id") or "").strip()
+            report_type = str(ch.get("report_type") or "").strip()
+            report_date = str(ch.get("report_date") or "").strip()
+            section_id = str(ch.get("section_id") or "").strip()
+            extractor_version = str(ch.get("extractor_version") or "").strip()
+            parser_name = str(ch.get("parser_name") or "").strip()
+            parser_version = str(ch.get("parser_version") or "").strip()
+            chunk_kind = str(ch.get("chunk_kind") or "narrative").strip() or "narrative"
+            importance = str(ch.get("importance") or "").strip()
+
+            # Milvus collection may only store id/content/fund_id/source; prefix lightweight tags
+            # so embeddings capture chunk_kind / section for agent retrieval.
+            meta_bits: list[str] = []
+            if chunk_kind != "narrative":
+                meta_bits.append(f"[retrieval_meta kind={chunk_kind} section={section_id}]")
+            if importance == "high":
+                meta_bits.append("[importance=high]")
+            embed_text = (
+                (" ".join(meta_bits) + "\n\n" + text) if meta_bits else text
+            )[:65000]
+
+            docs.append(
+                {
+                    "id": doc_id[:64],
+                    "content": embed_text,
+                    # Existing Milvus schema in DataDistributor maps doc["symbol"] -> fund_id field.
+                    "symbol": fund_id,
+                    "doc_type": "cn_fund_report_chunk",
+                    "source": report_id[:256] if report_id else "cn_fund_report",
+                    "published_at": report_date[:32],
+                    "collected_at": self.collected_at,
+                    # Extra metadata fields will be ignored by current DataDistributor mapping,
+                    # but are kept here for future schema extensions.
+                    "report_id": report_id,
+                    "report_type": report_type,
+                    "section_id": section_id,
+                    "extractor_version": extractor_version,
+                    "parser_name": parser_name,
+                    "parser_version": parser_version,
+                    "chunk_kind": chunk_kind,
+                }
+            )
+
+        return docs
 
     def _news_to_milvus(self, symbol: str, content: str) -> list[dict]:
         """Extract news articles as Milvus documents."""

@@ -326,7 +326,8 @@ class DataDistributor:
             return result
 
         metadata = data.get("metadata", {})
-        symbol = metadata.get("symbol", "")
+        # CN domain prefers fund_id; keep backward compatibility with existing `symbol`.
+        symbol = metadata.get("fund_id") or metadata.get("symbol", "")
         task_type = metadata.get("task_type", "")
         as_of_date = metadata.get("as_of_date", "")
         collected_at = metadata.get("collected_at", "")
@@ -338,8 +339,177 @@ class DataDistributor:
             task_type=task_type,
         )
 
-        classification = self.classifier.classify(task_type)
         transformer = DataTransformer(collected_at=collected_at)
+
+        # CN aggregated ingestion: split one payload into multiple curated writes.
+        if task_type == "cn_fund_all":
+            if not isinstance(content, dict):
+                result.success = False
+                result.errors.append("cn_fund_all content is not a dict")
+                if move_after:
+                    self._move_file(filepath, self.failed_dir)
+                return result
+
+            # Ensure schema exists before writes (graceful skip if DATABASE_URL unset).
+            self._ensure_postgres_schema()
+
+            fund_id = symbol
+            # basic
+            basic = content.get("basic")
+            if isinstance(basic, dict) and not basic.get("error"):
+                table, rows = transformer.to_postgres_rows("cn_fund_basic", fund_id, basic, as_of_date)
+                if rows:
+                    written, error = self._write_to_postgres(table, rows)
+                    result.postgres.setdefault("tables", {})
+                    result.postgres["tables"][table] = {"rows_written": written}
+                    if error:
+                        result.errors.append(f"PostgreSQL: {error}")
+            # nav
+            nav = content.get("nav")
+            nav_items = []
+            if isinstance(nav, dict) and not nav.get("error"):
+                items = nav.get("items") or []
+                fmt = str(nav.get("items_format") or "rows").strip().lower()
+                if fmt == "columns" and isinstance(items, dict):
+                    # Packed format: {nav_date: [...], nav: [...], nav_accumulated: [...]}
+                    dates = items.get("nav_date") or []
+                    navs = items.get("nav") or []
+                    nav_accs = items.get("nav_accumulated") or []
+                    if isinstance(dates, list) and isinstance(navs, list) and isinstance(nav_accs, list):
+                        n = min(len(dates), len(navs), len(nav_accs))
+                        nav_items = [
+                            {"nav_date": dates[i], "nav": navs[i], "nav_accumulated": nav_accs[i], "source": "akshare"}
+                            for i in range(n)
+                        ]
+                elif fmt == "triples" and isinstance(items, list):
+                    # Packed triples: [[nav_date, nav, nav_accumulated], ...]
+                    nav_items = []
+                    for row in items:
+                        if not isinstance(row, list) or len(row) < 2:
+                            continue
+                        nav_date = row[0]
+                        nav_val = row[1] if len(row) >= 2 else None
+                        nav_acc = row[2] if len(row) >= 3 else None
+                        nav_items.append(
+                            {
+                                "nav_date": nav_date,
+                                "nav": nav_val,
+                                "nav_accumulated": nav_acc,
+                                "source": "akshare",
+                            }
+                        )
+                else:
+                    nav_items = items if isinstance(items, list) else []
+            if isinstance(nav_items, list) and nav_items:
+                table, rows = transformer.to_postgres_rows("cn_fund_nav", fund_id, nav_items, as_of_date)
+                if rows:
+                    written, error = self._write_to_postgres(table, rows)
+                    result.postgres.setdefault("tables", {})
+                    result.postgres["tables"][table] = {"rows_written": written}
+                    if error:
+                        result.errors.append(f"PostgreSQL: {error}")
+
+            # Note: fee/holdings/rank are returned by cn_fund_tool.get_all for raw replay,
+            # but are not distributed into curated tables in this initial implementation.
+
+            no_db_configured = all(err.endswith("not set") for err in result.errors)
+            has_writes = bool(result.postgres.get("tables")) if isinstance(result.postgres, dict) else False
+            result.success = (not result.errors) or has_writes or no_db_configured
+            if move_after:
+                self._move_file(filepath, self.processed_dir if result.success else self.failed_dir)
+            return result
+
+        # CN fund report extraction: split one payload into multiple curated writes.
+        if task_type == "cn_fund_report_extract":
+            if not isinstance(content, dict):
+                result.success = False
+                result.errors.append("cn_fund_report_extract content is not a dict")
+                if move_after:
+                    self._move_file(filepath, self.failed_dir)
+                return result
+
+            self._ensure_postgres_schema()
+
+            fund_id = str(symbol)
+            report_id = str(metadata.get("report_id") or content.get("report_id") or "").strip()
+            report_type = str(metadata.get("report_type") or "").strip()
+            report_date = str(metadata.get("report_date") or "").strip()
+            extractor_version = str(metadata.get("extractor_version") or "").strip()
+            parser_name = str(metadata.get("parser_name") or "").strip()
+            parser_version = str(metadata.get("parser_version") or "").strip()
+
+            # 1) Sections -> PostgreSQL
+            sections = content.get("sections") or []
+            if isinstance(sections, list) and sections:
+                rows = []
+                for sec in sections:
+                    if not isinstance(sec, dict):
+                        continue
+                    rows.append(
+                        {
+                            "fund_id": fund_id,
+                            "report_id": report_id,
+                            "section_id": str(sec.get("section_id") or "other"),
+                            "section_title_raw": sec.get("section_title_raw"),
+                            "section_text": sec.get("text"),
+                            "section_summary": sec.get("summary"),
+                            "report_type": report_type,
+                            "report_date": report_date,
+                            "collected_at": transformer.collected_at,
+                            "extractor_version": extractor_version,
+                            "parser_name": parser_name,
+                            "parser_version": parser_version,
+                        }
+                    )
+                if rows:
+                    written, error = self._write_to_postgres("cn_fund_report_sections", rows)
+                    result.postgres.setdefault("tables", {})
+                    result.postgres["tables"]["cn_fund_report_sections"] = {"rows_written": written}
+                    if error:
+                        result.errors.append(f"PostgreSQL: {error}")
+
+            # 2) Signals -> PostgreSQL
+            signals = content.get("signals") or {}
+            if isinstance(signals, dict) and signals:
+                row = {
+                    "fund_id": fund_id,
+                    "report_id": report_id,
+                    "strategy": signals.get("strategy"),
+                    "risk": signals.get("risk"),
+                    "market_view": signals.get("market_view"),
+                    "style": signals.get("style"),
+                    "sector_preference_json": json.dumps(
+                        signals.get("sector_preference") or [], ensure_ascii=False
+                    ),
+                    "report_type": report_type,
+                    "report_date": report_date,
+                    "collected_at": transformer.collected_at,
+                    "extractor_version": extractor_version,
+                    "parser_name": parser_name,
+                    "parser_version": parser_version,
+                }
+                written, error = self._write_to_postgres("cn_fund_report_signals", [row])
+                result.postgres.setdefault("tables", {})
+                result.postgres["tables"]["cn_fund_report_signals"] = {"rows_written": written}
+                if error:
+                    result.errors.append(f"PostgreSQL: {error}")
+
+            # 3) Chunks -> Milvus
+            docs = transformer.to_milvus_docs(task_type, fund_id, content, as_of_date)
+            if docs:
+                indexed, error = self._write_to_milvus(docs)
+                result.milvus = {"docs_indexed": indexed}
+                if error:
+                    result.errors.append(f"Milvus: {error}")
+
+            no_db_configured = all(err.endswith("not set") for err in result.errors)
+            has_writes = bool(result.postgres.get("tables")) or result.milvus.get("docs_indexed", 0) > 0
+            result.success = (not result.errors) or has_writes or no_db_configured
+            if move_after:
+                self._move_file(filepath, self.processed_dir if result.success else self.failed_dir)
+            return result
+
+        classification = self.classifier.classify(task_type)
 
         if "postgres" in classification.targets:
             table, rows = transformer.to_postgres_rows(
@@ -405,33 +575,68 @@ class DataDistributor:
         Returns:
             BatchDistributionResult.
         """
-        symbol_dir = os.path.join(self.data_dir, symbol.upper())
-        if not os.path.exists(symbol_dir):
-            return BatchDistributionResult()
-
         batch = BatchDistributionResult()
 
-        for filename in os.listdir(symbol_dir):
-            if not filename.endswith(".json"):
-                continue
+        # 1) Default behavior: datasets/raw/<SYMBOL>/*.json
+        symbol_dir = os.path.join(self.data_dir, symbol.upper())
+        if os.path.exists(symbol_dir):
+            for filename in os.listdir(symbol_dir):
+                if not filename.endswith(".json"):
+                    continue
 
-            if as_of_date and as_of_date not in filename:
-                continue
+                if as_of_date and as_of_date not in filename:
+                    continue
 
-            filepath = os.path.join(symbol_dir, filename)
-            batch.total_files += 1
+                filepath = os.path.join(symbol_dir, filename)
+                batch.total_files += 1
 
-            result = self.distribute_file(filepath, move_after=move_after)
-            batch.results.append(result)
+                result = self.distribute_file(filepath, move_after=move_after)
+                batch.results.append(result)
 
-            if result.success:
-                batch.success_count += 1
-                batch.postgres_rows += result.postgres.get("rows_written", 0)
-                batch.neo4j_nodes += result.neo4j.get("nodes_created", 0)
-                batch.neo4j_edges += result.neo4j.get("edges_created", 0)
-                batch.milvus_docs += result.milvus.get("docs_indexed", 0)
+                if result.success:
+                    batch.success_count += 1
+                    batch.postgres_rows += result.postgres.get("rows_written", 0)
+                    batch.neo4j_nodes += result.neo4j.get("nodes_created", 0)
+                    batch.neo4j_edges += result.neo4j.get("edges_created", 0)
+                    batch.milvus_docs += result.milvus.get("docs_indexed", 0)
+                else:
+                    batch.failed_count += 1
+
+        # 2) CN report extraction artifacts:
+        # datasets/raw/ingestion/cn_fund_all/<date>/<fund_id>/reports_extracted/*.json
+        ingestion_root = os.path.join(self.data_dir, "ingestion", "cn_fund_all")
+        if os.path.isdir(ingestion_root):
+            date_dirs: list[str] = []
+            if as_of_date:
+                date_dirs = [as_of_date]
             else:
-                batch.failed_count += 1
+                date_dirs = [d for d in os.listdir(ingestion_root) if os.path.isdir(os.path.join(ingestion_root, d))]
+
+            for date_dir in date_dirs:
+                fund_dir = os.path.join(ingestion_root, date_dir, symbol.upper())
+                extracted_dir = os.path.join(fund_dir, "reports_extracted")
+                if not os.path.isdir(extracted_dir):
+                    continue
+                for fname in os.listdir(extracted_dir):
+                    if not fname.endswith(".json"):
+                        continue
+                    filepath = os.path.join(extracted_dir, fname)
+                    batch.total_files += 1
+                    result = self.distribute_file(filepath, move_after=move_after)
+                    batch.results.append(result)
+                    if result.success:
+                        batch.success_count += 1
+                        if isinstance(result.postgres, dict) and "tables" in result.postgres:
+                            for _t, v in (result.postgres.get("tables") or {}).items():
+                                if isinstance(v, dict):
+                                    batch.postgres_rows += int(v.get("rows_written") or 0)
+                        else:
+                            batch.postgres_rows += result.postgres.get("rows_written", 0)
+                        batch.neo4j_nodes += result.neo4j.get("nodes_created", 0)
+                        batch.neo4j_edges += result.neo4j.get("edges_created", 0)
+                        batch.milvus_docs += result.milvus.get("docs_indexed", 0)
+                    else:
+                        batch.failed_count += 1
 
         return batch
 
@@ -449,6 +654,54 @@ class DataDistributor:
 
         if not os.path.exists(self.data_dir):
             return batch
+
+        # Scan ingestion/cn_fund_all/{date}/{fund_id}/data.json
+        ingestion_cn = os.path.join(self.data_dir, "ingestion", "cn_fund_all")
+        if os.path.isdir(ingestion_cn):
+            for date_dir in os.listdir(ingestion_cn):
+                date_path = os.path.join(ingestion_cn, date_dir)
+                if not os.path.isdir(date_path):
+                    continue
+                for fund_id in os.listdir(date_path):
+                    fund_path = os.path.join(date_path, fund_id)
+                    data_json = os.path.join(fund_path, "data.json")
+                    if os.path.isfile(data_json):
+                        batch.total_files += 1
+                        result = self.distribute_file(data_json, move_after=move_after)
+                        batch.results.append(result)
+                        if result.success:
+                            batch.success_count += 1
+                            batch.postgres_rows += result.postgres.get("rows_written", 0)
+                            batch.neo4j_nodes += result.neo4j.get("nodes_created", 0)
+                            batch.neo4j_edges += result.neo4j.get("edges_created", 0)
+                            batch.milvus_docs += result.milvus.get("docs_indexed", 0)
+                        else:
+                            batch.failed_count += 1
+
+                    # Also scan extracted report artifacts: reports_extracted/*.json
+                    extracted_dir = os.path.join(fund_path, "reports_extracted")
+                    if os.path.isdir(extracted_dir):
+                        for fname in os.listdir(extracted_dir):
+                            if not fname.endswith(".json"):
+                                continue
+                            fpath = os.path.join(extracted_dir, fname)
+                            batch.total_files += 1
+                            r2 = self.distribute_file(fpath, move_after=move_after)
+                            batch.results.append(r2)
+                            if r2.success:
+                                batch.success_count += 1
+                                # postgres may be multi-table for this task; count rows if present.
+                                if isinstance(r2.postgres, dict) and "tables" in r2.postgres:
+                                    for _t, v in (r2.postgres.get("tables") or {}).items():
+                                        if isinstance(v, dict):
+                                            batch.postgres_rows += int(v.get("rows_written") or 0)
+                                else:
+                                    batch.postgres_rows += r2.postgres.get("rows_written", 0)
+                                batch.neo4j_nodes += r2.neo4j.get("nodes_created", 0)
+                                batch.neo4j_edges += r2.neo4j.get("edges_created", 0)
+                                batch.milvus_docs += r2.milvus.get("docs_indexed", 0)
+                            else:
+                                batch.failed_count += 1
 
         for entry in os.listdir(self.data_dir):
             entry_path = os.path.join(self.data_dir, entry)

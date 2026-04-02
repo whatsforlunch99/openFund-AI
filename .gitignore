@@ -48,3 +48,6 @@ volumes/
 # Local env (secrets)
 .env
 .env.local
+
+# SEC 10-K / large downloaded artifacts (sync locally from intl branch; do not commit)
+financial_report/

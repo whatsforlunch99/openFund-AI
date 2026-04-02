@@ -2,6 +2,8 @@
 
 Data management agent responsible for fund/stock data collection, storage, and distribution. Uses MCP tool chain to manage the data lifecycle.
 
+> Related: **offline ingestion design** for turning unstable upstreams into internal data assets lives in [data-ingestion.md](data-ingestion.md).
+
 ---
 
 ## Overview

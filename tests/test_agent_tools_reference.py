@@ -18,6 +18,7 @@ from openfund_mcp.mcp_server import MCPServer
 # Minimal payloads per tool (from docs/agent-tools-reference.md sample calls).
 # Used to verify each tool is registered and accepts the documented payload shape.
 SAMPLE_PAYLOADS: dict[str, dict] = {
+    "file_tool.read_file": {"path": "docs/prd.md"},
     "vector_tool.search": {"query": "NVDA fund performance 2024", "top_k": 5},
     "vector_tool.get_by_ids": {"ids": ["doc_001", "doc_002"]},
     "vector_tool.upsert_documents": {"docs": [{"id": "doc_003", "content": "Test."}]},
@@ -46,6 +47,14 @@ SAMPLE_PAYLOADS: dict[str, dict] = {
     "market_tool.get_news": {"symbol": "NVDA", "limit": 5},
     "market_tool.get_global_news": {"as_of_date": "2024-12-31", "look_back_days": 7, "limit": 5},
     "analyst_tool.get_indicators": {"symbol": "NVDA", "indicator": "rsi", "as_of_date": "2024-12-31", "look_back_days": 30},
+    "fund_catalog_tool.search": {"query": "VOO", "limit": 5},
+    "stooq_tool.get_price": {"symbol": "VOO"},
+    "yahoo_finance_tool.get_price": {"symbol": "VOO"},
+    "yahoo_finance_tool.get_fundamental": {"symbol": "VOO"},
+    "etfdb_tool.get_fund_data": {"symbol": "VOO"},
+    "news_tool.search_rss": {"query": "NVDA", "days": 3},
+    "news_tool.search_yahoo_rss": {"limit": 5},
+    "news_tool.search_gdelt": {"query": "NVDA", "limit": 5},
     "get_capabilities": {},
 }
 

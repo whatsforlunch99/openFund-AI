@@ -198,7 +198,14 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls return mock data.
 
-**Schema:** Use only the tables and columns defined in [fund-data-schema.md](../../data_prep/fund-data-schema.md). Key tables: `fund_info`, `fund_performance`, `fund_risk_metrics`, `fund_holdings` (use `fund_symbol`, not `fund_id`), `fund_sector_allocation`, `fund_flows`; for stocks: `stock_ohlcv`, `company_fundamentals`, `financial_statements`. Do not use: `financials`, `revenue_segments`, `fund_returns`, `fund_sector_exposures`, or column `fund_id` in `fund_holdings`.
+**Schema:** Use only the tables and columns defined in:
+
+- Global/ETF funds: [fund-data-schema.md](../../data_prep/fund-data-schema.md) — key tables `fund_info`, `fund_performance`, `fund_risk_metrics`, `fund_holdings` (use `fund_symbol`, not `fund_id`), `fund_sector_allocation`, `fund_flows`
+- CN funds (fund_id domain): [cn-fund-data-schema.md](../../data_prep/cn-fund-data-schema.md) — tables `cn_fund_basic`, `cn_fund_nav`, `cn_fund_fee`, `cn_fund_holdings`, `cn_fund_rank`, `cn_fund_features`
+
+For stocks: `stock_ohlcv`, `company_fundamentals`, `financial_statements`.
+
+Do not use: `financials`, `revenue_segments`, `fund_returns`, `fund_sector_exposures`, or column `fund_id` in `fund_holdings`.
 
 #### sql_tool.run_query
 

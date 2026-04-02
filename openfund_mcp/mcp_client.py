@@ -236,9 +236,9 @@ class MCPClient:
                 "future": future,
             })
             try:
-                result = future.result(timeout=60)
+                result = future.result(timeout=180)
             except concurrent.futures.TimeoutError:
-                result = {"error": "Tool call timed out after 60s"}
+                result = {"error": "Tool call timed out after 180s"}
             except Exception as e:
                 result = {"error": str(e)}
         duration_ms = (time.perf_counter() - start) * 1000.0

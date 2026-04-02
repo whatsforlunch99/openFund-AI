@@ -200,6 +200,37 @@ class MCPServer:
         except ImportError:
             pass
 
+        # CN fund ingestion tools (offline; AKShare-backed).
+        try:
+            from openfund_mcp.tools import cn_fund_tool as cn
+
+            self.register_tool(
+                "cn_fund_tool.get_basic",
+                lambda p: cn.get_basic(p if isinstance(p, dict) else {}),
+            )
+            self.register_tool(
+                "cn_fund_tool.get_nav",
+                lambda p: cn.get_nav(p if isinstance(p, dict) else {}),
+            )
+            self.register_tool(
+                "cn_fund_tool.get_fee",
+                lambda p: cn.get_fee(p if isinstance(p, dict) else {}),
+            )
+            self.register_tool(
+                "cn_fund_tool.get_holdings",
+                lambda p: cn.get_holdings(p if isinstance(p, dict) else {}),
+            )
+            self.register_tool(
+                "cn_fund_tool.get_rank",
+                lambda p: cn.get_rank(p if isinstance(p, dict) else {}),
+            )
+            self.register_tool(
+                "cn_fund_tool.get_all",
+                lambda p: cn.get_all(p if isinstance(p, dict) else {}),
+            )
+        except ImportError:
+            pass
+
         from openfund_mcp.tools import capabilities
 
         self.register_tool(
@@ -699,6 +730,107 @@ def _create_fastmcp_app() -> Any:
         pass
 
     # ---------------------------------------------------------------------------
+    # CN fund ingestion tools (offline; AKShare-backed)
+    # ---------------------------------------------------------------------------
+    _cn_ingestion_tool_names: list[str] = []
+    try:
+        from openfund_mcp.tools import cn_fund_tool as cn
+
+        @app.tool(
+            name="cn_fund_tool.get_basic",
+            description="CN fund basic info via AKShare. fund_id (string).",
+        )
+        def cn_fund_tool_get_basic(fund_id: str = "", as_of_date: str = "") -> dict:
+            payload: dict[str, Any] = {"fund_id": fund_id}
+            if as_of_date:
+                payload["as_of_date"] = as_of_date
+            return cn.get_basic(payload)
+
+        @app.tool(
+            name="cn_fund_tool.get_nav",
+            description="CN fund NAV series via AKShare. fund_id (string), look_back_days (optional int), max_items (optional int).",
+        )
+        def cn_fund_tool_get_nav(
+            fund_id: str = "",
+            as_of_date: str = "",
+            look_back_days: Optional[int] = None,
+            max_items: Optional[int] = None,
+        ) -> dict:
+            payload: dict[str, Any] = {"fund_id": fund_id}
+            if as_of_date:
+                payload["as_of_date"] = as_of_date
+            if look_back_days is not None:
+                payload["look_back_days"] = int(look_back_days)
+            if max_items is not None:
+                payload["max_items"] = int(max_items)
+            return cn.get_nav(payload)
+
+        @app.tool(
+            name="cn_fund_tool.get_fee",
+            description="CN fund fee schedule via AKShare. fund_id (string).",
+        )
+        def cn_fund_tool_get_fee(fund_id: str = "", as_of_date: str = "") -> dict:
+            payload: dict[str, Any] = {"fund_id": fund_id}
+            if as_of_date:
+                payload["as_of_date"] = as_of_date
+            return cn.get_fee(payload)
+
+        @app.tool(
+            name="cn_fund_tool.get_holdings",
+            description="CN fund holdings via AKShare. fund_id (string).",
+        )
+        def cn_fund_tool_get_holdings(fund_id: str = "", as_of_date: str = "") -> dict:
+            payload: dict[str, Any] = {"fund_id": fund_id}
+            if as_of_date:
+                payload["as_of_date"] = as_of_date
+            return cn.get_holdings(payload)
+
+        @app.tool(
+            name="cn_fund_tool.get_rank",
+            description="CN fund rank via AKShare. fund_id (string).",
+        )
+        def cn_fund_tool_get_rank(fund_id: str = "", as_of_date: str = "") -> dict:
+            payload: dict[str, Any] = {"fund_id": fund_id}
+            if as_of_date:
+                payload["as_of_date"] = as_of_date
+            return cn.get_rank(payload)
+
+        @app.tool(
+            name="cn_fund_tool.get_all",
+            description="Aggregate CN fund data for offline ingestion. fund_id (string), look_back_days (optional int), nav_max_items (optional int).",
+        )
+        def cn_fund_tool_get_all(
+            fund_id: str = "",
+            as_of_date: str = "",
+            look_back_days: Optional[int] = None,
+            nav_max_items: Optional[int] = None,
+            nav_items_format: str = "triples",
+        ) -> dict:
+            payload: dict[str, Any] = {"fund_id": fund_id}
+            if as_of_date:
+                payload["as_of_date"] = as_of_date
+            if look_back_days is not None:
+                payload["look_back_days"] = int(look_back_days)
+            if nav_max_items is not None:
+                payload["nav_max_items"] = int(nav_max_items)
+            if nav_items_format:
+                payload["nav_items_format"] = str(nav_items_format)
+            return cn.get_all(payload)
+
+        _cn_ingestion_tool_names.extend(
+            [
+                "cn_fund_tool.get_basic",
+                "cn_fund_tool.get_nav",
+                "cn_fund_tool.get_fee",
+                "cn_fund_tool.get_holdings",
+                "cn_fund_tool.get_rank",
+                "cn_fund_tool.get_all",
+            ]
+        )
+    except ImportError:
+        pass
+
+    # ---------------------------------------------------------------------------
     # get_capabilities
     # ---------------------------------------------------------------------------
     from openfund_mcp.tools import capabilities as cap
@@ -745,6 +877,8 @@ def _create_fastmcp_app() -> Any:
         ])
     if _websearcher_tool_names:
         _tool_names.extend(_websearcher_tool_names)
+    if _cn_ingestion_tool_names:
+        _tool_names.extend(_cn_ingestion_tool_names)
 
     @app.tool(
         name="get_capabilities",

@@ -154,7 +154,8 @@ def add_backend_subcommands(subparsers: argparse._SubParsersAction) -> None:
     p_sql = subparsers.add_parser(
         "sql", help="PostgreSQL: run a query (INSERT/UPDATE/DELETE/SELECT)"
     )
-    p_sql.add_argument("query", help="SQL query (use %s or %(name)s for params)")
+    # argparse help strings are %-formatted internally; escape % to avoid KeyError like %(name)s.
+    p_sql.add_argument("query", help="SQL query (use %%s or %%(name)s for params)")
     p_sql.add_argument(
         "--params", nargs="*", help="Params as key=value (e.g. id=1 name=FundX)"
     )

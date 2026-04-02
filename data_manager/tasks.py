@@ -93,6 +93,28 @@ COLLECTION_TASKS: list[CollectionTask] = [
         },
         output_filename=lambda s, d: f"{s}_indicators_{d}.json",
     ),
+    # ---------------------------------------------------------------------
+    # CN fund ingestion (offline assets; stored under datasets/raw/ingestion/)
+    # fund_id should be passed as the symbol string (keep leading zeros).
+    # ---------------------------------------------------------------------
+    CollectionTask(
+        task_type="cn_fund_basic",
+        tool_name="cn_fund_tool.get_basic",
+        payload_builder=lambda fund_id, d: {"fund_id": str(fund_id), "as_of_date": d},
+        output_filename=lambda fund_id, d: f"{fund_id}_basic_{d}.json",
+    ),
+    CollectionTask(
+        task_type="cn_fund_nav",
+        tool_name="cn_fund_tool.get_nav",
+        payload_builder=lambda fund_id, d: {"fund_id": str(fund_id), "as_of_date": d, "look_back_days": 365},
+        output_filename=lambda fund_id, d: f"{fund_id}_nav_{d}.json",
+    ),
+    CollectionTask(
+        task_type="cn_fund_all",
+        tool_name="cn_fund_tool.get_all",
+        payload_builder=lambda fund_id, d: {"fund_id": str(fund_id), "as_of_date": d, "look_back_days": 365, "nav_max_items": 400},
+        output_filename=lambda fund_id, d: f"{fund_id}_all_{d}.json",
+    ),
 ]
 
 GLOBAL_NEWS_TASK = CollectionTask(

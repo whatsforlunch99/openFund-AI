@@ -116,6 +116,8 @@ Stop local backends:
 | `python -m data_manager milvus ...` | Milvus index/delete documents |
 | `python -m data_manager collect ...` | Collect data for symbols |
 | `python scripts/data_loader.py --load-mode existing` | Load SQL/Neo4j/Milvus from `database/*` sources |
+| `NEO4J_FRESH_IMPORT_MODE=auto python scripts/data_loader.py --load-mode fresh-all --components neo4j` | Prefer offline `neo4j-admin` for full Neo4j rebuilds; fallback to online in `auto` mode |
+| `python scripts/benchmark_neo4j_load.py --mode auto --runs 3 --target-seconds 180` | Benchmark Neo4j fresh-all import throughput and pass/fail target |
 | `pytest tests/ -v` | Run test suite |
 | `ruff check .` | Lint (see pyproject.toml [tool.ruff]) |
 | `black .` | Format (see pyproject.toml [tool.black]) |
@@ -152,6 +154,8 @@ Auth model:
 ```bash
 python scripts/data_loader.py --load-mode existing
 python scripts/data_loader.py --load-mode fresh-all
+NEO4J_FRESH_IMPORT_MODE=auto python scripts/data_loader.py --load-mode fresh-all --components neo4j
+python scripts/benchmark_neo4j_load.py --mode auto --runs 3 --target-seconds 180
 # Example SQL against loaded stats tables:
 python -c "import os; print('Set DATABASE_URL to run SQL via MCP/sql_tool')"
 ```

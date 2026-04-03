@@ -116,6 +116,11 @@ Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). Al
 - **Graph import artifacts:** normalized bundle under `database/graph_data/neo4j_export/`:
   - **Export (3 files):** `graph_nodes.csv`, `graph_relationships.csv`, `category_inspection.csv`.
   - Bundle validation (`validate_graph_csv_bundle_for_neo4j`): requires `graph_nodes.csv` + `graph_relationships.csv`; schema id `normalized_bundle_v4`.
+  - **Fresh rebuild strategy:** `scripts/data_loader.py --load-mode fresh-all` uses `NEO4J_FRESH_IMPORT_MODE`:
+    - `auto` (default): try offline `neo4j-admin database import full`; fallback to online batched Bolt load.
+    - `offline`: require offline import success (error if unavailable).
+    - `online`: force online wipe + batched Bolt load only.
+  - **Batch tuning:** online Neo4j loader batch size can be tuned via `NEO4J_LOAD_BATCH_SIZE` (default 10000).
 - **Timeouts:** E2E_TIMEOUT_SECONDS (default 30). LLM_TIMEOUT_SECONDS (default 30) is the per-call timeout for planner/specialist LLM requests (decompose_to_steps, complete, select_tools); increase if your provider is slow.
 - **Thresholds:** PLANNER_SUFFICIENCY_THRESHOLD (default 0.6, reserved—sufficiency is LLM-decided), ANALYST_CONFIDENCE_THRESHOLD (default 0.6), RESPONDER_CONFIDENCE_THRESHOLD (default 0.75, reserved for future use). **Planner rounds:** MAX_RESEARCH_ROUNDS (default 2) caps refined planner round(s). **Refined planner round steps:** The Planner builds steps with agent and params (query) only; no separate "action" field. **Fallback decomposition:** When the LLM is unavailable or parse fails, the Planner uses a fixed three-step chain (librarian, websearcher, analyst) with a small heuristic to infer fund/symbol from the query (e.g. nvidia→NVDA, apple→AAPL). When the LLM returns a valid empty list, the planner uses a single analyst step so the pipeline does not stall.
 - **LLM:** Required for app startup. `get_llm_client()` requires `LLM_API_KEY`; otherwise startup fails with a clear error. Install optional dependency: `pip install openfund-ai[llm]`. `LLM_MODEL` (default `gpt-4o-mini`) and optional `LLM_BASE_URL` control provider/model routing. Per-call timeout: `LLM_TIMEOUT_SECONDS` (default 30); the implementation that calls the LLM for the planner is `LiveLLMClient.decompose_to_steps()` in `llm/live_client.py`.

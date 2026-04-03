@@ -1427,6 +1427,12 @@ def load_graph_csvs_to_neo4j(
 
     nodes_loaded = 0
     rels_loaded = 0
+    # Batch size tuned for lower Bolt round-trip overhead on large bundles.
+    # Can be overridden for tuning in different environments.
+    try:
+        batch_size = max(1000, int(os.environ.get("NEO4J_LOAD_BATCH_SIZE", "10000")))
+    except ValueError:
+        batch_size = 10000
 
     def _load_nodes_file(path: str, id_col: str, labels: str, map_props: list[str]) -> tuple[int, str | None]:
         loaded = 0
@@ -1507,8 +1513,23 @@ def load_graph_csvs_to_neo4j(
                     return loaded, str(e2)
         return loaded, None
 
+    def _flush_nodes_batch(label_part: str, rows: list[dict[str, Any]]) -> str | None:
+        if not rows:
+            return None
+        cypher = (
+            f"UNWIND $rows AS row "
+            f"MERGE (n{label_part} {{node_id: row.node_id}}) "
+            f"SET n += row.props"
+        )
+        try:
+            driver.execute_query(cypher, parameters_={"rows": rows}, database_=db)
+            return None
+        except Exception as e:
+            return str(e)
+
     def _load_unified_graph_nodes(path: str) -> tuple[int, str | None]:
         loaded = 0
+        buckets: dict[str, list[dict[str, Any]]] = {}
         with open(path, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -1529,20 +1550,40 @@ def load_graph_csvs_to_neo4j(
                     props[k] = (row.get(k) or "").strip()
                 sym = (props.get("symbol") or "").strip()
                 props["id"] = sym if sym else node_id
-                cypher = f"MERGE (n{label_part} {{node_id: $node_id}}) SET n += $props"
-                try:
-                    driver.execute_query(
-                        cypher,
-                        parameters_={"node_id": node_id, "props": props},
-                        database_=db,
-                    )
-                    loaded += 1
-                except Exception as e:
-                    return loaded, str(e)
+                payload = {"node_id": node_id, "props": props}
+                bucket = buckets.setdefault(label_part, [])
+                bucket.append(payload)
+                if len(bucket) >= batch_size:
+                    err = _flush_nodes_batch(label_part, bucket)
+                    if err:
+                        return loaded, err
+                    loaded += len(bucket)
+                    bucket.clear()
+        for label_part, bucket in buckets.items():
+            err = _flush_nodes_batch(label_part, bucket)
+            if err:
+                return loaded, err
+            loaded += len(bucket)
         return loaded, None
+
+    def _flush_rels_batch(rel_type: str, rows: list[dict[str, Any]]) -> str | None:
+        if not rows:
+            return None
+        cypher = (
+            f"UNWIND $rows AS row "
+            f"MATCH (a {{node_id: row.start_id}}), (b {{node_id: row.end_id}}) "
+            f"MERGE (a)-[r:{rel_type}]->(b) "
+            f"SET r.source_field = CASE WHEN row.source_field = '' THEN r.source_field ELSE row.source_field END"
+        )
+        try:
+            driver.execute_query(cypher, parameters_={"rows": rows}, database_=db)
+            return None
+        except Exception as e:
+            return str(e)
 
     def _load_unified_graph_rels(path: str) -> tuple[int, str | None]:
         loaded = 0
+        buckets: dict[str, list[dict[str, Any]]] = {}
         with open(path, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -1554,19 +1595,20 @@ def load_graph_csvs_to_neo4j(
                     continue
                 if not _IDENTIFIER_RE.match(t):
                     continue
-                cypher = (
-                    "MATCH (a {node_id: $start_id}), (b {node_id: $end_id}) "
-                    f"MERGE (a)-[r:{t}]->(b)"
-                )
-                params: dict[str, Any] = {"start_id": s, "end_id": e}
-                if sf:
-                    cypher += " SET r.source_field = $source_field"
-                    params["source_field"] = sf
-                try:
-                    driver.execute_query(cypher, parameters_=params, database_=db)
-                    loaded += 1
-                except Exception as e2:
-                    return loaded, str(e2)
+                payload = {"start_id": s, "end_id": e, "source_field": sf}
+                bucket = buckets.setdefault(t, [])
+                bucket.append(payload)
+                if len(bucket) >= batch_size:
+                    err = _flush_rels_batch(t, bucket)
+                    if err:
+                        return loaded, err
+                    loaded += len(bucket)
+                    bucket.clear()
+        for t, bucket in buckets.items():
+            err = _flush_rels_batch(t, bucket)
+            if err:
+                return loaded, err
+            loaded += len(bucket)
         return loaded, None
 
     if output_dir:

@@ -19,37 +19,17 @@ import datetime as dt
 import json
 import os
 import re
+import shlex
+import shutil
+import subprocess
 import sys
 import time
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Optional
-
-# #region agent log
-_DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent / ".cursor" / "debug-11fd1a.log"
-
-
-def _agent_dbg(hypothesis_id: str, location: str, message: str, data: Optional[dict[str, Any]] = None) -> None:
-    try:
-        line = json.dumps(
-            {
-                "sessionId": "11fd1a",
-                "hypothesisId": hypothesis_id,
-                "location": location,
-                "message": message,
-                "data": data or {},
-                "timestamp": int(time.time() * 1000),
-            },
-            default=str,
-        )
-        _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except Exception:
-        pass
-
-
-# #endregion
 
 
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
@@ -71,6 +51,30 @@ def _quote_ident(ident: str) -> str:
         if not s or not _IDENTIFIER_RE.match(s):
             s = "col"
     return s
+
+
+def _agent_dbg(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    # #region agent log
+    try:
+        with open("/Users/jiani/Desktop/openFund AI/.cursor/debug-11fd1a.log", "a", encoding="utf-8") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "sessionId": "11fd1a",
+                        "runId": run_id,
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    ensure_ascii=True,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
 
 
 def _safe_table_name(stem: str) -> str:
@@ -348,9 +352,7 @@ def _postgres_connect() -> tuple[Any | None, str | None]:
         return None, "PostgreSQL driver not installed. Run: pip install -e '.[backends]'"
 
     try:
-        _agent_dbg("H1", "data_loader._postgres_connect", "before psycopg2.connect", {"url_host": url.split("@")[-1][:80] if "@" in url else "local"})
         conn = psycopg2.connect(url)
-        _agent_dbg("H1", "data_loader._postgres_connect", "after psycopg2.connect", {})
         return (conn, None)
     except Exception as e:
         return None, f"PostgreSQL connection failed: {e}"
@@ -362,7 +364,6 @@ def load_sql_from_stats(stats_dir: Path, load_mode: str) -> dict[str, Any]:
     if not os.environ.get("DATABASE_URL"):
         return {"sql": {"skipped": True, "reason": "DATABASE_URL not set"}}
 
-    _agent_dbg("H1", "data_loader.load_sql_from_stats", "entering sql load", {"stats_dir": str(stats_dir)})
     conn, conn_err = _postgres_connect()
     if conn is None:
         return {"sql": {"skipped": True, "reason": conn_err or "PostgreSQL unavailable"}}
@@ -443,34 +444,187 @@ def load_neo4j_from_csv_bundle(neo4j_csv_dir: Path, load_mode: str) -> dict[str,
     out: dict[str, Any] = {}
 
     # Bundle mode uses output_dir graph_nodes.csv and graph_relationships.csv.
-    _agent_dbg("H2", "data_loader.load_neo4j", "before import kg_tool", {})
     from openfund_mcp.tools import kg_tool
 
-    _agent_dbg("H2", "data_loader.load_neo4j", "before validate_graph_csv_bundle", {"dir": str(neo4j_csv_dir)})
     validation = kg_tool.validate_graph_csv_bundle_for_neo4j(
         str(neo4j_csv_dir), sample_limit=20
     )
+    # #region agent log
+    rel_checks = ((validation.get("relationship_checks") or {}).get("graph_relationships") or {})
+    warn = validation.get("warnings") or {}
+    _agent_dbg(
+        "repro-neo4j-1",
+        "N1",
+        "scripts/data_loader.py:load_neo4j_from_csv_bundle",
+        "neo4j validation summary",
+        {
+            "ok": bool(validation.get("ok")),
+            "rows": rel_checks.get("rows"),
+            "missing_start_n": len(rel_checks.get("missing_start_sample") or []),
+            "missing_end_n": len(rel_checks.get("missing_end_sample") or []),
+            "bad_type_n": len(rel_checks.get("invalid_rel_type_sample") or []),
+            "dup_rows": rel_checks.get("duplicate_rows"),
+            "warning_suspicious_currency_count": warn.get("suspicious_currency_codes_count"),
+        },
+    )
+    # #endregion
     out["validation"] = validation
-    _agent_dbg("H2", "data_loader.load_neo4j", "after validate", {"ok": validation.get("ok")})
     if validation.get("ok") is False and validation.get("error"):
         # Validation error: avoid doing a write when inputs are invalid.
         return {"neo4j": out, "status": "error", "error": validation.get("error")}
 
+    # Avoid very long demo imports on enormous bundles in default "existing" mode.
+    # The normalized export in this repo has ~2M relationships; per-row MERGE in kg_tool
+    # can take many minutes. For ./scripts/run.sh (load_mode=existing), we only need
+    # a quick sanity check that the bundle is well-formed; full imports can be run
+    # manually via dedicated graph tooling.
+    rel_rows = (
+        ((validation.get("relationship_checks") or {}).get("graph_relationships") or {}).get("rows")
+    )
+    if load_mode == "existing" and isinstance(rel_rows, int) and rel_rows > 500_000:
+        # #region agent log
+        _agent_dbg(
+            "repro-neo4j-1",
+            "N2",
+            "scripts/data_loader.py:load_neo4j_from_csv_bundle",
+            "existing mode skip condition hit",
+            {"rel_rows": rel_rows, "threshold": 500000},
+        )
+        # #endregion
+        out["skipped"] = True
+        out["reason"] = (
+            f"bundle has {rel_rows} relationships; skipping Neo4j import in existing mode "
+            "for ./scripts/run.sh. See docs/data_prep/graph-data-schema.md for manual import options."
+        )
+        return {"neo4j": out, "status": "ok"}
+
+    import_mode = (os.environ.get("NEO4J_FRESH_IMPORT_MODE", "auto") or "auto").strip().lower()
+
     if load_mode == "fresh-all":
-        # "fresh-all" semantics: wipe the entire graph, then append-load.
+        # Prefer offline neo4j-admin import for large full rebuilds.
+        if import_mode not in {"online", "disable"}:
+            offline = _try_neo4j_admin_full_import(neo4j_csv_dir, validation)
+            # #region agent log
+            _agent_dbg(
+                "repro-neo4j-1",
+                "N3",
+                "scripts/data_loader.py:load_neo4j_from_csv_bundle",
+                "offline import attempt result",
+                {"ok": bool(offline.get("ok")), "db_name": offline.get("db_name"), "elapsed": offline.get("elapsed_seconds")},
+            )
+            # #endregion
+            out["offline_import"] = offline
+            if offline.get("ok"):
+                return {"neo4j": out, "status": "ok"}
+            # In auto mode, fallback to online import path when offline is unavailable.
+            if import_mode == "offline":
+                return {"neo4j": out, "status": "error", "error": offline.get("error", "offline import failed")}
+
+        # Online fallback: wipe then append-load via Bolt.
         wipe = "MATCH (n) DETACH DELETE n"
         out["wipe_result"] = kg_tool.query_graph(wipe)
 
-    _agent_dbg("H2", "data_loader.load_neo4j", "before load_graph_csvs_to_neo4j", {})
+    start_s = time.time()
     res = kg_tool.load_graph_csvs_to_neo4j(
         nodes_csv="",
         relationships_csv="",
         mode="append",
         output_dir=str(neo4j_csv_dir),
     )
-    _agent_dbg("H2", "data_loader.load_neo4j", "after load_graph_csvs_to_neo4j", {"err": (res or {}).get("error") if isinstance(res, dict) else None})
     out["load_result"] = res
+    out["online_elapsed_seconds"] = round(time.time() - start_s, 3)
     return {"neo4j": out, "status": "ok"}
+
+
+def _neo4j_db_name_from_uri(uri: str) -> str:
+    # Support bolt://host:7687[/db], neo4j://host[:port][/db], neo4j+s://...
+    # If no database path is present, fall back to default "neo4j".
+    try:
+        parsed = urlparse(uri or "")
+    except Exception:
+        return "neo4j"
+    path = (parsed.path or "").strip("/")
+    if not path:
+        return "neo4j"
+    # Only take the first segment as db name.
+    db_name = path.split("/", 1)[0].strip()
+    return db_name or "neo4j"
+
+
+def _run_cmd(cmd: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
+    p = subprocess.run(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return p.returncode, p.stdout, p.stderr
+
+
+def _try_neo4j_admin_full_import(
+    neo4j_csv_dir: Path, validation: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Attempt fast offline import:
+    - stop Neo4j service,
+    - run `neo4j-admin database import full`,
+    - start Neo4j service again.
+    Returns dict with ok/error and timing details.
+    """
+    admin = shutil.which("neo4j-admin")
+    neo4j_bin = shutil.which("neo4j")
+    if not admin:
+        return {"ok": False, "error": "neo4j-admin not found in PATH"}
+    if not neo4j_bin:
+        return {"ok": False, "error": "neo4j command not found in PATH"}
+
+    nodes = neo4j_csv_dir / "graph_nodes.csv"
+    rels = neo4j_csv_dir / "graph_relationships.csv"
+    if not nodes.exists() or not rels.exists():
+        return {"ok": False, "error": "graph_nodes.csv or graph_relationships.csv missing"}
+
+    db_name = (os.environ.get("NEO4J_DATABASE") or "").strip()
+    if not db_name:
+        db_name = _neo4j_db_name_from_uri(os.environ.get("NEO4J_URI", ""))
+    if not db_name:
+        db_name = "neo4j"
+
+    start_s = time.time()
+    stop_rc, stop_out, stop_err = _run_cmd([neo4j_bin, "stop"])
+    # stop can be non-zero if already stopped; proceed.
+    import_cmd = [
+        admin,
+        "database",
+        "import",
+        "full",
+        f"--nodes={nodes}",
+        f"--relationships={rels}",
+        "--overwrite-destination=true",
+        db_name,
+    ]
+    imp_rc, imp_out, imp_err = _run_cmd(import_cmd)
+    start_rc, start_out, start_err = _run_cmd([neo4j_bin, "start"])
+    elapsed = round(time.time() - start_s, 3)
+
+    result: dict[str, Any] = {
+        "ok": imp_rc == 0,
+        "db_name": db_name,
+        "elapsed_seconds": elapsed,
+        "stop_rc": stop_rc,
+        "start_rc": start_rc,
+        "rows_expected": (((validation.get("relationship_checks") or {}).get("graph_relationships") or {}).get("rows")),
+        "command": " ".join(shlex.quote(c) for c in import_cmd),
+        "stop_stdout": stop_out[-1000:],
+        "stop_stderr": stop_err[-1000:],
+        "import_stdout": imp_out[-2000:],
+        "import_stderr": imp_err[-2000:],
+        "start_stdout": start_out[-1000:],
+        "start_stderr": start_err[-1000:],
+    }
+    if imp_rc != 0:
+        result["error"] = f"neo4j-admin import failed (rc={imp_rc})"
+    return result
 
 
 def can_load_embedding_model_locally(model_name: str) -> bool:
@@ -480,12 +634,42 @@ def can_load_embedding_model_locally(model_name: str) -> bool:
     try:
         from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
     except ImportError:
+        _agent_dbg(
+            "repro-2",
+            "H5",
+            "scripts/data_loader.py:can_load_embedding_model_locally",
+            "sentence_transformers import unavailable",
+            {"model_name": model_name},
+        )
         return False
 
     try:
-        SentenceTransformer(model_name, local_files_only=True)
+        _agent_dbg(
+            "repro-2",
+            "H5",
+            "scripts/data_loader.py:can_load_embedding_model_locally",
+            "local model probe begin",
+            {"model_name": model_name},
+        )
+        sink = StringIO()
+        with redirect_stdout(sink), redirect_stderr(sink):
+            SentenceTransformer(model_name, local_files_only=True)
+        _agent_dbg(
+            "repro-2",
+            "H5",
+            "scripts/data_loader.py:can_load_embedding_model_locally",
+            "local model probe success",
+            {"model_name": model_name},
+        )
         return True
     except Exception:
+        _agent_dbg(
+            "repro-2",
+            "H5",
+            "scripts/data_loader.py:can_load_embedding_model_locally",
+            "local model probe failed",
+            {"model_name": model_name},
+        )
         return False
 
 
@@ -541,9 +725,21 @@ def load_milvus_from_text_json(text_dir: Path, load_mode: str, *, force_download
         # Delete loader-owned docs then upsert.
         vector_tool.delete_by_expr('source == "loader"')
 
-    _agent_dbg("H3", "data_loader.load_milvus", "calling upsert_documents", {"n_docs": len(docs)})
+    _agent_dbg(
+        "repro-1",
+        "H3",
+        "scripts/data_loader.py:load_milvus_from_text_json",
+        "milvus upsert requested",
+        {"load_mode": load_mode, "docs_count": len(docs), "text_dir": str(text_dir)},
+    )
     res = vector_tool.upsert_documents(docs)
-    _agent_dbg("H3", "data_loader.load_milvus", "after upsert_documents", {})
+    _agent_dbg(
+        "repro-1",
+        "H3",
+        "scripts/data_loader.py:load_milvus_from_text_json",
+        "milvus upsert result",
+        {"status": res.get("status"), "keys": sorted(list(res.keys()))},
+    )
     return {"milvus": {"docs_count": len(docs), "upsert_result": res}, "status": "ok"}
 
 
@@ -591,34 +787,68 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="Allow embedding-model download if not cached locally.",
     )
+    ap.add_argument(
+        "--components",
+        default="sql,neo4j,milvus",
+        help="Comma-separated components to run: sql,neo4j,milvus (default all).",
+    )
     args = ap.parse_args(argv)
 
     stats_dir = Path(args.stats_dir)
     text_dir = Path(args.text_dir)
     neo4j_csv_dir = Path(args.neo4j_csv_dir)
 
-    overall: dict[str, Any] = {"load_mode": args.load_mode}
+    selected = {x.strip().lower() for x in str(args.components or "").split(",") if x.strip()}
+    if not selected:
+        selected = {"sql", "neo4j", "milvus"}
 
-    _agent_dbg("H0", "data_loader.main", "start loader", {"load_mode": args.load_mode})
-    sql_res = load_sql_from_stats(stats_dir, args.load_mode)
-    _agent_dbg("H1", "data_loader.main", "sql phase done", {"keys": list(sql_res.keys()) if isinstance(sql_res, dict) else str(type(sql_res))})
-    overall["sql"] = sql_res
+    overall: dict[str, Any] = {"load_mode": args.load_mode, "components": sorted(selected)}
 
-    _agent_dbg("H2", "data_loader.main", "before neo4j phase", {})
-    neo4j_res = load_neo4j_from_csv_bundle(neo4j_csv_dir, args.load_mode)
-    _agent_dbg("H2", "data_loader.main", "neo4j phase done", {"status": neo4j_res.get("status") if isinstance(neo4j_res, dict) else None})
-    overall["neo4j"] = neo4j_res
+    def _run_component(name: str, fn):
+        return fn() if name in selected else {name: {"skipped": True, "reason": "component not selected"}}
 
-    _agent_dbg("H3", "data_loader.main", "before milvus phase", {})
-    milvus_res = load_milvus_from_text_json(
-        text_dir, args.load_mode, force_download=args.milvus_force_download
-    )
-    _agent_dbg("H3", "data_loader.main", "milvus phase done", {})
-    overall["milvus"] = milvus_res
+    steps = [
+        ("sql", lambda: load_sql_from_stats(stats_dir, args.load_mode)),
+        ("neo4j", lambda: load_neo4j_from_csv_bundle(neo4j_csv_dir, args.load_mode)),
+        ("milvus", lambda: load_milvus_from_text_json(
+            text_dir, args.load_mode, force_download=args.milvus_force_download
+        )),
+    ]
+    active_steps = [s for s in steps if s[0] in selected]
+
+    try:
+        from tqdm import tqdm  # type: ignore[import-untyped]
+    except ImportError:
+        tqdm = None  # type: ignore[assignment]
+
+    progress = tqdm(total=len(active_steps), desc="data_loader", unit="component") if tqdm and active_steps else None
+    try:
+        for name, fn in steps:
+            if name in selected:
+                overall[name] = fn()
+                _agent_dbg(
+                    "post-fix-1",
+                    "H6",
+                    "scripts/data_loader.py:main",
+                    "component completed",
+                    {"component": name, "status": (overall.get(name) or {}).get("status", "unknown")},
+                )
+                if progress:
+                    progress.update(1)
+            else:
+                overall[name] = {name: {"skipped": True, "reason": "component not selected"}}
+    finally:
+        if progress:
+            progress.close()
 
     print(json.dumps(overall, indent=2, default=str))
 
-    # If all backends are skipped, still return 0.
+    for key in ("sql", "neo4j", "milvus"):
+        section = overall.get(key)
+        if isinstance(section, dict) and section.get("status") == "error":
+            return 1
+
+    # If all selected backends are ok/skipped, return 0.
     return 0
 
 

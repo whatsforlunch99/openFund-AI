@@ -40,7 +40,7 @@ The **required** unified-load contract is fixed in code:
 | Mode | Behavior |
 |------|----------|
 | `--load-mode existing` | Skipped if `NEO4J_URI` unset. Otherwise runs `validate_graph_csv_bundle_for_neo4j`; on failure, **no write**. On success, **append** load via `load_graph_csvs_to_neo4j(..., mode="append", output_dir=...)`. |
-| `--load-mode fresh-all` | Same as `existing`, but first runs `MATCH (n) DETACH DELETE n` (full graph wipe), then loads the bundle. |
+| `--load-mode fresh-all` | Runs validation, then tries offline `neo4j-admin database import full` when `NEO4J_FRESH_IMPORT_MODE=auto|offline` (default `auto`). If offline import is unavailable/fails in `auto`, falls back to online wipe (`MATCH (n) DETACH DELETE n`) + append load. `offline` mode is strict: returns error instead of fallback. |
 | `--load-mode skip` | Neo4j load skipped. |
 
 CLI defaults: [`scripts/data_loader.py`](../../scripts/data_loader.py) `--neo4j-csv-dir` (default `database/graph_data/neo4j_export`).
@@ -52,9 +52,10 @@ CLI defaults: [`scripts/data_loader.py`](../../scripts/data_loader.py) `--neo4j-
 | Limitation | Detail |
 |------------|--------|
 | Global wipe on `fresh-all` | Deletes **all** nodes and relationships in the database configured by `NEO4J_URI` / `NEO4J_DATABASE`—not symbol-scoped. |
+| Offline import downtime | `neo4j-admin` full import requires stop/import/start; use for rebuild windows, not request-time operations. |
 | Validation gate | Invalid bundle → **no** import (loader returns error status). |
-| Node properties | Unified load sets only `node_id`, `symbol`, `name`, `dataset`, `record_type`, and derives `id` from `symbol` or `node_id` ([`_load_unified_graph_nodes`](../../openfund_mcp/tools/kg_tool.py)). Extra CSV columns are not mapped unless the loader is extended. |
-| Relationship mode | `load_graph_csvs_to_neo4j` only supports `mode="append"`; the loader always uses append after any wipe. |
+| Node properties | Unified online load sets only `node_id`, `symbol`, `name`, `dataset`, `record_type`, and derives `id` from `symbol` or `node_id` ([`_load_unified_graph_nodes`](../../openfund_mcp/tools/kg_tool.py)). Extra CSV columns are not mapped unless the loader is extended. |
+| Relationship mode | Online path supports only `mode="append"`; relationships are loaded in batches grouped by `:TYPE` to reduce Bolt round trips. |
 | Mock / skip | If `NEO4J_URI` is unset, `kg_tool` may return mock success without persisting data. |
 
 **Implication:** Treat the bundle + `kg_tool` source as the contract for what gets written, not an implied ETF-only or fund-only schema.

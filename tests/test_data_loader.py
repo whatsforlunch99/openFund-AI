@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ def _import_data_loader():
     spec = importlib.util.spec_from_file_location("data_loader", loader_path)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     return mod
 
@@ -66,7 +68,7 @@ def test_neo4j_existing_mode_calls_append_only(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(kg_tool, "query_graph", _query_graph)
 
     out = DATA_LOADER.load_neo4j_from_csv_bundle(neo4j_dir, load_mode="existing")
-    assert out["neo4j"]["status"] == "ok"
+    assert out["status"] == "ok"
     assert "wipe_called" not in called
     assert "load_graph" in called
     assert called["load_graph"]["kwargs"]["mode"] == "append"
@@ -80,6 +82,7 @@ def test_neo4j_fresh_all_wipes_then_appends(monkeypatch: pytest.MonkeyPatch) -> 
     neo4j_dir = repo_root / "database" / "graph_data" / "neo4j_export"
 
     monkeypatch.setenv("NEO4J_URI", "bolt://localhost:7687")
+    monkeypatch.setenv("NEO4J_FRESH_IMPORT_MODE", "online")
 
     order: list[str] = []
 
@@ -102,7 +105,7 @@ def test_neo4j_fresh_all_wipes_then_appends(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(kg_tool, "load_graph_csvs_to_neo4j", _load_graph)
 
     out = DATA_LOADER.load_neo4j_from_csv_bundle(neo4j_dir, load_mode="fresh-all")
-    assert out["neo4j"]["status"] == "ok"
+    assert out["status"] == "ok"
     assert order == ["validate", "wipe", "load"]
 
 
@@ -146,4 +149,11 @@ def test_sql_env_gating_skips_when_database_url_unset(monkeypatch: pytest.Monkey
     out = DATA_LOADER.load_sql_from_stats(stats_dir, load_mode="existing")
     assert out["sql"]["skipped"] is True
     assert "DATABASE_URL" in out["sql"]["reason"]
+
+
+def test_neo4j_db_name_parsing_from_uri() -> None:
+    assert DATA_LOADER._neo4j_db_name_from_uri("bolt://localhost:7687") == "neo4j"
+    assert DATA_LOADER._neo4j_db_name_from_uri("neo4j://localhost:7687") == "neo4j"
+    assert DATA_LOADER._neo4j_db_name_from_uri("neo4j://localhost:7687/neo4j") == "neo4j"
+    assert DATA_LOADER._neo4j_db_name_from_uri("neo4j+s://db.example.com/prod") == "prod"
 

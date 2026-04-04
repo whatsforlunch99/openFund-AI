@@ -326,7 +326,7 @@ def test_stage_1_3_merge_data_sources_partial_round2() -> None:
 def test_stage_2_1() -> None:
     """Stage 2.1: MCP server and client, file_tool.read_file."""
     try:
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
@@ -361,7 +361,7 @@ def test_stage_2_1() -> None:
 def test_stage_2_2_trading_tools() -> None:
     """Stage 2.2: TradingAgents-integrated MCP tools (fundamental, news, market) in market_tool."""
     try:
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
@@ -452,7 +452,7 @@ def test_stage_2_2_trading_tools() -> None:
 def test_vendor_config_get_market_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_market_vendor() reads MCP_MARKET_VENDOR; default alpha_vantage; invalid/unset -> alpha_vantage."""
     try:
-        from mcp.tools.market_tool import get_market_vendor
+        from openfund_mcp.tools.market_tool import get_market_vendor
     except ImportError as e:
         pytest.skip(f"MCP market_tool not available: {e}")
 
@@ -478,7 +478,7 @@ def test_vendor_config_get_market_vendor(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_vendor_config_get_indicator_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_indicator_vendor() reads MCP_INDICATOR_VENDOR; default alpha_vantage; invalid -> alpha_vantage."""
     try:
-        from mcp.tools.market_tool import get_indicator_vendor
+        from openfund_mcp.tools.market_tool import get_indicator_vendor
     except ImportError as e:
         pytest.skip(f"MCP market_tool not available: {e}")
 
@@ -497,8 +497,8 @@ def test_vendor_config_route_stock_data_av_and_fallback(
 ) -> None:
     """When MCP_MARKET_VENDOR=alpha_vantage, _route_stock_data tries AV; on failure returns error."""
     try:
-        from mcp.tools import market_tool
-        from mcp.tools.market_tool import AlphaVantageRateLimitError
+        from openfund_mcp.tools import market_tool
+        from openfund_mcp.tools.market_tool import AlphaVantageRateLimitError
     except ImportError as e:
         pytest.skip(f"MCP market_tool not available: {e}")
 
@@ -522,8 +522,8 @@ def test_vendor_config_route_indicators_av_and_fallback(
 ) -> None:
     """When AV fails, _route_indicators returns error."""
     try:
-        from mcp.tools import analyst_tool
-        from mcp.tools.market_tool import AlphaVantageRateLimitError
+        from openfund_mcp.tools import analyst_tool
+        from openfund_mcp.tools.market_tool import AlphaVantageRateLimitError
     except ImportError as e:
         pytest.skip(f"MCP analyst_tool not available: {e}")
 
@@ -772,7 +772,7 @@ def test_stage_3_2() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.librarian_agent import LibrarianAgent
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 3.2 deps not available: {e}")
@@ -870,12 +870,12 @@ def test_stage_3_3() -> None:
 def test_stage_4_1() -> None:
     """Stage 4.1: vector_tool (Milvus)."""
     try:
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
-    # Use mock when MILVUS_URI not set
+    # Without MILVUS_URI, search returns an empty list (no placeholder hits).
     env_milvus = os.environ.pop("MILVUS_URI", None)
     try:
         server = MCPServer()
@@ -885,11 +885,7 @@ def test_stage_4_1() -> None:
             "vector_tool.search", {"query": "test query", "top_k": 3}
         )
         assert isinstance(result, dict)
-        assert "error" not in result
-        docs = result.get("documents", result)
-        assert isinstance(docs, list)
-        assert len(docs) >= 1
-        assert "content" in docs[0] or "score" in docs[0]
+        assert result.get("documents") == []
     finally:
         if env_milvus is not None:
             os.environ["MILVUS_URI"] = env_milvus
@@ -898,7 +894,7 @@ def test_stage_4_1() -> None:
 def test_stage_4_2() -> None:
     """Stage 4.2: kg_tool (Neo4j)."""
     try:
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
@@ -910,13 +906,13 @@ def test_stage_4_2() -> None:
         client = MCPClient(server)
         result = client.call_tool("kg_tool.get_relations", {"entity": "FUND1"})
         assert isinstance(result, dict)
-        assert "error" not in result
-        assert "nodes" in result
+        assert result.get("error") == "NEO4J_URI not set"
+        assert result.get("nodes") == []
         result2 = client.call_tool(
             "kg_tool.query_graph", {"cypher": "MATCH (n) RETURN n", "params": {}}
         )
         assert isinstance(result2, dict)
-        assert "error" not in result2
+        assert result2.get("error") == "NEO4J_URI not set"
     finally:
         if env_neo4j is not None:
             os.environ["NEO4J_URI"] = env_neo4j
@@ -925,7 +921,7 @@ def test_stage_4_2() -> None:
 def test_stage_4_3() -> None:
     """Stage 4.3: sql_tool (PostgreSQL)."""
     try:
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
@@ -939,8 +935,8 @@ def test_stage_4_3() -> None:
             "sql_tool.run_query", {"query": "SELECT 1", "params": {}}
         )
         assert isinstance(result, dict)
-        assert "error" not in result
-        assert "rows" in result
+        assert result.get("error") == "DATABASE_URL not set"
+        assert result.get("rows") == []
     finally:
         if env_db is not None:
             os.environ["DATABASE_URL"] = env_db
@@ -949,13 +945,13 @@ def test_stage_4_3() -> None:
 def test_stage_5_1() -> None:
     """Stage 5.1: market_tool (mocked to avoid network/yfinance)."""
     try:
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
     stub = {"content": "mock fundamentals", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.market_tool._route_fundamentals", return_value=stub):
+    with patch("openfund_mcp.tools.market_tool._route_fundamentals", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -969,13 +965,13 @@ def test_stage_5_1() -> None:
 def test_stage_5_2() -> None:
     """Stage 5.2: analyst_tool (mocked to avoid network/yfinance)."""
     try:
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"MCP not available: {e}")
 
     stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.analyst_tool._route_indicators", return_value=stub):
+    with patch("openfund_mcp.tools.analyst_tool._route_indicators", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1000,15 +996,15 @@ def test_stage_5_3() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.websearch_agent import WebSearcherAgent
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 5.3 deps not available: {e}")
 
     stub = {"content": "mock", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.market_tool._route_fundamentals", return_value=stub), patch(
-        "mcp.tools.market_tool._route_news", return_value=stub
-    ), patch("mcp.tools.market_tool._route_global_news", return_value=stub):
+    with patch("openfund_mcp.tools.market_tool._route_fundamentals", return_value=stub), patch(
+        "openfund_mcp.tools.market_tool._route_news", return_value=stub
+    ), patch("openfund_mcp.tools.market_tool._route_global_news", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1041,13 +1037,13 @@ def test_stage_5_4() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.analyst_agent import AnalystAgent
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 5.4 deps not available: {e}")
 
     stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.analyst_tool._route_indicators", return_value=stub):
+    with patch("openfund_mcp.tools.analyst_tool._route_indicators", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1080,7 +1076,7 @@ def test_websearcher_news_searcher() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.websearch_agent import WebSearcherAgent
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"News Searcher deps not available: {e}")
@@ -1093,10 +1089,10 @@ def test_websearcher_news_searcher() -> None:
         "timestamp": "2026-03-10T08:00:00Z",
     }
     market_stub = {"content": "mock", "timestamp": "2026-03-10T08:00:00Z"}
-    with patch("mcp.tools.news_tool.search_rss", return_value=rss_stub), patch(
-        "mcp.tools.market_tool._route_fundamentals", return_value=market_stub
-    ), patch("mcp.tools.market_tool._route_news", return_value=market_stub), patch(
-        "mcp.tools.market_tool._route_global_news", return_value=market_stub
+    with patch("openfund_mcp.tools.news_tool.search_rss", return_value=rss_stub), patch(
+        "openfund_mcp.tools.market_tool._route_fundamentals", return_value=market_stub
+    ), patch("openfund_mcp.tools.market_tool._route_news", return_value=market_stub), patch(
+        "openfund_mcp.tools.market_tool._route_global_news", return_value=market_stub
     ):
         server = MCPServer()
         server.register_default_tools()
@@ -1450,7 +1446,7 @@ def test_stage_10_2_librarian_llm_prompt() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.librarian_agent import LibrarianAgent
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 librarian deps not available: {e}")
@@ -1496,15 +1492,15 @@ def test_stage_10_2_websearcher_llm_prompt() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.websearch_agent import WebSearcherAgent
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 websearcher deps not available: {e}")
 
     stub = {"content": "mock", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.market_tool._route_fundamentals", return_value=stub), patch(
-        "mcp.tools.market_tool._route_news", return_value=stub
-    ), patch("mcp.tools.market_tool._route_global_news", return_value=stub):
+    with patch("openfund_mcp.tools.market_tool._route_fundamentals", return_value=stub), patch(
+        "openfund_mcp.tools.market_tool._route_news", return_value=stub
+    ), patch("openfund_mcp.tools.market_tool._route_global_news", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1543,13 +1539,13 @@ def test_stage_10_2_analyst_llm_prompt() -> None:
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.analyst_agent import AnalystAgent
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 analyst deps not available: {e}")
 
     stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("mcp.tools.analyst_tool._route_indicators", return_value=stub):
+    with patch("openfund_mcp.tools.analyst_tool._route_indicators", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1726,7 +1722,7 @@ def test_stage_10_2_librarian_tool_selection_when_llm_returns_tool_calls() -> No
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.librarian_agent import LibrarianAgent
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 librarian deps not available: {e}")
@@ -1777,7 +1773,7 @@ def test_stage_10_2_websearcher_tool_selection_when_llm_returns_tool_calls() -> 
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.websearch_agent import WebSearcherAgent
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 websearcher deps not available: {e}")
@@ -1841,7 +1837,7 @@ def test_stage_10_2_analyst_tool_selection_when_llm_returns_tool_calls() -> None
         from a2a.acl_message import ACLMessage, Performative
         from a2a.message_bus import InMemoryMessageBus
         from agents.analyst_agent import AnalystAgent
-        from mcp.mcp_client import MCPClient
+        from openfund_mcp.mcp_client import MCPClient
         from openfund_mcp.mcp_server import MCPServer
     except ImportError as e:
         pytest.skip(f"Stage 10.2 analyst deps not available: {e}")

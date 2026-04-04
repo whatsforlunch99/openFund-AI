@@ -4,6 +4,10 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking (MCP backends):** `vector_tool`, `kg_tool`, and `sql_tool` no longer return synthetic “mock” domain data when `MILVUS_URI`, `NEO4J_URI`, or `DATABASE_URL` is unset. Expect explicit `{"error": "... not set"}` (and empty lists/entities where applicable) or an empty `vector_tool.search` result. Added `llm/static_client.py` (`StaticLLMClient`) for tests/E2E without a live LLM. Stage tests and MCP client imports use `openfund_mcp` paths; `startup_user.log` is gitignored.
+
 ### Added
 
 - **Docs:** [docs/workflow/02_planning/dependency-contract.md](docs/workflow/02_planning/dependency-contract.md) — allowed import direction between packages; clarifies `data_manager` CLI is not in this repo.

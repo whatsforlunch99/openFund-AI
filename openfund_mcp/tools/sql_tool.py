@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 # Safe identifier for table/schema names: alphanumeric and underscore only.
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
+_DB_UNSET = "DATABASE_URL not set"
+
 
 def _get_connection():
     """Return a psycopg2 connection when DATABASE_URL is set. Lazy import."""
@@ -57,13 +59,14 @@ def run_query(query: str, params: Optional[dict[str, Any] | tuple[Any, ...] | li
 
     Returns:
         Dict with rows (list of dicts), schema (column names), and params.
-        When DATABASE_URL is unset, returns mock data. On error returns {"error": "..."}.
+        When DATABASE_URL is unset, returns {"error": "DATABASE_URL not set", ...}.
     """
     params = _normalize_sql_bind_params(params)
     if not os.environ.get("DATABASE_URL"):
         return {
-            "rows": [{"id": 1, "value": "mock"}],
-            "schema": ["id", "value"],
+            "error": _DB_UNSET,
+            "rows": [],
+            "schema": [],
             "params": params or {},
         }
     conn, err = _get_connection()
@@ -111,12 +114,13 @@ def list_tables() -> dict:
     List tables in the database (schemas other than pg_catalog, information_schema).
 
     Returns:
-        Dict with rows (table_schema, table_name) and schema. When DATABASE_URL unset, returns mock.
+        Dict with rows (table_schema, table_name) and schema. When DATABASE_URL unset, returns error.
     """
     if not os.environ.get("DATABASE_URL"):
         return {
-            "rows": [{"table_schema": "public", "table_name": "funds"}],
-            "schema": ["table_schema", "table_name"],
+            "error": _DB_UNSET,
+            "rows": [],
+            "schema": [],
             "params": {},
         }
     query = """
@@ -194,7 +198,7 @@ def explain_query(
 
     Returns:
         Dict with plan (list of plan rows as dicts), schema, params.
-        When DATABASE_URL is unset, returns mock plan.
+        When DATABASE_URL is unset, returns {"error": "DATABASE_URL not set", ...}.
     """
     params = _normalize_sql_bind_params(params)
     if not _is_read_only_query(query):
@@ -208,8 +212,9 @@ def explain_query(
     explained = prefix + query
     if not os.environ.get("DATABASE_URL"):
         return {
-            "plan": [{"Plan": "Mock plan (DATABASE_URL not set)"}],
-            "schema": ["Plan"],
+            "error": _DB_UNSET,
+            "plan": [],
+            "schema": [],
             "params": params or {},
         }
     conn, err = _get_connection()
@@ -269,7 +274,7 @@ def export_results(
     Returns:
         For format "json": {"data": [dict, ...], "schema": [...], "row_count": n}.
         For format "csv": {"data": "csv string", "schema": [...], "row_count": n}.
-        When DATABASE_URL is unset, returns mock.
+        When DATABASE_URL is unset, returns {"error": "DATABASE_URL not set", ...}.
     """
     params = _normalize_sql_bind_params(params)
     if not query or not query.strip().upper().startswith("SELECT"):
@@ -287,16 +292,12 @@ def export_results(
             "row_count": 0,
         }
     if not os.environ.get("DATABASE_URL"):
-        mock_rows = [{"id": 1, "value": "mock"}]
-        if format == "csv":
-            import csv
-            from io import StringIO
-            buf = StringIO()
-            w = csv.DictWriter(buf, fieldnames=mock_rows[0].keys())
-            w.writeheader()
-            w.writerows(mock_rows)
-            return {"data": buf.getvalue(), "schema": list(mock_rows[0].keys()), "row_count": 1}
-        return {"data": mock_rows, "schema": list(mock_rows[0].keys()), "row_count": 1}
+        return {
+            "error": _DB_UNSET,
+            "data": [] if format == "json" else "",
+            "schema": [],
+            "row_count": 0,
+        }
     conn, err = _get_connection()
     if conn is None:
         return {

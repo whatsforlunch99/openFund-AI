@@ -234,13 +234,10 @@ def search(
 
     Returns:
         List of documents with content, score, id. Config: MILVUS_URI, MILVUS_COLLECTION.
-        When MILVUS_URI is unset, returns mock data. On error returns [] and logs.
+        When MILVUS_URI is unset, returns []. On error returns [] and logs.
     """
     if not os.environ.get("MILVUS_URI"):
-        return [
-            {"content": f"mock doc for: {query}", "score": 0.9, "id": "mock1"},
-            {"content": "second mock doc", "score": 0.8, "id": "mock2"},
-        ][: max(1, min(top_k, 10))]
+        return []
     ok, err = _ensure_milvus_connection()
     if not ok:
         return []
@@ -342,17 +339,12 @@ def get_by_ids(ids: list[str], collection_name: Optional[str] = None) -> dict:
 
     Returns:
         {"entities": [{"id", "content", "fund_id", "source", ...}, ...]}.
-        When MILVUS_URI is unset, returns mock list.
+        When MILVUS_URI is unset, returns {"error": "MILVUS_URI not set", "entities": []}.
     """
     if not ids:
         return {"entities": []}
     if not os.environ.get("MILVUS_URI"):
-        return {
-            "entities": [
-                {"id": i, "content": f"mock content {i}", "fund_id": "", "source": "mock"}
-                for i in ids[:10]
-            ]
-        }
+        return {"error": "MILVUS_URI not set", "entities": []}
     ok, err = _ensure_milvus_connection()
     if not ok:
         return {"error": err or "Could not connect to Milvus", "entities": []}

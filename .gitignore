@@ -51,3 +51,6 @@ volumes/
 # Local env (secrets)
 .env
 .env.local
+
+# Local run logs (repo root)
+startup_user.log

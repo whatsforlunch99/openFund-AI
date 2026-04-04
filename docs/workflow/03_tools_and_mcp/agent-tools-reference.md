@@ -43,7 +43,7 @@ All tools are registered in the **single MCP server** (`openfund_mcp/mcp_server.
 
 ## vector_tool
 
-Backed by Milvus (`MILVUS_URI`). When `MILVUS_URI` is unset, all calls return mock data.
+Backed by Milvus (`MILVUS_URI`). When `MILVUS_URI` is unset, mutating helpers and `get_by_ids` return `{"error": "MILVUS_URI not set", ...}`; `vector_tool.search` returns an empty document list (no placeholder hits).
 
 #### vector_tool.search
 
@@ -99,7 +99,7 @@ Backed by Milvus (`MILVUS_URI`). When `MILVUS_URI` is unset, all calls return mo
 
 ## kg_tool
 
-Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/empty data.
+Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, calls return `{"error": "NEO4J_URI not set", ...}` with empty `nodes`/`edges`/`rows`/`paths` as appropriate (no synthetic graph data).
 
 #### kg_tool.query_graph
 
@@ -205,7 +205,7 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 ## sql_tool
 
-Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls return mock data.
+Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls return `{"error": "DATABASE_URL not set", ...}` with empty `rows`/`plan`/`data` as appropriate (no synthetic SQL rows).
 
 **Schema:** Use only the tables and columns created by `scripts/data_loader.py` from `database/stats_data/*.csv`:
 - `yahoo_quote_metrics`

@@ -9,15 +9,14 @@ import tempfile
 import pytest
 
 
-def test_get_node_by_id_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When NEO4J_URI is unset, get_node_by_id returns mock node."""
+def test_get_node_by_id_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When NEO4J_URI is unset, get_node_by_id returns error."""
     from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_node_by_id("n1")
-    assert "node" in out
-    assert out["node"] == {"id": "n1", "label": ["Node"]}
-    assert "error" not in out
+    assert out.get("error") == "NEO4J_URI not set"
+    assert out.get("node") is None
 
 
 def test_get_node_by_id_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -31,16 +30,15 @@ def test_get_node_by_id_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["node"] is None
 
 
-def test_get_neighbors_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When NEO4J_URI is unset, get_neighbors returns mock nodes/relationships."""
+def test_get_neighbors_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When NEO4J_URI is unset, get_neighbors returns error."""
     from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_neighbors("n1")
-    assert "nodes" in out
-    assert "relationships" in out
-    assert len(out["nodes"]) >= 1
-    assert out["relationships"][0]["start"] == "n1"
+    assert out.get("error") == "NEO4J_URI not set"
+    assert out["nodes"] == []
+    assert out["relationships"] == []
 
 
 def test_get_neighbors_invalid_direction(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -62,15 +60,14 @@ def test_get_neighbors_invalid_relationship_type(monkeypatch: pytest.MonkeyPatch
     assert "error" in out
 
 
-def test_get_graph_schema_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When NEO4J_URI is unset, get_graph_schema returns mock labels/types."""
+def test_get_graph_schema_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When NEO4J_URI is unset, get_graph_schema returns error."""
     from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_graph_schema()
-    assert "node_labels" in out
-    assert "relationship_types" in out
-    assert out["node_labels"] == ["Node"]
+    assert out.get("error") == "NEO4J_URI not set"
+    assert out["node_labels"] == []
     assert out["relationship_types"] == []
 
 
@@ -84,8 +81,8 @@ def test_get_node_by_id_via_mcp_dispatch(monkeypatch: pytest.MonkeyPatch) -> Non
     server.register_default_tools()
     client = MCPClient(server)
     result = client.call_tool("kg_tool.get_node_by_id", {"id_val": "x", "id_key": "id"})
-    assert "node" in result
-    assert result["node"]["id"] == "x"
+    assert result.get("error") == "NEO4J_URI not set"
+    assert result.get("node") is None
 
 
 def test_get_capabilities_includes_kg_tools(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -113,18 +110,14 @@ def test_get_capabilities_includes_kg_tools(monkeypatch: pytest.MonkeyPatch) -> 
     assert "kg_tool.load_graph_csvs_to_neo4j" in result["tools"]
 
 
-def test_shortest_path_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When NEO4J_URI is unset, shortest_path returns one mock path."""
+def test_shortest_path_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When NEO4J_URI is unset, shortest_path returns error."""
     from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.shortest_path("a", "b")
-    assert "paths" in out
-    assert len(out["paths"]) == 1
-    assert out["paths"][0]["nodes"][0]["id"] == "a"
-    assert out["paths"][0]["nodes"][1]["id"] == "b"
-    assert out["paths"][0]["relationships"][0]["start"] == "a"
-    assert out["paths"][0]["relationships"][0]["end"] == "b"
+    assert out.get("error") == "NEO4J_URI not set"
+    assert out["paths"] == []
 
 
 def test_shortest_path_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -181,16 +174,14 @@ def test_get_relations_isolated_node_fallback(monkeypatch: pytest.MonkeyPatch) -
     assert len(cyphers) == 2
 
 
-def test_get_similar_nodes_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When NEO4J_URI is unset, get_similar_nodes returns mock nodes with scores."""
+def test_get_similar_nodes_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When NEO4J_URI is unset, get_similar_nodes returns error."""
     from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_similar_nodes("n1", limit=5)
-    assert "nodes" in out
-    assert len(out["nodes"]) >= 1
-    assert "id" in out["nodes"][0]
-    assert "score" in out["nodes"][0]
+    assert out.get("error") == "NEO4J_URI not set"
+    assert out["nodes"] == []
 
 
 def test_get_similar_nodes_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -203,15 +194,14 @@ def test_get_similar_nodes_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> No
     assert out["nodes"] == []
 
 
-def test_fulltext_search_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When NEO4J_URI is unset, fulltext_search returns mock nodes."""
+def test_fulltext_search_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When NEO4J_URI is unset, fulltext_search returns error."""
     from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.fulltext_search("myIndex", "query text", limit=10)
-    assert "nodes" in out
-    assert len(out["nodes"]) >= 1
-    assert out["nodes"][0]["id"] == "ft1"
+    assert out.get("error") == "NEO4J_URI not set"
+    assert out["nodes"] == []
 
 
 def test_fulltext_search_invalid_index_name(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -269,14 +259,13 @@ def test_fulltext_search_property_fallback_when_index_missing(
     assert out["nodes"][0].get("name") == "China Vanke Co., Ltd."
 
 
-def test_bulk_export_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When NEO4J_URI is unset, bulk_export returns empty data."""
+def test_bulk_export_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When NEO4J_URI is unset, bulk_export returns error."""
     from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_export("MATCH (n) RETURN n LIMIT 1", format="json")
-    assert "data" in out
-    assert "format" in out
+    assert out.get("error") == "NEO4J_URI not set"
     assert out["format"] == "json"
     assert out["data"] == []
 
@@ -306,7 +295,12 @@ def test_bulk_export_allows_identifiers_containing_forbidden_substrings(
     """bulk_export allows read-only queries when property/label names contain SET/CREATE/MERGE as substrings."""
     from openfund_mcp.tools import kg_tool
 
-    monkeypatch.delenv("NEO4J_URI", raising=False)
+    monkeypatch.setenv("NEO4J_URI", "bolt://localhost:7687")
+
+    def fake_query_graph(cypher: str, params: dict | None = None) -> dict:
+        return {"rows": [], "params": params or {}}
+
+    monkeypatch.setattr(kg_tool, "query_graph", fake_query_graph)
     for cypher in (
         "MATCH (n) RETURN n.ASSET",
         "MATCH (n) RETURN n.CREATED_AT",
@@ -320,14 +314,14 @@ def test_bulk_export_allows_identifiers_containing_forbidden_substrings(
         assert "data" in out
 
 
-def test_bulk_create_nodes_mock_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When NEO4J_URI is unset, bulk_create_nodes returns created count."""
+def test_bulk_create_nodes_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When NEO4J_URI is unset, bulk_create_nodes returns error."""
     from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_create_nodes([{"id": "n1", "name": "Node1"}, {"id": "n2"}])
-    assert "created" in out
-    assert out["created"] == 2
+    assert out.get("error") == "NEO4J_URI not set"
+    assert out.get("created") == 0
 
 
 def test_bulk_create_nodes_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -350,15 +344,20 @@ def test_kg_deferred_tools_via_mcp_dispatch(monkeypatch: pytest.MonkeyPatch) -> 
     server.register_default_tools()
     client = MCPClient(server)
     r1 = client.call_tool("kg_tool.shortest_path", {"start_id": "a", "end_id": "b"})
-    assert "paths" in r1
+    assert r1.get("error") == "NEO4J_URI not set"
+    assert r1.get("paths") == []
     r2 = client.call_tool("kg_tool.get_similar_nodes", {"node_id": "x", "limit": 5})
-    assert "nodes" in r2
+    assert r2.get("error") == "NEO4J_URI not set"
+    assert r2.get("nodes") == []
     r3 = client.call_tool("kg_tool.fulltext_search", {"index_name": "idx", "query_string": "q"})
-    assert "nodes" in r3
+    assert r3.get("error") == "NEO4J_URI not set"
+    assert r3.get("nodes") == []
     r4 = client.call_tool("kg_tool.bulk_export", {"cypher": "MATCH (n) RETURN n LIMIT 1"})
+    assert r4.get("error") == "NEO4J_URI not set"
     assert "data" in r4 and "format" in r4
     r5 = client.call_tool("kg_tool.bulk_create_nodes", {"nodes": [{"id": "m1"}]})
-    assert "created" in r5
+    assert r5.get("error") == "NEO4J_URI not set"
+    assert r5.get("created") == 0
     r6 = client.call_tool(
         "kg_tool.build_graph_csvs",
         {"data_dir": "database/graph_data", "output_dir": "database/graph_data/neo4j_export"},
@@ -506,10 +505,10 @@ def test_build_graph_csvs_canonical_category_reuse_and_dataset_link() -> None:
         assert all(":TYPE" in r for r in drel)
 
 
-def test_load_graph_csvs_to_neo4j_mock_when_neo4j_unset(
+def test_load_graph_csvs_to_neo4j_error_when_neo4j_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """load_graph_csvs_to_neo4j returns mock-success when NEO4J_URI is unset."""
+    """load_graph_csvs_to_neo4j returns error when NEO4J_URI is unset."""
     from openfund_mcp.tools import kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
@@ -557,8 +556,10 @@ def test_load_graph_csvs_to_neo4j_mock_when_neo4j_unset(
             )
 
         out = kg_tool.load_graph_csvs_to_neo4j(nodes_csv, rels_csv, mode="append")
-        assert out.get("ok") is True
-        assert out.get("mock") is True
+        assert out.get("ok") is False
+        assert out.get("error") == "NEO4J_URI not set"
+        assert out.get("nodes_loaded") == 0
+        assert out.get("relationships_loaded") == 0
 
 
 def test_validate_graph_csv_bundle_for_neo4j_minimal() -> None:

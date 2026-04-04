@@ -61,12 +61,13 @@ def test_get_capabilities_via_mcp_dispatch(monkeypatch: pytest.MonkeyPatch) -> N
 def test_fastmcp_discovery() -> None:
     """FastMCP server (subprocess) exposes expected tools via MCPClient (no in-process server)."""
     import os
+    import sys
 
     pytest.importorskip("mcp", reason="MCP SDK required for FastMCP subprocess test")
     from openfund_mcp.mcp_client import MCPClient
 
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    client = MCPClient(command="python", args=("-m", "openfund_mcp"), cwd=project_root or None)
+    client = MCPClient(command=sys.executable, args=("-m", "openfund_mcp"), cwd=project_root or None)
     try:
         names = client.get_registered_tool_names()
     finally:

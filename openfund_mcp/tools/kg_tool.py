@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 # Safe identifier for Cypher (label, property key): alphanumeric and underscore only.
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
+_NEO4J_UNSET = "NEO4J_URI not set"
+
 _driver = None
 
 
@@ -90,11 +92,12 @@ def query_graph(cypher: str, params: Optional[dict] = None) -> dict:
 
     Returns:
         Dict with nodes, edges, and/or rows. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD.
-        When NEO4J_URI is unset, returns mock. On error returns {"error": "..."}.
+        When NEO4J_URI is unset, returns {"error": "NEO4J_URI not set", ...}.
     """
     if not os.environ.get("NEO4J_URI"):
         return {
-            "nodes": [{"id": "n1", "label": "Fund"}],
+            "error": _NEO4J_UNSET,
+            "nodes": [],
             "edges": [],
             "params": params or {},
         }
@@ -235,7 +238,7 @@ def get_node_by_id(id_val: str, id_key: str = "id") -> dict:
 
     Returns:
         {"node": {...}} on success (node as dict); {"error": "..."} when not found or failure.
-        When NEO4J_URI is unset, returns mock node.
+        When NEO4J_URI is unset, returns {"error": "NEO4J_URI not set", "node": None}.
     """
     if not _IDENTIFIER_RE.match(id_key):
         return {
@@ -243,7 +246,7 @@ def get_node_by_id(id_val: str, id_key: str = "id") -> dict:
             "node": None,
         }
     if not os.environ.get("NEO4J_URI"):
-        return {"node": {"id": id_val, "label": ["Node"]}}
+        return {"error": _NEO4J_UNSET, "node": None}
     cypher = "MATCH (n {" + id_key + ": $id_val}) RETURN n"
     result = query_graph(cypher, {"id_val": id_val})
     if result.get("error"):
@@ -273,7 +276,7 @@ def get_neighbors(
 
     Returns:
         {"nodes": [...], "relationships": [{"type": ..., "start": id, "end": id}, ...]}.
-        When NEO4J_URI is unset, returns mock.
+        When NEO4J_URI is unset, returns {"error": "NEO4J_URI not set", ...}.
     """
     if not _IDENTIFIER_RE.match(id_key):
         return {
@@ -295,8 +298,9 @@ def get_neighbors(
         }
     if not os.environ.get("NEO4J_URI"):
         return {
-            "nodes": [{"id": "n2", "label": ["Node"]}],
-            "relationships": [{"type": "RELATES_TO", "start": node_id, "end": "n2"}],
+            "error": _NEO4J_UNSET,
+            "nodes": [],
+            "relationships": [],
         }
     # Build parameterized Cypher
     if direction == "out":
@@ -337,10 +341,14 @@ def get_graph_schema() -> dict:
 
     Returns:
         {"node_labels": [...], "relationship_types": [...]}.
-        When NEO4J_URI is unset, returns mock.
+        When NEO4J_URI is unset, returns {"error": "NEO4J_URI not set", ...}.
     """
     if not os.environ.get("NEO4J_URI"):
-        return {"node_labels": ["Node"], "relationship_types": []}
+        return {
+            "error": _NEO4J_UNSET,
+            "node_labels": [],
+            "relationship_types": [],
+        }
     driver, err = _get_driver()
     if driver is None:
         return {
@@ -390,7 +398,7 @@ def shortest_path(
 
     Returns:
         {"paths": [{"nodes": [...], "relationships": [...]}, ...]}. If no path: {"paths": []}.
-        When NEO4J_URI is unset, returns one mock path.
+        When NEO4J_URI is unset, returns {"error": "NEO4J_URI not set", "paths": []}.
     """
     if not _IDENTIFIER_RE.match(id_key):
         return {
@@ -404,17 +412,7 @@ def shortest_path(
         }
     max_depth = max(1, min(int(max_depth), 30))
     if not os.environ.get("NEO4J_URI"):
-        return {
-            "paths": [
-                {
-                    "nodes": [
-                        {"id": start_id, "label": ["Node"]},
-                        {"id": end_id, "label": ["Node"]},
-                    ],
-                    "relationships": [{"type": "RELATES_TO", "start": start_id, "end": end_id}],
-                }
-            ]
-        }
+        return {"error": _NEO4J_UNSET, "paths": []}
     driver, err = _get_driver()
     if driver is None:
         return {"error": err or "Neo4j driver not available.", "paths": []}
@@ -471,7 +469,7 @@ def get_similar_nodes(node_id: str, id_key: str = "id", limit: int = 10) -> dict
         limit: Maximum number of similar nodes to return (default 10).
 
     Returns:
-        {"nodes": [{"id": ..., "score": count}, ...]}. When NEO4J_URI is unset, returns mock.
+        {"nodes": [{"id": ..., "score": count}, ...]}. When NEO4J_URI is unset, returns error.
     """
     if not _IDENTIFIER_RE.match(id_key):
         return {
@@ -480,7 +478,7 @@ def get_similar_nodes(node_id: str, id_key: str = "id", limit: int = 10) -> dict
         }
     limit = max(1, min(int(limit), 100))
     if not os.environ.get("NEO4J_URI"):
-        return {"nodes": [{"id": "similar1", "score": 2}, {"id": "similar2", "score": 1}]}
+        return {"error": _NEO4J_UNSET, "nodes": []}
     out = get_neighbors(node_id, id_key=id_key, limit=500)
     if out.get("error"):
         return {"error": out["error"], "nodes": []}
@@ -553,7 +551,7 @@ def fulltext_search(index_name: str, query_string: str, limit: int = 50) -> dict
 
     Returns:
         {"nodes": [...]} using _node_to_dict. On missing index or failure: {"error": "..."}.
-        When NEO4J_URI is unset, returns mock nodes.
+        When NEO4J_URI is unset, returns {"error": "NEO4J_URI not set", "nodes": []}.
     """
     if not _IDENTIFIER_RE.match(index_name):
         return {
@@ -562,7 +560,7 @@ def fulltext_search(index_name: str, query_string: str, limit: int = 50) -> dict
         }
     limit = max(1, min(int(limit), 200))
     if not os.environ.get("NEO4J_URI"):
-        return {"nodes": [{"id": "ft1", "label": ["Node"]}]}
+        return {"error": _NEO4J_UNSET, "nodes": []}
     driver, err = _get_driver()
     if driver is None:
         return {"error": err or "Neo4j driver not available.", "nodes": []}
@@ -622,7 +620,7 @@ def bulk_export(
         row_limit: Maximum rows to return (default 1000).
 
     Returns:
-        {"data": ..., "format": "json"|"csv"}. When NEO4J_URI is unset, returns mock empty data.
+        {"data": ..., "format": "json"|"csv"}. When NEO4J_URI is unset, returns error.
     """
     stripped = (cypher or "").strip().upper()
     if not stripped.startswith(("MATCH", "CALL")):
@@ -640,7 +638,11 @@ def bulk_export(
             }
     row_limit = max(1, min(int(row_limit), 10000))
     if not os.environ.get("NEO4J_URI"):
-        return {"data": [] if format == "json" else "", "format": format}
+        return {
+            "error": _NEO4J_UNSET,
+            "data": [] if format == "json" else "",
+            "format": format,
+        }
     params = dict(params or {})
     params["_row_limit"] = row_limit
     # Append LIMIT if not present
@@ -698,7 +700,7 @@ def bulk_create_nodes(
 
     Returns:
         {"created": n} on success; {"created": 0, "error": "..."} on failure.
-        When NEO4J_URI is unset, returns {"created": len(nodes)}.
+        When NEO4J_URI is unset, returns {"error": "NEO4J_URI not set", "created": 0}.
     """
     if not _IDENTIFIER_RE.match(id_key):
         return {
@@ -711,7 +713,7 @@ def bulk_create_nodes(
             "created": 0,
         }
     if not os.environ.get("NEO4J_URI"):
-        return {"created": len(nodes) if nodes else 0}
+        return {"error": _NEO4J_UNSET, "created": 0}
     driver, err = _get_driver()
     if driver is None:
         return {"error": err or "Neo4j driver not available.", "created": 0}
@@ -779,14 +781,15 @@ def get_relations(entity: str, prefer_dataset: str = "") -> dict:
         prefer_dataset: Optional graph dataset bucket (e.g. ``equities``, ``etfs``) to bias fuzzy matches.
 
     Returns:
-        Dict with nodes, edges, and entity. When NEO4J_URI is unset, returns mock.
+        Dict with nodes, edges, and entity. When NEO4J_URI is unset, returns error.
         On error returns {"error": "..."}.
         Nodes with **no** incident relationships are still returned via a fallback
         ``MATCH (e) WHERE ...`` when the one-hop pattern matches nothing.
     """
     if not os.environ.get("NEO4J_URI"):
         return {
-            "nodes": [{"id": entity, "label": "Entity"}],
+            "error": _NEO4J_UNSET,
+            "nodes": [],
             "edges": [],
             "entity": entity,
         }
@@ -1392,8 +1395,12 @@ def load_graph_csvs_to_neo4j(
         if not os.path.exists(relationships_csv):
             return {"error": f"relationships_csv not found: {relationships_csv}"}
     if not os.environ.get("NEO4J_URI"):
-        # Mock-mode behavior mirrors other kg_tool functions.
-        return {"ok": True, "nodes_loaded": 0, "relationships_loaded": 0, "mock": True}
+        return {
+            "error": _NEO4J_UNSET,
+            "ok": False,
+            "nodes_loaded": 0,
+            "relationships_loaded": 0,
+        }
 
     driver, err = _get_driver()
     if driver is None:

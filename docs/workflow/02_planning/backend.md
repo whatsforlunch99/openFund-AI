@@ -87,7 +87,7 @@ Server-side system behavior and architecture. See [prd.md](../90_product/prd.md)
 - **Unknown conversation:** 404.
 - **Timeout:** HTTP 408; body includes `status: "timeout"`, `conversation_id`, `response: null`, and a message that recommends polling **GET /conversations/{conversation_id}** for `final_response` when the multi-agent run outlasts the wait.
 - **E2E timeout (e.g. --e2e-once):** Configurable via `E2E_TIMEOUT_SECONDS` (default **180** seconds to cover planner + Librarian/WebSearcher/Analyst + MCP). Stub runs treat timeout as non-fatal (exit 0).
-- **MCP tool errors:** Handlers return `{"error": "..."}`; market_tool and analyst_tool log exceptions (e.g. `logger.exception`) before returning so failures are visible in logs. Missing required payload keys (e.g. `path` for read_file) return a clear error message.
+- **MCP tool errors:** Handlers return `{"error": "..."}`; **vector/kg/sql without backends** use explicit messages (`MILVUS_URI not set`, `NEO4J_URI not set`, `DATABASE_URL not set`) and empty payloads—no placeholder fund/graph/SQL data. `vector_tool.search` returns no hits when Milvus is not configured. market_tool and analyst_tool log exceptions (e.g. `logger.exception`) before returning so failures are visible in logs. Missing required payload keys (e.g. `path` for read_file) return a clear error message.
 
 ---
 

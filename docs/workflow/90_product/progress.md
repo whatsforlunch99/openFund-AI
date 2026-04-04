@@ -16,6 +16,8 @@ Development proceeds in **slices**; each slice is a runnable checkpoint. Tests l
 
 **Git hooks:** `./scripts/install-git-hooks.sh` sets `core.hooksPath=scripts/git-hooks`; `pre-commit` runs `scripts/review_staged_for_commit.py` (secret path blocks, cohesion-by-directory hints, `ruff check` on staged `.py` when `ruff` is on PATH). Cohesion/coupling *edits* use Cursor rule `git-commit-cohesion-review` and `docs/workflow/git-commit-cohesion-review.md`.
 
+**MCP backend gating (no placeholder data):** Without `MILVUS_URI` / `NEO4J_URI` / `DATABASE_URL`, vector/kg/sql tools return explicit errors or empty search results—not synthetic rows or graph nodes. `llm/static_client.py` supplies `StaticLLMClient` for tests; `tests/test-stages.py` imports MCP tools from `openfund_mcp`.
+
 **Layering / cohesion refactor:** [dependency-contract.md](../02_planning/dependency-contract.md) documents import direction. `extract_symbol_from_query` moved to `util/symbol_query_extract.py` (no `util` → `agents`). Planner split: `planner_types`, `planner_formatting`, `planner_decompose`, `planner_sufficiency`, slim `planner_agent.py`. WebSearcher helpers in `agents/websearch_helpers.py`. Symbol resolution JSON cache in `util/symbol_resolution/cache_io.py`. `data_manager/` tree removed from file-structure (package not in repo); ingestion = `scripts/data_loader.py`.
 
 ### Slice summary
@@ -25,7 +27,7 @@ Development proceeds in **slices**; each slice is a runnable checkpoint. Tests l
 | 1 | Config, MessageBus, ConversationManager (1.1–1.3) | `main.py` runs; stage_1_2 and stage_1_3 tests pass |
 | 2 | MCP server/client, file_tool (2.1), trading tools (2.2), situation memory (2.3) | stage_2_1, stage_2_2, stage_2_3 tests pass |
 | 3 | ACLMessage, BaseAgent, Planner (1 step), Librarian (file_tool), Responder (stub) | `python main.py --e2e-once` completes one conversation |
-| 4 | vector_tool, kg_tool, sql_tool (mocks); full Librarian | E2E with Librarian using three tools |
+| 4 | vector_tool, kg_tool, sql_tool (env-gated errors / empty results without backends); full Librarian | E2E with Librarian using three tools |
 | 5 | WebSearcher, Analyst; Planner sends to all three | E2E with five agents, initial planner round |
 | 6 | SafetyGateway | E2E with process_user_input; bad input rejected |
 | 7 | REST: create_app, POST /chat, GET /conversations | curl POST /chat returns 200 JSON |

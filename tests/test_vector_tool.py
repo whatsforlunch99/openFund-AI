@@ -5,15 +5,14 @@ from __future__ import annotations
 import pytest
 
 
-def test_get_by_ids_mock_when_milvus_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When MILVUS_URI is unset, get_by_ids returns mock entities."""
+def test_get_by_ids_error_when_milvus_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When MILVUS_URI is unset, get_by_ids returns error."""
     from openfund_mcp.tools import vector_tool
 
     monkeypatch.delenv("MILVUS_URI", raising=False)
     out = vector_tool.get_by_ids(["id1", "id2"])
-    assert "entities" in out
-    assert len(out["entities"]) >= 1
-    assert out["entities"][0]["id"] in ("id1", "id2")
+    assert out.get("error") == "MILVUS_URI not set"
+    assert out["entities"] == []
 
 
 def test_get_by_ids_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,7 +69,8 @@ def test_vector_community_tools_via_mcp_dispatch(monkeypatch: pytest.MonkeyPatch
     server.register_default_tools()
     client = MCPClient(server)
     r1 = client.call_tool("vector_tool.get_by_ids", {"ids": ["a", "b"]})
-    assert "entities" in r1
+    assert r1.get("error") == "MILVUS_URI not set"
+    assert r1.get("entities") == []
     r2 = client.call_tool("vector_tool.health_check", {})
     assert "ok" in r2
     assert r2["ok"] is False

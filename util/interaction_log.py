@@ -20,6 +20,8 @@ from typing import Any, Optional
 _CONVERSATION_ID: ContextVar[str] = ContextVar("interaction_log_conversation_id", default="")
 _SEQUENCE_LOCK = threading.Lock()
 _SEQUENCES: dict[str, int] = {}
+_GLOBAL_TRACE_LOCK = threading.Lock()
+_GLOBAL_TRACE_SEQ = 0
 _ENABLED_OVERRIDE: Optional[bool] = None  # None = use env; True/False = override
 
 logger = logging.getLogger("openfund.interaction")
@@ -46,6 +48,14 @@ def _next_sequence(conversation_id: str) -> int:
         n = _SEQUENCES.get(conversation_id, 0) + 1
         _SEQUENCES[conversation_id] = n
         return n
+
+
+def _next_global_trace_id() -> int:
+    """Process-wide monotonic id so TRACE lines never duplicate across threads or empty conversation_id."""
+    global _GLOBAL_TRACE_SEQ
+    with _GLOBAL_TRACE_LOCK:
+        _GLOBAL_TRACE_SEQ += 1
+        return _GLOBAL_TRACE_SEQ
 
 
 def _sanitize(obj: Any, max_str_len: int = _MAX_STR_LEN) -> Any:
@@ -251,8 +261,9 @@ def log_call(
     if not _is_enabled():
         return
     conversation_id = get_conversation_id()
-    sequence = _next_sequence(conversation_id)
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conv_seq = _next_sequence(conversation_id)
+    trace_id = _next_global_trace_id()
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     category, component = _function_to_category_component(function_name)
     action = _action_from_result(result, function_name)
     category_pad = category + " " * (CATEGORY_WIDTH - len(category)) if len(category) <= CATEGORY_WIDTH else category[:CATEGORY_WIDTH]
@@ -269,10 +280,11 @@ def log_call(
         continuation = [CONTINUATION_INDENT + "(serialization error)"]
     if duration_ms is not None:
         continuation.append(f"{CONTINUATION_INDENT}duration_ms={duration_ms}")
+    trace_header = f"TRACE {trace_id} conv_seq={conv_seq}"
     if continuation:
-        message = f"TRACE {sequence}\n{line1}\n" + "\n".join(continuation) + "\n"
+        message = f"{trace_header}\n{line1}\n" + "\n".join(continuation) + "\n"
     else:
-        message = f"TRACE {sequence}\n{line1}\n"
+        message = f"{trace_header}\n{line1}\n"
     logger.info("%s", message)
 
 

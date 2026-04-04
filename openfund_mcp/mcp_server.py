@@ -294,10 +294,13 @@ def _create_fastmcp_app() -> Any:
 
     @app.tool(
         name="kg_tool.get_relations",
-        description="Get relationships for an entity (fund/company). Payload: entity (string).",
+        description="Get 1-hop relationships for an entity. Payload: entity (string), prefer_dataset (optional, e.g. equities, etfs).",
     )
-    def kg_tool_get_relations(entity: str) -> dict:
-        return kt.get_relations(entity=entity)
+    def kg_tool_get_relations(
+        entity: str,
+        prefer_dataset: Optional[str] = "",
+    ) -> dict:
+        return kt.get_relations(entity=entity, prefer_dataset=prefer_dataset or "")
 
     @app.tool(
         name="kg_tool.get_node_by_id",
@@ -419,7 +422,7 @@ def _create_fastmcp_app() -> Any:
     )
     def sql_tool_run_query(
         query: str,
-        params: Optional[dict] = None,
+        params: Optional[Any] = None,
     ) -> dict:
         return st.run_query(query=query, params=params)
 
@@ -429,7 +432,7 @@ def _create_fastmcp_app() -> Any:
     )
     def sql_tool_explain_query(
         query: str = "",
-        params: Optional[dict] = None,
+        params: Optional[Any] = None,
         analyze: bool = False,
     ) -> dict:
         return st.explain_query(query=query, params=params, analyze=analyze)
@@ -440,7 +443,7 @@ def _create_fastmcp_app() -> Any:
     )
     def sql_tool_export_results(
         query: str = "",
-        params: Optional[dict] = None,
+        params: Optional[Any] = None,
         format: str = "json",
         row_limit: int = 1000,
     ) -> dict:

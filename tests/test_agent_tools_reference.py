@@ -8,6 +8,9 @@ are allowed; only 'Unknown tool' is treated as failure.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
+
 import pytest
 
 from llm.tool_descriptions import TOOL_DESCRIPTIONS_BY_NAME
@@ -18,13 +21,14 @@ from openfund_mcp.mcp_server import MCPServer
 # Minimal payloads per tool (from agent-tools-reference.md sample calls).
 # Used to verify each tool is registered and accepts the documented payload shape.
 SAMPLE_PAYLOADS: dict[str, dict] = {
+    "file_tool.read_file": {"path": "README.md"},
     "vector_tool.search": {"query": "NVDA fund performance 2024", "top_k": 5},
     "vector_tool.get_by_ids": {"ids": ["doc_001", "doc_002"]},
     "vector_tool.upsert_documents": {"docs": [{"id": "doc_003", "content": "Test."}]},
     "vector_tool.health_check": {},
     "vector_tool.create_collection_from_config": {"name": "fund_docs_v2", "dimension": 768, "primary_key_field": "id"},
     "kg_tool.query_graph": {"cypher": "MATCH (f:Fund {symbol: $sym}) RETURN f", "params": {"sym": "NVDA"}},
-    "kg_tool.get_relations": {"entity": "NVDA"},
+    "kg_tool.get_relations": {"entity": "NVDA", "prefer_dataset": "equities"},
     "kg_tool.get_node_by_id": {"id_val": "NVDA", "id_key": "symbol"},
     "kg_tool.get_neighbors": {"node_id": "NVDA", "id_key": "symbol", "direction": "out", "limit": 20},
     "kg_tool.get_graph_schema": {},
@@ -45,6 +49,14 @@ SAMPLE_PAYLOADS: dict[str, dict] = {
     "market_tool.get_insider_transactions": {"ticker": "AAPL"},
     "market_tool.get_news": {"symbol": "NVDA", "limit": 5},
     "market_tool.get_global_news": {"as_of_date": "2024-12-31", "look_back_days": 7, "limit": 5},
+    "fund_catalog_tool.search": {"query": "Vanguard Total Stock", "limit": 5},
+    "stooq_tool.get_price": {"symbol": "SPY"},
+    "yahoo_finance_tool.get_price": {"symbol": "AAPL"},
+    "yahoo_finance_tool.get_fundamental": {"symbol": "VOO"},
+    "etfdb_tool.get_fund_data": {"symbol": "SPY"},
+    "news_tool.search_rss": {"query": "semiconductor earnings", "days": 7},
+    "news_tool.search_yahoo_rss": {"limit": 10},
+    "news_tool.search_gdelt": {"query": "federal reserve", "limit": 5},
     "analyst_tool.get_indicators": {"symbol": "NVDA", "indicator": "rsi", "as_of_date": "2024-12-31", "look_back_days": 30},
     "get_capabilities": {},
 }
@@ -70,7 +82,16 @@ def test_all_documented_tools_registered_and_callable(mcp_client: MCPClient) -> 
             # Optional tools (market_tool, analyst_tool) may be skipped when deps missing
             continue
         payload = SAMPLE_PAYLOADS.get(tool_name, {})
-        result = mcp_client.call_tool(tool_name, payload)
+
+        def _call() -> dict:
+            return mcp_client.call_tool(tool_name, payload)
+
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_call)
+            try:
+                result = fut.result(timeout=15.0)
+            except FuturesTimeout:
+                pytest.fail(f"{tool_name} exceeded 15s (backend hang?)")
         assert isinstance(result, dict), f"{tool_name}: expected dict, got {type(result)}"
         err = result.get("error")
         assert err != f"Unknown tool: {tool_name}", (
@@ -121,6 +142,25 @@ def test_websearcher_news_fallback_prompt_defined() -> None:
 
     assert isinstance(WEBSEARCHER_NEWS_FALLBACK_SYSTEM, str)
     assert len(WEBSEARCHER_NEWS_FALLBACK_SYSTEM) > 50
+
+
+def test_get_indicators_rejects_raw_close_not_unknown_tool(mcp_client: MCPClient) -> None:
+    """Raw OHLCV indicator names return actionable error, not vendor 4xx loop."""
+    caps = mcp_client.call_tool("get_capabilities", {})
+    if "analyst_tool.get_indicators" not in (caps.get("tools") or []):
+        pytest.skip("analyst_tool not registered")
+    r = mcp_client.call_tool(
+        "analyst_tool.get_indicators",
+        {
+            "symbol": "AAPL",
+            "indicator": "close",
+            "as_of_date": "2024-12-31",
+            "look_back_days": 30,
+        },
+    )
+    assert isinstance(r, dict)
+    assert r.get("error")
+    assert "market_tool.get_stock_data" in r["error"] or "sql_tool" in r["error"]
 
 
 def test_documented_tool_names_match_tool_descriptions() -> None:

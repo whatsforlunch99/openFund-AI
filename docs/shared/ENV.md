@@ -14,7 +14,7 @@ Generated from `.env.example` and `config/config.py`. Copy `.env.example` to `.e
 | `LLM_BASE_URL` | No | Base URL for OpenAI-compatible API (e.g. DeepSeek) | `https://api.deepseek.com` |
 | **Persistence** | | | |
 | `MEMORY_STORE_PATH` | No | Root dir for conversation persistence (default: memory) | `memory` |
-| `E2E_TIMEOUT_SECONDS` | No | E2E timeout in seconds (default: 120) | `30`, `120` |
+| `E2E_TIMEOUT_SECONDS` | No | E2E timeout in seconds (default: 180) | `120`, `180` |
 | `INTERACTION_LOG` | No | Log every significant function during user interaction (1/true/yes/on) | `1`, `true` |
 | **PostgreSQL (sql_tool)** | | | |
 | `DATABASE_URL` | No | PostgreSQL connection URL | `postgresql://user@localhost:5432/openfund` |

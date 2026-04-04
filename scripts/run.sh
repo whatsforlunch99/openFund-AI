@@ -250,7 +250,7 @@ YAML
 
 if [[ $START_BACKENDS -eq 1 ]]; then
   out "=================================================="
-  out "🚀 OpenFund System Boot"
+  out "OpenFund-AI System Booting..."
   out "=================================================="
   out ""
   out "[████████████████████████████████] 100%  Initialization Complete"
@@ -260,7 +260,7 @@ if [[ $START_BACKENDS -eq 1 ]]; then
   pg_line="$(start_postgres 2>&1 || true)"
   [[ -n "$pg_line" ]] && log_user "$pg_line"
   if [[ "$pg_line" == *"started/ready"* ]]; then
-    out "  PostgreSQL   : ✅ ready"
+    out "  PostgreSQL   : [✔] ready"
   elif [[ "$pg_line" == *"skipped"* ]]; then
     out "  PostgreSQL   : ⚠ skipped"
   else
@@ -274,7 +274,7 @@ if [[ $START_BACKENDS -eq 1 ]]; then
   neo_line="$(start_neo4j 2>&1 || true)"
   [[ -n "$neo_line" ]] && log_user "$neo_line"
   if [[ "$neo_line" == *"already running"* || "$neo_line" == *"started"* ]]; then
-    out "  Neo4j        : ✅ ready (port 7687)"
+    out "  Neo4j        : [✔]  ready (port 7687)"
   elif [[ "$neo_line" == *"skipped"* ]]; then
     out "  Neo4j        : ⚠ skipped"
   else
@@ -284,7 +284,7 @@ if [[ $START_BACKENDS -eq 1 ]]; then
   milvus_line="$(start_milvus 2>&1 || true)"
   [[ -n "$milvus_line" ]] && log_user "$milvus_line"
   if [[ "$milvus_line" == *"already running"* || "$milvus_line" == *"started"* ]]; then
-    out "  Milvus       : ✅ running"
+    out "  Milvus       : [✔] running"
   elif [[ "$milvus_line" == *"skipped"* ]]; then
     out "  Milvus       : ⚠ skipped"
   else
@@ -304,7 +304,7 @@ if [[ $START_BACKENDS -eq 1 ]]; then
   elif [[ "$llm_base_url_lc" == *"gemini"* ]] || [[ "$llm_base_url_lc" == *"googleapis"* ]] || [[ "$llm_base_url_lc" == *"generativelanguage"* ]]; then
     model_label="Gemini"
   fi
-  out "  ${model_label} : ✅ loaded"
+  out "  ${model_label} : [✔] loaded"
   out ""
   out "▶ Loading Data (${LOAD_FUNDS})"
   out "  Progress:"
@@ -426,17 +426,20 @@ PY
   done <<< "$loader_metrics"
   progress_line 100 "Completed"
   out ""
-  out "  SQL             : $([[ "${sql_status:-unknown}" == "ok" ]] && echo "✅ ok" || echo "⚠ ${sql_status:-unknown}")"
+  if [[ "${sql_status:-unknown}" == "ok" ]]; then _sql_label="[✔] completed"; else _sql_label="⚠ ${sql_status:-unknown}"; fi
+  out "  SQL             : ${_sql_label}"
   out "    - tables      : ${sql_tables:-0}"
   out "    - rows        : ${sql_rows:-0} total"
   out ""
-  out "  Neo4j           : $([[ "${neo_status:-unknown}" == "ok" ]] && echo "✅ ok" || echo "⚠ ${neo_status:-unknown}")"
+  if [[ "${neo_status:-unknown}" == "ok" ]]; then _neo_label="[✔] completed"; else _neo_label="⚠ ${neo_status:-unknown}"; fi
+  out "  Neo4j           : ${_neo_label}"
   out "    - nodes       : ${neo_nodes:-0}"
   out "    - edges       : ${neo_edges:-0}"
-  out "    - integrity   : $([[ "${neo_integrity:-unknown}" == "clean" ]] && echo "✓ clean" || echo "⚠ ${neo_integrity:-unknown}")"
-  out "    - warnings    : ⚠ ${neo_warnings:-0} sampled suspicious currency codes"
+  if [[ "${neo_integrity:-unknown}" == "clean" ]]; then _neo_int_label="✓ clean"; else _neo_int_label="⚠ ${neo_integrity:-unknown}"; fi
+  out "    - integrity   : ${_neo_int_label}"
   out ""
-  out "  Milvus          : $([[ "${milvus_status:-unknown}" == "ok" ]] && echo "✅ ok" || echo "⚠ ${milvus_status:-unknown}")"
+  if [[ "${milvus_status:-unknown}" == "ok" ]]; then _mv_label="[✔] completed"; else _mv_label="⚠ ${milvus_status:-unknown}"; fi
+  out "  Milvus          : ${_mv_label}"
   out "    - vectors     : ${milvus_vectors:-0} indexed"
   rm -f "$loader_tmp"
 
@@ -497,16 +500,20 @@ except Exception:
 print("yes" if d.get("llm_configured") else "no")
 PY
 )"
-out "  status          : $([[ "$HEALTH_RC" -eq 0 ]] && echo "✅ live" || echo "⚠ degraded")"
+if [[ "$HEALTH_RC" -eq 0 ]]; then _health_live="[✔] live"; else _health_live="⚠ degraded"; fi
+out "  status          : ${_health_live}"
 out "  endpoint        : http://localhost:${PORT}"
-out "  health          : $([[ "$HEALTH_RC" -eq 0 ]] && echo "OK" || echo "FAIL")"
+if [[ "$HEALTH_RC" -eq 0 ]]; then _health_ok="OK"; else _health_ok="FAIL"; fi
+out "  health          : ${_health_ok}"
 out ""
 out "▶ System"
-out "  LLM connection  : $([[ "$llm_ready" == "yes" ]] && echo "✅ ready" || echo "⚠ unavailable")"
-out "  services        : $([[ "$HEALTH_RC" -eq 0 ]] && echo "✅ healthy" || echo "⚠ check startup_user.log")"
+if [[ "$llm_ready" == "yes" ]]; then _llm_label="[✔] ready"; else _llm_label="⚠ unavailable"; fi
+out "  LLM connection  : ${_llm_label}"
+if [[ "$HEALTH_RC" -eq 0 ]]; then _svc_label="[✔] healthy"; else _svc_label="⚠ check startup_user.log"; fi
+out "  services        : ${_svc_label}"
 out ""
 out "--------------------------------------------------"
-out "✅ SYSTEM READY"
+out "[✔] SYSTEM READY"
 out "--------------------------------------------------"
 out ""
 out "Enter your query below (type 'quit' to exit)"

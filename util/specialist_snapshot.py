@@ -99,6 +99,10 @@ def _snapshot_librarian(content: dict[str, Any]) -> dict[str, Any]:
             if isinstance(data, list):
                 out["sql_row_count"] = len(data)
 
+    stm = content.get("structured_timeseries_metrics")
+    if isinstance(stm, dict) and stm.get("span_last_date"):
+        out["structured_timeseries_metrics"] = stm
+
     if content.get("content") is not None and "summary" not in out:
         out["content_preview"] = _trunc_str(content.get("content"), 1200)
 
@@ -134,8 +138,16 @@ def _snapshot_websearcher(content: dict[str, Any]) -> dict[str, Any]:
     if isinstance(news, list):
         out["news_count"] = len(news)
     cit = content.get("citations")
-    if isinstance(cit, list):
+    if isinstance(cit, dict):
         out["citations_count"] = len(cit)
+    elif isinstance(cit, list):
+        out["citations_count"] = len(cit)
+
+    if content.get("news_synthetic"):
+        out["news_synthetic"] = True
+    nc = content.get("news_confidence")
+    if isinstance(nc, str) and nc.strip():
+        out["news_confidence"] = nc.strip()
 
     out["market_data"] = _error_or_present(content.get("market_data"))
     out["sentiment"] = _error_or_present(content.get("sentiment"))

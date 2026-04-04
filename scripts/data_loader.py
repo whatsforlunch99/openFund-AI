@@ -53,30 +53,6 @@ def _quote_ident(ident: str) -> str:
     return s
 
 
-def _agent_dbg(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    # #region agent log
-    try:
-        with open("/Users/jiani/Desktop/openFund AI/.cursor/debug-11fd1a.log", "a", encoding="utf-8") as f:
-            f.write(
-                json.dumps(
-                    {
-                        "sessionId": "11fd1a",
-                        "runId": run_id,
-                        "hypothesisId": hypothesis_id,
-                        "location": location,
-                        "message": message,
-                        "data": data,
-                        "timestamp": int(time.time() * 1000),
-                    },
-                    ensure_ascii=True,
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
-
-
 def _safe_table_name(stem: str) -> str:
     """
     Turn a CSV stem (e.g. `yahoo_quote_metrics`) into a safe SQL table name.
@@ -449,25 +425,6 @@ def load_neo4j_from_csv_bundle(neo4j_csv_dir: Path, load_mode: str) -> dict[str,
     validation = kg_tool.validate_graph_csv_bundle_for_neo4j(
         str(neo4j_csv_dir), sample_limit=20
     )
-    # #region agent log
-    rel_checks = ((validation.get("relationship_checks") or {}).get("graph_relationships") or {})
-    warn = validation.get("warnings") or {}
-    _agent_dbg(
-        "repro-neo4j-1",
-        "N1",
-        "scripts/data_loader.py:load_neo4j_from_csv_bundle",
-        "neo4j validation summary",
-        {
-            "ok": bool(validation.get("ok")),
-            "rows": rel_checks.get("rows"),
-            "missing_start_n": len(rel_checks.get("missing_start_sample") or []),
-            "missing_end_n": len(rel_checks.get("missing_end_sample") or []),
-            "bad_type_n": len(rel_checks.get("invalid_rel_type_sample") or []),
-            "dup_rows": rel_checks.get("duplicate_rows"),
-            "warning_suspicious_currency_count": warn.get("suspicious_currency_codes_count"),
-        },
-    )
-    # #endregion
     out["validation"] = validation
     if validation.get("ok") is False and validation.get("error"):
         # Validation error: avoid doing a write when inputs are invalid.
@@ -482,15 +439,6 @@ def load_neo4j_from_csv_bundle(neo4j_csv_dir: Path, load_mode: str) -> dict[str,
         ((validation.get("relationship_checks") or {}).get("graph_relationships") or {}).get("rows")
     )
     if load_mode == "existing" and isinstance(rel_rows, int) and rel_rows > 500_000:
-        # #region agent log
-        _agent_dbg(
-            "repro-neo4j-1",
-            "N2",
-            "scripts/data_loader.py:load_neo4j_from_csv_bundle",
-            "existing mode skip condition hit",
-            {"rel_rows": rel_rows, "threshold": 500000},
-        )
-        # #endregion
         out["skipped"] = True
         out["reason"] = (
             f"bundle has {rel_rows} relationships; skipping Neo4j import in existing mode "
@@ -504,15 +452,6 @@ def load_neo4j_from_csv_bundle(neo4j_csv_dir: Path, load_mode: str) -> dict[str,
         # Prefer offline neo4j-admin import for large full rebuilds.
         if import_mode not in {"online", "disable"}:
             offline = _try_neo4j_admin_full_import(neo4j_csv_dir, validation)
-            # #region agent log
-            _agent_dbg(
-                "repro-neo4j-1",
-                "N3",
-                "scripts/data_loader.py:load_neo4j_from_csv_bundle",
-                "offline import attempt result",
-                {"ok": bool(offline.get("ok")), "db_name": offline.get("db_name"), "elapsed": offline.get("elapsed_seconds")},
-            )
-            # #endregion
             out["offline_import"] = offline
             if offline.get("ok"):
                 return {"neo4j": out, "status": "ok"}
@@ -634,42 +573,14 @@ def can_load_embedding_model_locally(model_name: str) -> bool:
     try:
         from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
     except ImportError:
-        _agent_dbg(
-            "repro-2",
-            "H5",
-            "scripts/data_loader.py:can_load_embedding_model_locally",
-            "sentence_transformers import unavailable",
-            {"model_name": model_name},
-        )
         return False
 
     try:
-        _agent_dbg(
-            "repro-2",
-            "H5",
-            "scripts/data_loader.py:can_load_embedding_model_locally",
-            "local model probe begin",
-            {"model_name": model_name},
-        )
         sink = StringIO()
         with redirect_stdout(sink), redirect_stderr(sink):
             SentenceTransformer(model_name, local_files_only=True)
-        _agent_dbg(
-            "repro-2",
-            "H5",
-            "scripts/data_loader.py:can_load_embedding_model_locally",
-            "local model probe success",
-            {"model_name": model_name},
-        )
         return True
     except Exception:
-        _agent_dbg(
-            "repro-2",
-            "H5",
-            "scripts/data_loader.py:can_load_embedding_model_locally",
-            "local model probe failed",
-            {"model_name": model_name},
-        )
         return False
 
 
@@ -725,21 +636,7 @@ def load_milvus_from_text_json(text_dir: Path, load_mode: str, *, force_download
         # Delete loader-owned docs then upsert.
         vector_tool.delete_by_expr('source == "loader"')
 
-    _agent_dbg(
-        "repro-1",
-        "H3",
-        "scripts/data_loader.py:load_milvus_from_text_json",
-        "milvus upsert requested",
-        {"load_mode": load_mode, "docs_count": len(docs), "text_dir": str(text_dir)},
-    )
     res = vector_tool.upsert_documents(docs)
-    _agent_dbg(
-        "repro-1",
-        "H3",
-        "scripts/data_loader.py:load_milvus_from_text_json",
-        "milvus upsert result",
-        {"status": res.get("status"), "keys": sorted(list(res.keys()))},
-    )
     return {"milvus": {"docs_count": len(docs), "upsert_result": res}, "status": "ok"}
 
 
@@ -826,13 +723,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         for name, fn in steps:
             if name in selected:
                 overall[name] = fn()
-                _agent_dbg(
-                    "post-fix-1",
-                    "H6",
-                    "scripts/data_loader.py:main",
-                    "component completed",
-                    {"component": name, "status": (overall.get(name) or {}).get("status", "unknown")},
-                )
                 if progress:
                     progress.update(1)
             else:

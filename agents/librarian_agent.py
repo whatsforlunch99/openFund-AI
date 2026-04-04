@@ -7,6 +7,7 @@ from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
 from util import interaction_log
+from util.timeseries_metrics import attach_structured_timeseries_metrics
 
 if TYPE_CHECKING:
     from llm.base import LLMClient
@@ -98,11 +99,17 @@ class LibrarianAgent(BaseAgent):
             tool_descriptions = get_librarian_tool_descriptions(registered)
             sr = content.get("symbol_resolution")
             entity_hint = ""
+            dataset_hint = ""
             if isinstance(sr, dict) and sr.get("status") == "resolved":
                 cn = (sr.get("canonical_name") or "").strip()
                 if cn:
                     entity_hint = f"\nResolved entity for knowledge graph / SQL (use for get_relations, ILIKE, etc.): {cn}"
-            user_content = f"Sub-query from planner: {query}{entity_hint}"
+                L0 = (sr.get("listings") or [None])[0]
+                if isinstance(L0, dict):
+                    st = (L0.get("symbol_type") or "").strip().lower()
+                    if st == "equities":
+                        dataset_hint = '\nFor kg_tool.get_relations, include prefer_dataset: "equities" in the payload.'
+            user_content = f"Sub-query from planner: {query}{entity_hint}{dataset_hint}"
             tool_calls = self._llm_client.select_tools(
                 LIBRARIAN_TOOL_SELECTION, user_content, tool_descriptions
             )
@@ -114,6 +121,7 @@ class LibrarianAgent(BaseAgent):
                 if parts:
                     reply_content = self._build_reply_from_parts(parts)
                     if isinstance(reply_content, dict):
+                        attach_structured_timeseries_metrics(reply_content)
                         from llm.prompts import LIBRARIAN_SYSTEM, get_librarian_user_content
                         user_content_summary = get_librarian_user_content(str(query)[:500], reply_content)
                         summary = self._llm_client.complete(LIBRARIAN_SYSTEM, user_content_summary)
@@ -181,6 +189,7 @@ class LibrarianAgent(BaseAgent):
             reply_content = self.combine_results(docs_list, graph_data)
             if parts.get("sql"):
                 reply_content["sql"] = parts["sql"]
+            attach_structured_timeseries_metrics(reply_content)
 
         # Optional LLM summary of combined data for the planner
         if self._llm_client is not None and isinstance(reply_content, dict):

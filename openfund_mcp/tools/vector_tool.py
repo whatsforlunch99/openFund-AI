@@ -20,30 +20,6 @@ DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_EMBEDDING_DIM = 384
 
 
-def _agent_dbg(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    # #region agent log
-    try:
-        with open("/Users/jiani/Desktop/openFund AI/.cursor/debug-11fd1a.log", "a", encoding="utf-8") as f:
-            f.write(
-                json.dumps(
-                    {
-                        "sessionId": "11fd1a",
-                        "runId": run_id,
-                        "hypothesisId": hypothesis_id,
-                        "location": location,
-                        "message": message,
-                        "data": data,
-                        "timestamp": int(time.time() * 1000),
-                    },
-                    ensure_ascii=True,
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
-
-
 def _parse_milvus_uri(uri: str) -> tuple[str, int]:
     """Parse MILVUS_URI to (host, port). E.g. http://localhost:19530 -> (localhost, 19530)."""
     u = (uri or "").strip().replace("http://", "").replace("https://", "")
@@ -101,35 +77,14 @@ def _get_embedding_model():
     model_name = os.environ.get("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
     dim = int(os.environ.get("EMBEDDING_DIM", DEFAULT_EMBEDDING_DIM))
     try:
-        _agent_dbg(
-            "repro-1",
-            "H1",
-            "openfund_mcp/tools/vector_tool.py:_get_embedding_model",
-            "embedding model load begin",
-            {"model_name": model_name, "local_files_only": True},
-        )
         # Silence third-party model load bars/warnings to keep loader output clean.
         sink = StringIO()
         try:
             with redirect_stdout(sink), redirect_stderr(sink):
                 _embedding_model = SentenceTransformer(model_name, local_files_only=True)
-            _agent_dbg(
-                "repro-1",
-                "H1",
-                "openfund_mcp/tools/vector_tool.py:_get_embedding_model",
-                "embedding model loaded local_files_only",
-                {"model_name": model_name},
-            )
         except Exception:
             with redirect_stdout(sink), redirect_stderr(sink):
                 _embedding_model = SentenceTransformer(model_name)
-            _agent_dbg(
-                "repro-1",
-                "H1",
-                "openfund_mcp/tools/vector_tool.py:_get_embedding_model",
-                "embedding model loaded with network fallback",
-                {"model_name": model_name},
-            )
         # Actual dim may differ; use config for collection schema
         return _embedding_model, dim
     except Exception as e:
@@ -451,13 +406,6 @@ def upsert_documents(docs: list[dict]) -> dict:
     if model is None:
         return {"error": "Embedding model not available", "upserted": 0, "status": "error"}
     try:
-        _agent_dbg(
-            "repro-1",
-            "H2",
-            "openfund_mcp/tools/vector_tool.py:upsert_documents",
-            "upsert begin",
-            {"docs_count": len(docs), "collection": os.environ.get("MILVUS_COLLECTION", "openfund_docs")},
-        )
         coll = _get_collection()
         coll.load()
         ids_to_upsert = [str(d["id"]) for d in docs]
@@ -475,13 +423,6 @@ def upsert_documents(docs: list[dict]) -> dict:
         sources = [str(d.get("source", ""))[:256] for d in docs]
         coll.insert([ids, contents, embeddings, fund_ids, sources])
         coll.flush()
-        _agent_dbg(
-            "repro-1",
-            "H2",
-            "openfund_mcp/tools/vector_tool.py:upsert_documents",
-            "upsert completed",
-            {"upserted": len(docs)},
-        )
         return {"upserted": len(docs), "status": "ok"}
     except Exception as e:
         logger.exception("vector_tool.upsert_documents failed: %s", e)

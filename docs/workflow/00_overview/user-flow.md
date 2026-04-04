@@ -47,8 +47,9 @@ Invalid or unknown `user_profile` is rejected before processing.
 
 - **Validation:** Accept vs reject input (e.g. blocked phrases, invalid profile).
 - **Conversation:** Create new vs continue existing (by presence of conversation ID).
-- **Orchestration:** One round vs refined additional rounds depending on planner sufficiency (LLM) and round cap.
+- **Orchestration:** One round vs refined additional rounds depending on planner sufficiency (LLM) and round cap. When a live price and internal SQL history (or computed series metrics) are both present for the same equity theme, the planner may treat the round as sufficient even if the sufficiency model was conservative, avoiding a misleading “research failed” tone.
 - **Termination:** Responder finalizes the answer and signals STOP; refinement decisions are planner-owned.
+- **News quality:** If WebSearcher used an LLM news fallback with no URLs, the combined brief flags synthetic/low-confidence news so the responder does not present headlines as verified facts.
 
 ---
 

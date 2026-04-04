@@ -66,8 +66,8 @@ Design for the WebSearcher specialist agent: parallel multi-source query, normal
 
 | Source | MCP tool | Notes |
 |--------|----------|--------|
-| Stooq | `stooq_tool.get_price` | Latest price/close; primary price source when OK. |
-| Yahoo | `yahoo_finance_tool.get_fundamental` (or `get_price`) | Price, AUM, holdings, sector_exposure; `price_yahoo` stored when both stooq and Yahoo OK. |
+| Stooq | `stooq_tool.get_price` | Latest price/close; secondary for US-style equities when Yahoo chart price is preferred. |
+| Yahoo | `yahoo_finance_tool.get_price` + optional `get_fundamental` | Chart API supplies spot price; quoteSummary supplies AUM, holdings, sector_exposure when both tools are registered. For resolved **equities** or compact alphabetic tickers, **Yahoo runs before Stooq** in the task list and `_normalise_to_schema` prefers Yahoo for primary `price` when Yahoo returns a close. |
 | ETFdb | `etfdb_tool.get_fund_data` | Often 403; omitted from merge if error. **Skipped for known index symbols** (e.g. SPX); ETFdb is for ETFs and may 404 for indices. |
 | market_tool | `get_fundamentals`, `get_news`, `get_global_news` | Requires API keys/vendor; **get_news** must include `start_date`/`end_date` for Alpha Vantage; **get_global_news** must include `as_of_date` and `look_back_days` (never call with `{}`). |
 
@@ -110,7 +110,7 @@ Single fund/ETF record shape produced by `_normalise_to_schema`:
 ## Functional flow (code-aligned)
 
 1. **handle_message** — Trace + flow UI; `_run_parallel_flow(content)`.
-2. **_run_parallel_flow** — `_resolve_symbols` → **parallel** `do_financial` (per-symbol `_fetch_all_sources_for_symbol` + `_merge_financial_results`) and `do_news` (`_fetch_news_sources`) → merge news → optional `_llm_news_fallback`.
+2. **_run_parallel_flow** — `_resolve_symbols` → **parallel** `do_financial` (per-symbol `_fetch_all_sources_for_symbol` + `_merge_financial_results`) and `do_news` (`_fetch_news_sources`) → merge news → optional `_llm_news_fallback` (sets `news_synthetic` / `news_confidence: low` when citations are empty).
 3. **All-tools-fail** — If `_all_tools_failed(reply_content)` and `llm_client` set, replace with `_llm_data_search_fallback` (`llm_fallback` on record).
 4. **Conflict resolution** — For each `normalized_fund` record with `_has_price_conflict`, `_resolve_conflict_with_llm` updates `price` and `source.price`.
 5. **Summary** — `WEBSEARCHER_SYSTEM` + `get_websearcher_user_content`; on failure or empty, `_fallback_summary_from_normalized`.

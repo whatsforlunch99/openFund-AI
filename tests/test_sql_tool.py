@@ -67,6 +67,29 @@ def test_export_results_invalid_format(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "error" in out
 
 
+def test_export_results_list_params_coerced(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LLM-shaped list params are accepted for positional %s queries (mock path)."""
+    from openfund_mcp.tools import sql_tool
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    out = sql_tool.export_results(
+        "SELECT * FROM t WHERE sym = %s",
+        params=["AAPL"],
+        format="json",
+    )
+    assert "error" not in out
+    assert "data" in out
+
+
+def test_normalize_sql_bind_params() -> None:
+    from openfund_mcp.tools import sql_tool
+
+    assert sql_tool._normalize_sql_bind_params(None) is None
+    assert sql_tool._normalize_sql_bind_params({"a": 1}) == {"a": 1}
+    assert sql_tool._normalize_sql_bind_params((1, 2)) == (1, 2)
+    assert sql_tool._normalize_sql_bind_params(["AAPL"]) == ("AAPL",)
+
+
 def test_connection_health_check_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When DATABASE_URL is unset, connection_health_check returns ok: false."""
     from openfund_mcp.tools import sql_tool
@@ -91,5 +114,11 @@ def test_sql_community_tools_via_mcp_dispatch(monkeypatch: pytest.MonkeyPatch) -
     assert "plan" in r1
     r2 = client.call_tool("sql_tool.export_results", {"query": "SELECT 1", "format": "json"})
     assert "data" in r2
+    r2b = client.call_tool(
+        "sql_tool.export_results",
+        {"query": "SELECT 1", "format": "json", "params": ["x"]},
+    )
+    assert "data" in r2b
+    assert "error" not in r2b
     r3 = client.call_tool("sql_tool.connection_health_check", {})
     assert "ok" in r3

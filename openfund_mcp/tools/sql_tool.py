@@ -34,7 +34,20 @@ def _get_connection():
         return None, f"PostgreSQL connection failed: {e}"
 
 
-def run_query(query: str, params: Optional[dict[str, Any] | tuple[Any, ...]] = None) -> dict:
+def _normalize_sql_bind_params(params: Any) -> Optional[dict[str, Any] | tuple[Any, ...]]:
+    """Accept dict (named), tuple, or list (positional for %s) from LLM payloads."""
+    if params is None:
+        return None
+    if isinstance(params, dict):
+        return params
+    if isinstance(params, tuple):
+        return params
+    if isinstance(params, list):
+        return tuple(params)
+    return params
+
+
+def run_query(query: str, params: Optional[dict[str, Any] | tuple[Any, ...] | list[Any]] = None) -> dict:
     """
     Execute a SQL query with optional parameters.
 
@@ -46,6 +59,7 @@ def run_query(query: str, params: Optional[dict[str, Any] | tuple[Any, ...]] = N
         Dict with rows (list of dicts), schema (column names), and params.
         When DATABASE_URL is unset, returns mock data. On error returns {"error": "..."}.
     """
+    params = _normalize_sql_bind_params(params)
     if not os.environ.get("DATABASE_URL"):
         return {
             "rows": [{"id": 1, "value": "mock"}],
@@ -166,7 +180,9 @@ def _is_read_only_query(query: str) -> bool:
 
 
 def explain_query(
-    query: str, params: Optional[dict[str, Any] | tuple[Any, ...]] = None, analyze: bool = False
+    query: str,
+    params: Optional[dict[str, Any] | tuple[Any, ...] | list[Any]] = None,
+    analyze: bool = False,
 ) -> dict:
     """
     Run EXPLAIN or EXPLAIN ANALYZE for a read-only query and return the plan rows.
@@ -180,6 +196,7 @@ def explain_query(
         Dict with plan (list of plan rows as dicts), schema, params.
         When DATABASE_URL is unset, returns mock plan.
     """
+    params = _normalize_sql_bind_params(params)
     if not _is_read_only_query(query):
         return {
             "error": "Only SELECT or EXPLAIN queries are allowed for explain_query.",
@@ -236,7 +253,7 @@ def explain_query(
 
 def export_results(
     query: str,
-    params: Optional[dict[str, Any] | tuple[Any, ...]] = None,
+    params: Optional[dict[str, Any] | tuple[Any, ...] | list[Any]] = None,
     format: str = "json",
     row_limit: int = 1000,
 ) -> dict:
@@ -254,6 +271,7 @@ def export_results(
         For format "csv": {"data": "csv string", "schema": [...], "row_count": n}.
         When DATABASE_URL is unset, returns mock.
     """
+    params = _normalize_sql_bind_params(params)
     if not query or not query.strip().upper().startswith("SELECT"):
         return {
             "error": "Only SELECT queries are allowed for export_results.",
@@ -372,15 +390,15 @@ def _coerce_analyze(x: Any) -> bool:
 
 # MCP registration: (name, func_name, required_keys, arg_specs, result_key).
 TOOL_SPECS: list[tuple[str, str, list[str], list, str | None]] = [
-    ("sql_tool.run_query", "run_query", ["query"], [("query", ["query"], "", None), ("params", ["params"], None, None)], None),
+    ("sql_tool.run_query", "run_query", ["query"], [("query", ["query"], "", None), ("params", ["params"], None, _normalize_sql_bind_params)], None),
     ("sql_tool.explain_query", "explain_query", [], [
         ("query", ["query"], "", None),
-        ("params", ["params"], None, None),
+        ("params", ["params"], None, _normalize_sql_bind_params),
         ("analyze", ["analyze"], False, _coerce_analyze),
     ], None),
     ("sql_tool.export_results", "export_results", [], [
         ("query", ["query"], "", None),
-        ("params", ["params"], None, None),
+        ("params", ["params"], None, _normalize_sql_bind_params),
         ("format", ["format"], "json", None),
         ("row_limit", ["row_limit"], 1000, int),
     ], None),

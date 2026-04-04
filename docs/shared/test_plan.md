@@ -28,6 +28,22 @@ For per-stage deliverables and slice context, see [progress.md](progress.md).
 
 ---
 
+## Golden-path regression (AAPL-style trace)
+
+After changes touching SQL bind params, analyst indicators, WebSearcher routing, KG `get_relations`, or chat timeouts, manually or semi-manually verify:
+
+1. `sql_tool.export_results` with `params: ["AAPL"]` and a single `%s` placeholder does not raise validation errors (MCP / in-process dispatch).
+2. `analyst_tool.get_indicators` with `indicator: "close"` returns a clear error pointing to `market_tool.get_stock_data` or SQL, not an opaque vendor failure.
+3. With planner `symbol_resolution` resolved to AAPL, analyst `get_indicators` payloads are not left on a different ticker (e.g. NVDA).
+4. `POST /chat` completes without 408 under default `E2E_TIMEOUT_SECONDS=180` for a typical multi-agent run; on 408, body includes `conversation_id` and polling guidance for `GET /conversations/{id}`.
+5. WebSearcher skips `etfdb_tool.get_fund_data` when `symbol_type` is `equities`; Stooq tries plain ticker if `SYM.US` returns no rows.
+6. `kg_tool.get_relations` runs without Neo4j warnings about missing `id` on nodes; optional `prefer_dataset` biases matches.
+7. Interaction logs show unique `TRACE` ids (`TRACE <n> conv_seq=...`).
+
+Commands: `pytest tests/test_sql_tool.py tests/test_agent_tools_reference.py tests/test_analyst_agent_symbol_lock.py tests/test-stages.py -v` (plus Neo4j/MCP integration as available).
+
+---
+
 ## Docs consistency checklist (`/docs`)
 
 Use this checklist whenever docs are updated:

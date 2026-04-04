@@ -1,6 +1,6 @@
 # File-Structure Document
 
-Directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). See [backend.md](backend.md) for API and architecture, [prd.md](../90_product/prd.md) for product intent, [user-flow.md](../00_overview/user-flow.md) for user flow. This document focuses on application source layout; loader contracts and schema references live in [`docs/data_prep/`](../../data_prep/revision_plan.md) (`revision_plan.md`, `*-data-schema.md`).
+Directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). See [backend.md](backend.md) for API and architecture, [prd.md](../90_product/prd.md) for product intent, [user-flow.md](../00_overview/user-flow.md) for user flow, [dependency-contract.md](dependency-contract.md) for allowed import direction. This document focuses on application source layout; loader contracts and schema references live in [`docs/data_prep/`](../../data_prep/revision_plan.md) (`revision_plan.md`, `*-data-schema.md`).
 
 ---
 
@@ -11,8 +11,13 @@ OpenFund-AI/
 ├── agents/
 │   ├── __init__.py
 │   ├── base_agent.py
-│   ├── planner_agent.py
+│   ├── planner_types.py          # TaskStep, VALID_USER_PROFILES
+│   ├── planner_formatting.py     # format_planner_final, sufficiency aggregation, flow snippets
+│   ├── planner_decompose.py      # decompose_planner_task (LLM + fallback steps)
+│   ├── planner_sufficiency.py   # check_planner_sufficiency, get_planner_refined_steps
+│   ├── planner_agent.py         # Orchestration + handle_message + create_research_request
 │   ├── librarian_agent.py
+│   ├── websearch_helpers.py     # by_tool helpers, Yahoo summary, news intent, timestamps
 │   ├── websearch_agent.py
 │   ├── analyst_agent.py
 │   └── responder_agent.py
@@ -25,16 +30,6 @@ OpenFund-AI/
 │   ├── __init__.py
 │   ├── rest.py
 │   └── websocket.py
-├── data_manager/              # Legacy/experimental data CLI modules (not used by startup ingestion path)
-│   ├── __init__.py
-│   ├── __main__.py            # Entry point for python -m data_manager
-│   ├── backend_cli.py         # Backend maintenance subcommands: populate, sql, neo4j, milvus
-│   ├── collector.py           # DataCollector: fetch from market_tool/analyst_tool, save to files
-│   ├── distributor.py         # DataDistributor: read files, write to sql/kg/vector_tool
-│   ├── classifier.py          # DataClassifier: route data to appropriate database
-│   ├── transformer.py         # DataTransformer: convert to PG rows / Neo4j nodes / Milvus docs
-│   ├── tasks.py               # CollectionTask definitions and COLLECTION_TASKS registry
-│   └── schemas.py             # Database schema definitions (SQL DDL, Cypher patterns)
 ├── datasets/                     # Optional: raw collection outputs / ad-hoc JSON (not required for loader-first startup)
 ├── database/                   # Loader inputs + static catalogs
 │   ├── stats_data/             # PostgreSQL CSV sources (`scripts/data_loader.py`)
@@ -42,8 +37,13 @@ OpenFund-AI/
 │   ├── text_data/              # Milvus JSON arrays (e.g. sample_text.json)
 │   ├── agent_heuristics.json     # WebSearcher ticker blocklist / phrase→symbol maps; planner partial text; analyst defaults
 │   ├── symbol_resolution_known_issuers.json  # cache_key → canonical_name, symbol_type, listings
+│   ├── symbol_resolution_aliases.json       # Curated ticker aliases + company names (deterministic layer)
 │   └── symbol_resolution_routing.json        # phrase/symbol → cache_key; ticker → etf|stock hints
 ├── scripts/
+│   ├── git-hooks/            # Versioned Git hooks (pre-commit → review_staged_for_commit.py); install via install-git-hooks.sh
+│   ├── review_staged_for_commit.py  # Pre-commit review: secret path blocks, cohesion hints, ruff on staged .py
+│   ├── install-git-hooks.sh  # git config core.hooksPath scripts/git-hooks
+│   ├── commit-and-push.sh    # Optional: run review, git commit, prompt to push
 │   ├── data_loader.py        # Unified ingestion: SQL / Neo4j / Milvus from database/* (see docs/data_prep)
 │   ├── run.sh                # Single entrypoint: backends, loader-backed data ingestion, API, and interactive chat (use --no-chat for API only)
 │   └── chat_cli.py            # Interactive terminal client: POST /chat in a loop; --port, --profile
@@ -67,6 +67,7 @@ OpenFund-AI/
 │   └── tools/
 │       ├── vector_tool.py
 │       ├── kg_tool.py
+│       ├── kg_graph_schema_constants.py  # Dataset filenames, category fields, dimension rel types for CSV build
 │       ├── sql_tool.py
 │       ├── market_tool.py
 │       ├── analyst_tool.py
@@ -90,8 +91,16 @@ OpenFund-AI/
 │   ├── trace_log.py
 │   ├── interaction_log.py
 │   ├── specialist_snapshot.py   # Bounded JSON-safe snapshots of specialist INFORM payloads for conversations.json
+│   ├── timeseries_metrics.py    # Deterministic return/CAGR/vol/maxDD from SQL date+close rows (Librarian)
+│   ├── answer_coverage.py       # Planner sufficiency helper: strong equity evidence (price + SQL/metrics)
 │   ├── agent_heuristics.py      # Load database/agent_heuristics.json for agents (websearch/planner/analyst)
-│   └── planner_symbol_resolution.py  # Listings + by_tool + tool/market registry + symbol_resolution_cache.json I/O
+│   ├── symbol_query_extract.py  # extract_symbol_from_query, merge_catalog_symbols_for_query (heuristics JSON)
+│   ├── symbol_resolution/       # Subpackage: cache_io (JSON cache under MEMORY_STORE_PATH)
+│   ├── planner_symbol_resolution.py  # Layered resolution orchestration, listings, by_tool; imports cache_io
+│   ├── symbol_resolution_deterministic.py  # Aliases JSON + fuzzy company match
+│   ├── symbol_resolution_llm.py  # LLM JSON ticker inference
+│   ├── symbol_resolution_validation.py  # Yahoo meta + OpenFIGI wiring
+│   └── openfigi_client.py  # OpenFIGI v3 mapping (OPENFIGI_API_KEY)
 ├── main.py
 ├── CHANGELOG.md
 ├── README.md
@@ -105,6 +114,7 @@ OpenFund-AI/
     │   ├── test_plan.md
     │   └── websearcher-git-sync-notes.md   # Historical git/MCP migration notes (not MCP API reference)
     ├── workflow/
+    │   ├── git-commit-cohesion-review.md   # Versioned hooks, review script, cohesion/coupling workflow + Cursor rule pointer
     │   ├── 00_overview/
     │   │   ├── user-flow.md
     │   │   └── use-case-trace-beginner.md   # Step-by-step function trace for one beginner request
@@ -240,6 +250,20 @@ print(msg.conversation_id)  # UUID string
 
 ---
 
+# util/timeseries_metrics.py
+
+**Purpose:** Pure-Python metrics from ordered `(date, close)` rows (e.g. `yahoo_timeseries` SQL exports). Librarian calls `attach_structured_timeseries_metrics` so `structured_timeseries_metrics` appears on INFORM payloads for planner/responder.
+
+**Functions:** `extract_date_close_rows`, `compute_timeseries_metrics`, `structured_metrics_from_sql_payload`, `attach_structured_timeseries_metrics`, `format_timeseries_metrics_for_final_response`, `format_timeseries_metrics_for_sufficiency_chunk`.
+
+---
+
+# util/answer_coverage.py
+
+**Purpose:** Small helpers for planner sufficiency overrides: `normalized_fund_price_line`, `strong_equity_evidence_for_sufficiency(collected)` when WebSearcher has a price line and Librarian has SQL rows or `structured_timeseries_metrics`.
+
+---
+
 # util/planner_symbol_resolution.py
 
 **Purpose:** Build `symbol_resolution` objects (`schema_version` 3: `status`, `symbol_type`, `listings`, `by_tool`) for Planner REQUEST content; load issuers from `database/symbol_resolution_known_issuers.json`; routing aliases from `database/symbol_resolution_routing.json` (`_load_routing`, `_routing_cache_key_for_query`); static MCP tool vs market registry (`FINANCIAL_TOOL_IDS`, `NEWS_TOOL_IDS`, `call_entry` / `skip_entry`, `should_include_financial_tool`); read/write `{MEMORY_STORE_PATH}/symbol_resolution_cache.json` (`load_cache`, `get_cached_entry`, `put_cached_entry`).
@@ -251,6 +275,12 @@ print(msg.conversation_id)  # UUID string
 # util/agent_heuristics.py
 
 **Purpose:** Load `database/agent_heuristics.json` once (LRU-cached) into typed structs: `WebsearcherHeuristics` (ticker blocklist, `query_substring_to_symbol`, company phrases, preferred tickers, index symbols, ETF/S&P override sets, default fallback symbol), `PlannerHeuristics` (partial-insufficient prefix/suffix), `AnalystHeuristics` (default symbol, query scan tickers). Exposes `planner_fallback_substring_symbol_pairs` and `clear_heuristics_cache` for tests.
+
+---
+
+# util/symbol_query_extract.py
+
+**Purpose:** Agent-agnostic ticker extraction from free-form text using `agent_heuristics` + `apply_ticker_aliases`. **`extract_symbol_from_query(raw)`** — used by planner symbol resolution and WebSearcher `_normalize_symbol`. **`merge_catalog_symbols_for_query(symbols, query)`** — when fund catalog returns symbols, prefer ETF tickers from the query over SPX when S&P 500 wording appears.
 
 ---
 
@@ -551,13 +581,37 @@ mgr.broadcast_stop(cid)
 
 ---
 
-# agents/planner_agent.py
+# agents/planner_types.py
 
-**Purpose:** Orchestrate research: decide which agents to call (one or more of Librarian, WebSearcher, Analyst), decompose the user query into agent-specific sub-queries for each chosen agent, run a planner sufficiency check after specialist replies, and either send consolidated data to Responder or start refined planner round(s).
+**Purpose:** `TaskStep` dataclass and `VALID_USER_PROFILES` tuple (shared with planner helper modules without circular imports).
 
 ---
 
-## Class: `TaskStep`
+# agents/planner_formatting.py
+
+**Purpose:** Pure functions: `format_planner_final`, `format_aggregated_for_sufficiency`, `collected_has_answer_signal`, `conversation_state_snippet`, `planner_snippet`, `planner_websearcher_price_line`, `planner_librarian_sql_signal_line`.
+
+---
+
+# agents/planner_decompose.py
+
+**Purpose:** `decompose_planner_task(llm_client, query, user_memory, symbol_resolution)` — LLM `decompose_to_steps` or fixed three-step fallback.
+
+---
+
+# agents/planner_sufficiency.py
+
+**Purpose:** `check_planner_sufficiency`, `get_planner_refined_steps` (LLM round-2 JSON).
+
+---
+
+# agents/planner_agent.py
+
+**Purpose:** Orchestrate research: `handle_message` state machine, symbol resolution attach, calls `decompose_planner_task` / planner_formatting / planner_sufficiency, `create_research_request`.
+
+---
+
+## Class: `TaskStep` (`agents/planner_types.py`; importable from `agents.planner_agent` for tests)
 
 **Purpose:** One step in a decomposed task chain (agent target and params, including the decomposed query).
 
@@ -716,9 +770,15 @@ combined = agent.combine_results(docs, graph_data)
 
 ---
 
+# agents/websearch_helpers.py
+
+**Purpose:** Stateless helpers for WebSearcher: `query_implies_news_intent`, `alpha_vantage_cooldown_message`, `prefer_yahoo_price_first`, `by_tool_should_call` / `by_tool_symbol` / `by_tool_symbol_for_iteration`, `pin_matches_iteration`, `extract_price_from_text`, `summarize_yahoo_fundamental`, `websearch_now_iso`, `get_known_index_symbols`.
+
+---
+
 # agents/websearch_agent.py
 
-**Purpose:** Fetch real-time market and fund data via MCP. Entry point `handle_message` → `_run_parallel_flow`: financial bundle per symbol via `_fetch_all_sources_for_symbol` (stooq, Yahoo, ETFdb, market_tool with dated news payloads), merged by `_merge_financial_results` into `normalized_fund`; news bundle via `_fetch_news_sources` in parallel. Symbol resolution uses `_resolve_symbols` / `_normalize_symbol` and `get_websearcher_heuristics()` (from `database/agent_heuristics.json` via `util/agent_heuristics.py`) so planner tokens like WHAT are not queried as tickers. Returns `normalized_fund`, backward-compat `market_data`/`sentiment`/`regulatory`, and `news`/`citations`. See [websearcher-design.md](../03_tools_and_mcp/websearcher-design.md).
+**Purpose:** Fetch real-time market and fund data via MCP. Uses `agents/websearch_helpers.py` for by_tool routing and timestamps; `_normalize_symbol` delegates to `util.symbol_query_extract.extract_symbol_from_query`; catalog merge uses `merge_catalog_symbols_for_query`. Entry point `handle_message` → `_run_parallel_flow`: financial bundle per symbol via `_fetch_all_sources_for_symbol` (Yahoo `get_price` plus optional `get_fundamental`, Stooq, ETFdb, market_tool with dated news payloads), merged by `_merge_financial_results` into `normalized_fund`; news bundle via `_fetch_news_sources` in parallel. Symbol resolution uses `_resolve_symbols` and `get_websearcher_heuristics()` (from `database/agent_heuristics.json` via `util/agent_heuristics.py`) so planner tokens like WHAT are not queried as tickers. Returns `normalized_fund`, backward-compat `market_data`/`sentiment`/`regulatory`, and `news`/`citations` (optional `news_synthetic` / `news_confidence` for LLM news fallback). See [websearcher-design.md](../03_tools_and_mcp/websearcher-design.md).
 
 ---
 
@@ -1004,124 +1064,45 @@ state = get_conversation("uuid-here")
 
 ---
 
+## scripts/review_staged_for_commit.py
+
+**Purpose:** Runs on `git commit` when hooks are installed. Lists staged paths grouped by top-level directory (cohesion hint), prints a short cohesion/coupling checklist, blocks common secret filenames (`.env`, SSH private key names, obvious private `.pem` patterns, AWS-like credential names), runs `ruff check` on staged `*.py` when `ruff` is on `PATH`. Exit non-zero blocks the commit.
+
+**Inputs:** `git diff --cached`; optional CLI `--print-only` (report + checklist only, no ruff failure exit from this script except secrets).
+
+**Outputs:** Stdout report; stderr on block.
+
+**Example usage:** `python3 scripts/review_staged_for_commit.py --print-only`
+
+---
+
+## scripts/git-hooks/pre-commit
+
+**Purpose:** Bash wrapper executed by Git before commit. `cd`s to repo root and runs `python3 scripts/review_staged_for_commit.py`. Installed by `scripts/install-git-hooks.sh` via `core.hooksPath=scripts/git-hooks`.
+
+---
+
+## scripts/install-git-hooks.sh
+
+**Purpose:** One-time per clone: `git config core.hooksPath scripts/git-hooks` and `chmod +x` on hook/helper scripts. Run from repo root: `./scripts/install-git-hooks.sh`.
+
+---
+
+## scripts/commit-and-push.sh
+
+**Purpose:** Runs `review_staged_for_commit.py`, then `git commit` (arguments passed through, e.g. `-m "msg"`; pre-commit runs again), then prompts to `git push` the current branch. Fails if nothing is staged.
+
+---
+
 ## scripts/test_librarian.py
 
 **Purpose:** Single script to test Librarian helpers and MCP tools used in production: `combine_results`, `retrieve_documents` (vector_tool.search), `retrieve_knowledge_graph` (kg_tool.get_relations), and `handle_message` with `vector_query`, `fund`, and `sql_query` (schema-aligned SQL). Uses real backends when DATABASE_URL, NEO4J_URI, MILVUS_URI are set (e.g. after `./scripts/run.sh` or `python scripts/data_loader.py`); otherwise tools return mock/empty. Run from project root: `python3 scripts/test_librarian.py`. Optional: `--skip-vector`, `--skip-kg`, `--skip-sql`.
 
 ---
 
-# data_manager/
+# data_manager/ (not in repository)
 
-**Purpose:** Legacy data collection/distribution and backend CLI entrypoint. Includes direct backend commands (`populate`, `sql`, `neo4j`, `milvus`) and collection/distribution commands (`collect`, `distribute`, `distribute-funds`, `status`, `list`, `global-news`). Current startup ingestion is loader-first via `scripts/data_loader.py`; schema references live in `docs/data_prep/stats-data-schema.md`, `docs/data_prep/graph-data-schema.md`, and `docs/data_prep/text-data-schema.md`.
-
----
-
-## data_manager/backend_cli.py
-
-**Purpose:** Backend maintenance subcommands for `python -m data_manager`. Registers populate, sql, neo4j, milvus via `add_backend_subcommands(subparsers)`; __main__.py calls it so these commands appear under the data_manager CLI.
-
-**Functions:**
-- `add_backend_subcommands(subparsers)` — Add subparsers for populate, sql, neo4j, milvus and set their `func` to the corresponding cmd_*.
-- `run_populate()` — Deprecated demo-baseline seeding (disabled; `populate_demo` helpers removed).
-- `cmd_populate(_args)` — Deprecated `data_manager populate` command (demo-only).
-- `cmd_sql(args)` — Run a SQL query via sql_tool.run_query; requires DATABASE_URL; prints JSON (rows, schema) or error.
-- `cmd_neo4j(args)` — Run a Cypher query via kg_tool.query_graph; requires NEO4J_URI.
-- `cmd_milvus_index(args)` — Index documents into Milvus (as registered).
-- `cmd_milvus_delete(args)` — Delete by source or filter (as registered).
-
----
-
-## data_manager/collector.py
-
-**Purpose:** Fetch data from MCP market_tool and analyst_tool, save as structured JSON files locally.
-
-**Class:** `DataCollector`
-
-**Methods:**
-- `collect_symbol(symbol: str, as_of_date: str) -> CollectionResult` — Collect all data for a single symbol
-- `collect_batch(symbols: list[str], as_of_date: str) -> BatchResult` — Batch collect for multiple symbols
-
----
-
-## data_manager/distributor.py
-
-**Purpose:** Read local JSON files and distribute to PostgreSQL, Neo4j, and Milvus via MCP tools.
-
-**Class:** `DataDistributor`
-
-**Methods:**
-- `distribute_file(filepath: str) -> DistributionResult` — Distribute a single file
-- `distribute_symbol(symbol: str, as_of_date: str) -> BatchResult` — Distribute all files for a symbol
-- `distribute_pending() -> BatchResult` — Distribute all pending files
-- `distribute_fund_file(filepath: str, load_mode: str, fresh_scope: str) -> BatchResult` — Distribute combined fund JSON with `existing` or `fresh` load behavior
-- `_purge_fund_data(symbols: list[str], scope: str)` — Purge old fund rows before fresh loads (`symbols` or `all`)
-- `_write_to_postgres(table: str, rows: list[dict]) -> int` — Write via sql_tool
-- `_write_to_neo4j(nodes: list, edges: list) -> int` — Write via kg_tool
-- `_write_to_milvus(docs: list[dict]) -> int` — Write via vector_tool
-
----
-
-## data_manager/classifier.py
-
-**Purpose:** Route data to appropriate database based on task_type and content characteristics.
-
-**Class:** `DataClassifier`
-
-**Constants:**
-- `STATIC_ROUTING` — task_type → database mapping (e.g. "stock_data" → "postgres")
-- `MULTI_TARGET` — task_types that write to multiple databases (e.g. "fundamentals" → ["postgres", "neo4j"])
-
-**Methods:**
-- `classify(task_type: str, content: dict) -> ClassificationResult` — Return targets and sub_types
-
----
-
-## data_manager/transformer.py
-
-**Purpose:** Transform raw data to formats required by each database.
-
-**Class:** `DataTransformer`
-
-**Methods:**
-- `to_postgres_rows(task_type: str, symbol: str, content: dict) -> list[dict]` — Transform to PostgreSQL rows
-- `to_neo4j_nodes_edges(task_type: str, symbol: str, content: dict) -> tuple[list, list]` — Transform to Neo4j nodes/edges
-- `to_milvus_docs(task_type: str, symbol: str, content: dict) -> list[dict]` — Transform to Milvus documents
-
----
-
-## data_manager/tasks.py
-
-**Purpose:** CollectionTask definitions and COLLECTION_TASKS registry.
-
-**Dataclass:** `CollectionTask` — task_type, tool_name, payload_builder, output_filename
-
-**Constant:** `COLLECTION_TASKS` — List of predefined collection tasks (stock_data, balance_sheet, cashflow, income_statement, insider_transactions, indicators, news, etc.)
-
----
-
-## data_manager/schemas.py
-
-**Purpose:** Database schema definitions (PostgreSQL DDL, Neo4j node/edge patterns, Milvus collection schema).
-
----
-
-## data_manager/__main__.py
-
-**Purpose:** Entry point for `python -m data_manager`; parses CLI args, calls `add_backend_subcommands(subparsers)` for backend commands (populate, sql, neo4j, milvus), and implements collect/distribute/status/list/global-news/distribute-funds.
-
-**Usage:**
-```bash
-# Startup / repo-baseline ingestion (preferred; see docs/data_prep/revision_plan.md)
-python scripts/data_loader.py --load-mode existing
-
-python -m data_manager collect --symbols NVDA,AAPL --date 2024-01-15
-python -m data_manager distribute --symbol NVDA
-python -m data_manager distribute --all
-# Optional: legacy combined-fund JSON pipeline — supply your own file path (not shipped as repo baseline)
-python -m data_manager distribute-funds --file /path/to/combined_funds.json --load-mode existing
-python -m data_manager distribute-funds --file /path/to/combined_funds.json --load-mode fresh --fresh-scope symbols
-python -m data_manager status --symbol NVDA
-```
+**Status:** The `data_manager` Python package is **not** present in this workspace. **Ingestion:** use [`scripts/data_loader.py`](../../../scripts/data_loader.py) and `docs/data_prep/`. Historical notes on a collect/distribute CLI live in [progress.md](../90_product/progress.md). Do not document `python -m data_manager` as runnable unless the package is restored.
 
 ---
 
@@ -1713,9 +1694,15 @@ result = index_documents([{"content": "Fund X ...", "fund_id": "X"}])
 
 ---
 
+# openfund_mcp/tools/kg_graph_schema_constants.py
+
+**Purpose:** `DATASET_FILES`, `CATEGORY_FIELDS`, `DIMENSION_REL` for `kg_tool.build_graph_csvs` (static schema maps separated from query/load logic).
+
+---
+
 # openfund_mcp/tools/kg_tool.py
 
-**Purpose:** MCP tool for Cypher and relation queries against Neo4j. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD.
+**Purpose:** MCP tool for Cypher and relation queries against Neo4j; CSV bundle build/load. Imports graph CSV constants from `kg_graph_schema_constants.py`. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD.
 
 ---
 

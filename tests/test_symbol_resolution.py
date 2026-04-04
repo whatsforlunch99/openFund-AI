@@ -79,6 +79,18 @@ def test_resolve_spy_etf_calls_etfdb() -> None:
     assert "SPY" in (by.get("etfdb_tool.get_fund_data") or {}).get("symbol", "")
 
 
+def test_resolve_nvidia_typo_nvdia_maps_to_nvda() -> None:
+    from util.symbol_query_extract import extract_symbol_from_query
+
+    assert extract_symbol_from_query("what is the current price of nvdia?") == "NVDA"
+    r = resolve_symbol_resolution_for_query("what is the current price of nvdia?")
+    assert r["status"] == "resolved"
+    listings = r.get("listings") or []
+    assert listings
+    y = listings[0].get("symbol_yahoo") or listings[0].get("symbol_compact")
+    assert y == "NVDA"
+
+
 def test_resolve_empty_query_not_applicable() -> None:
     r = resolve_symbol_resolution_for_query("")
     assert r["status"] == "not_applicable"
@@ -126,11 +138,8 @@ def test_planner_request_includes_symbol_resolution() -> None:
 
 
 def test_format_aggregated_for_sufficiency_includes_normalized_fund() -> None:
-    from unittest.mock import MagicMock
+    from agents.planner_formatting import format_aggregated_for_sufficiency
 
-    from agents.planner_agent import PlannerAgent
-
-    p = PlannerAgent("planner", MagicMock())
     collected = {
         "websearcher": {
             "summary": "Market summary here.",
@@ -140,26 +149,23 @@ def test_format_aggregated_for_sufficiency_includes_normalized_fund() -> None:
             ],
         }
     }
-    agg = p._format_aggregated_for_sufficiency(collected)
+    agg = format_aggregated_for_sufficiency(collected)
     assert "normalized_fund_prices" in agg
     assert "SPY" in agg
     assert "normalized_fund_symbols" in agg
 
 
 def test_collected_has_answer_signal_price_line() -> None:
-    from unittest.mock import MagicMock
+    from agents.planner_formatting import collected_has_answer_signal
 
-    from agents.planner_agent import PlannerAgent
-
-    p = PlannerAgent("planner", MagicMock())
-    assert p._collected_has_answer_signal(
+    assert collected_has_answer_signal(
         {
             "websearcher": {
                 "normalized_fund": [{"symbol": "X", "price": 1.0}],
             }
         }
     )
-    assert not p._collected_has_answer_signal({"websearcher": {"summary": "short"}})
+    assert not collected_has_answer_signal({"websearcher": {"summary": "short"}})
 
 
 def test_legacy_symbol_types_normalize_to_graph_buckets() -> None:
@@ -170,3 +176,61 @@ def test_legacy_symbol_types_normalize_to_graph_buckets() -> None:
     assert ps._normalize_symbol_type("stock") == "equities"
     assert ps._normalize_symbol_type("equities") == "equities"
     assert ps._normalize_symbol_type("bogus") == "unknown"
+
+def test_resolve_nvidia_has_deterministic_tier() -> None:
+    r = resolve_symbol_resolution_for_query("what is the current price of nvdia?")
+    assert r["status"] == "resolved"
+    assert r.get("resolution_tier") == "deterministic"
+    assert r.get("confidence") == 1.0
+    assert r.get("deterministic_reason_code") == "exact_ticker_alias"
+
+
+def test_llm_path_unresolved_without_openfigi_key(monkeypatch) -> None:
+    class _LLM:
+        def complete(self, system_prompt: str, user_content: str) -> str:
+            return (
+                '{"candidate_symbol":"NVDA","inferred_entity_name":"NVIDIA Corporation",'
+                '"rationale":"test"}'
+            )
+
+    def _fake_yahoo_price(payload: dict) -> dict:
+        return {
+            "symbol": "NVDA",
+            "price": 100.0,
+            "close": 100.0,
+            "date": "2026-04-04",
+            "timestamp": "2026-04-04T00:00:00Z",
+            "source": "yahoo",
+            "longName": "NVIDIA Corporation",
+            "shortName": "NVIDIA",
+        }
+
+    monkeypatch.setattr(
+        "openfund_mcp.tools.yahoo_finance_tool.get_price",
+        _fake_yahoo_price,
+    )
+    monkeypatch.delenv("OPENFIGI_API_KEY", raising=False)
+    r = resolve_symbol_resolution_for_query(
+        "I want a good stock pick without naming one",
+        llm_client=_LLM(),
+    )
+    assert r["status"] == "unresolved"
+    assert r.get("reason_code") == "openfigi_unconfigured"
+    by = r.get("by_tool") or {}
+    assert by.get("stooq_tool.get_price", {}).get("reason_code") == "symbol_unresolved"
+
+
+def test_apply_ticker_aliases_from_json() -> None:
+    from util.symbol_resolution_deterministic import apply_ticker_aliases
+
+    assert apply_ticker_aliases("NVDIA") == "NVDA"
+    assert apply_ticker_aliases("AAPL") == "AAPL"
+
+
+def test_openfigi_client_missing_key(monkeypatch) -> None:
+    from util.openfigi_client import map_us_equity_ticker
+
+    monkeypatch.delenv("OPENFIGI_API_KEY", raising=False)
+    out = map_us_equity_ticker("NVDA")
+    assert out.get("ok") is False
+    assert out.get("reason_code") == "openfigi_unconfigured"

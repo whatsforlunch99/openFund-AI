@@ -2020,3 +2020,45 @@ def test_stage_10_4_normalize_empty_list():
     from llm.tool_descriptions import normalize_tool_calls
 
     assert normalize_tool_calls([]) == []
+
+
+def test_e2e_timeout_seconds_default_supports_multi_agent() -> None:
+    """Dataclass default E2E wait is long enough for planner + specialists (env may override load_config)."""
+    from config.config import Config
+
+    assert Config().e2e_timeout_seconds == 180
+
+
+def test_get_librarian_user_content_includes_retrieval_counts() -> None:
+    """Librarian summary prompt includes explicit graph/SQL counts."""
+    from llm.prompts import get_librarian_user_content
+
+    text = get_librarian_user_content(
+        "q",
+        {
+            "graph": {"nodes": [{"id": "a"}], "edges": [{"x": 1}]},
+            "sql": {"rows": [{"a": 1}], "row_count": 1},
+            "documents": [{"id": "d"}],
+        },
+    )
+    assert "graph_nodes=1" in text
+    assert "graph_edges=1" in text
+    assert "sql_rows=1" in text
+    assert "documents=1" in text
+
+
+def test_websearch_query_implies_news_intent() -> None:
+    from agents.websearch_helpers import query_implies_news_intent
+
+    assert query_implies_news_intent("Latest news on AAPL") is True
+    assert query_implies_news_intent("AAPL price last year vs now") is False
+
+
+def test_interaction_log_trace_ids_increment_globally() -> None:
+    from util import interaction_log as il
+
+    il.set_enabled(True)
+    il.set_conversation_id("")
+    a = il._next_global_trace_id()
+    b = il._next_global_trace_id()
+    assert b == a + 1

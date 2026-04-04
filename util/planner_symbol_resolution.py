@@ -1,9 +1,13 @@
-"""Planner-side symbol resolution: listings, per-tool call/skip plan, cache key.
+"""Planner-side symbol resolution: layered pipeline, listings, per-tool call/skip plan, cache key.
 
-Committed multi-listing entities live in ``database/symbol_resolution_known_issuers.json``
-(keyed by cache key). Phrase/symbol → cache_key routing and ticker→type hints live in
-``database/symbol_resolution_routing.json`` (separate from issuer listings). Runtime
-resolutions are cached in ``{MEMORY_STORE_PATH}/symbol_resolution_cache.json``.
+Order: known issuers → deterministic aliases/fuzzy (`database/symbol_resolution_aliases.json`)
+→ optional LLM + Yahoo chart meta + OpenFIGI when `llm_client` is set → heuristic extract.
+`status` may be `resolved`, `unresolved`, or `not_applicable`. See
+`docs/workflow/02_planning/symbol-resolution-pipeline.md`.
+
+Committed multi-listing entities: ``database/symbol_resolution_known_issuers.json``.
+Routing: ``database/symbol_resolution_routing.json``. Resolved payloads cached in
+``{MEMORY_STORE_PATH}/symbol_resolution_cache.json``.
 """
 
 from __future__ import annotations
@@ -13,7 +17,21 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from agents.websearch_agent import extract_symbol_from_query
+from util.symbol_query_extract import extract_symbol_from_query
+
+from util.openfigi_client import map_us_equity_ticker
+from util.symbol_resolution_deterministic import (
+    apply_ticker_aliases,
+    passes_deterministic_threshold,
+    try_deterministic_resolution,
+)
+from util.symbol_resolution_llm import llm_infer_symbol
+from util.symbol_resolution_validation import yahoo_validate_entity
+from util.symbol_resolution.cache_io import get_cached_entry, load_cache, put_cached_entry
+
+LLM_VALIDATED_CONFIDENCE = 0.72
+HEURISTIC_EXTRACT_CONFIDENCE = 0.55
+
 
 # ---------------------------------------------------------------------------
 # MCP by_tool registry (planner-side gating only; keep aligned with openfund_mcp/tools)
@@ -78,7 +96,7 @@ def call_entry(symbol: Optional[str] = None, listing_index: int = 0) -> dict[str
     return out
 
 
-SYMBOL_RESOLUTION_SCHEMA_VERSION = 3
+SYMBOL_RESOLUTION_SCHEMA_VERSION = 4
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _KNOWN_ISSUERS_PATH = os.path.join(
@@ -351,44 +369,171 @@ def _build_by_tool(
     return by_tool
 
 
+
+def _normalize_listings_symbols(listings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for L in listings:
+        if not isinstance(L, dict):
+            continue
+        d = dict(L)
+        for k in ("symbol_yahoo", "symbol_compact"):
+            v = d.get(k)
+            if isinstance(v, str) and v.strip():
+                if "." in v:
+                    base, suf = v.split(".", 1)
+                    d[k] = f"{apply_ticker_aliases(base)}.{suf}"
+                else:
+                    d[k] = apply_ticker_aliases(v.strip())
+        out.append(d)
+    return out
+
+
+def _build_by_tool_unresolved() -> dict[str, Any]:
+    by_tool: dict[str, Any] = {}
+    for tid in FINANCIAL_TOOL_IDS:
+        if tid == "market_tool.get_global_news":
+            by_tool[tid] = call_entry()
+        else:
+            by_tool[tid] = skip_entry(
+                "symbol_unresolved",
+                "Ticker not validated; provide a specific symbol or exchange.",
+            )
+    for tid in NEWS_TOOL_IDS:
+        by_tool[tid] = call_entry()
+    return by_tool
+
+
+def _trim_openfigi_for_payload(og: dict[str, Any]) -> dict[str, Any]:
+    if not og.get("ok"):
+        return {
+            "ok": False,
+            "error": og.get("error"),
+            "reason_code": og.get("reason_code"),
+        }
+    return {
+        "ok": True,
+        "figi": og.get("figi"),
+        "name": og.get("name"),
+        "security_type": og.get("security_type"),
+        "ticker": og.get("ticker"),
+    }
+
+
+def _resolved_payload(
+    listings: list[dict[str, Any]],
+    cache_key: str,
+    canonical_name: str,
+    symbol_type: str,
+    source: str,
+    resolution_tier: str,
+    confidence: float,
+    validation: Optional[dict[str, Any]] = None,
+    deterministic_reason: Optional[str] = None,
+) -> dict[str, Any]:
+    listings = _normalize_listings_symbols(listings)
+    primary = listings[0]
+    by_tool = _build_by_tool(listings, symbol_type=symbol_type)
+    out: dict[str, Any] = {
+        "schema_version": SYMBOL_RESOLUTION_SCHEMA_VERSION,
+        "status": "resolved",
+        "cache_key": cache_key or (str(primary.get("symbol_yahoo") or "")).lower(),
+        "canonical_name": canonical_name or str(primary.get("symbol_yahoo", "")),
+        "symbol_type": symbol_type,
+        "listings": listings,
+        "by_tool": by_tool,
+        "source": source,
+        "updated_at": _now_iso(),
+        "resolution_tier": resolution_tier,
+        "confidence": confidence,
+        "validation": validation or {},
+    }
+    if deterministic_reason:
+        out["deterministic_reason_code"] = deterministic_reason
+    return out
+
+
+def _unresolved_payload(
+    cache_key: str,
+    reason_code: str,
+    message: str = "",
+    validation: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": SYMBOL_RESOLUTION_SCHEMA_VERSION,
+        "status": "unresolved",
+        "reason_code": reason_code,
+        "cache_key": cache_key,
+        "canonical_name": "",
+        "symbol_type": "unknown",
+        "listings": [],
+        "by_tool": _build_by_tool_unresolved(),
+        "source": "planner",
+        "updated_at": _now_iso(),
+        "resolution_tier": "unresolved",
+        "confidence": 0.0,
+        "validation": validation or {},
+        "unresolved_message": message,
+    }
+
+
+def _not_applicable_payload(reason_code: str) -> dict[str, Any]:
+    return {
+        "schema_version": SYMBOL_RESOLUTION_SCHEMA_VERSION,
+        "status": "not_applicable",
+        "reason_code": reason_code,
+        "cache_key": "",
+        "canonical_name": "",
+        "symbol_type": "",
+        "listings": [],
+        "by_tool": {},
+        "source": "planner",
+        "updated_at": _now_iso(),
+        "resolution_tier": "not_applicable",
+        "confidence": 0.0,
+        "validation": {},
+    }
+
+
 def resolution_summary_for_prompt(resolution: dict[str, Any]) -> str:
     """Short text for LLM decomposition context."""
     if not isinstance(resolution, dict):
         return ""
-    if resolution.get("status") != "resolved":
+    st = resolution.get("status")
+    if st == "unresolved":
+        msg = resolution.get("unresolved_message") or resolution.get("reason_code") or ""
+        return (
+            "Symbol resolution: **unresolved** — "
+            "Provide a specific ticker or exchange-listed symbol if possible. "
+            f"({msg})"
+        )
+    if st != "resolved":
         return ""
     name = resolution.get("canonical_name") or ""
     listings = resolution.get("listings") or []
     if not listings:
         return ""
-    syms = [str(L.get("symbol_yahoo") or L.get("symbol_compact") or "") for L in listings if isinstance(L, dict)]
+    syms = [
+        str(L.get("symbol_yahoo") or L.get("symbol_compact") or "")
+        for L in listings
+        if isinstance(L, dict)
+    ]
     syms = [s for s in syms if s]
-    parts = [f"Resolved entity: {name or syms[0]}", f"Primary symbols: {', '.join(syms[:4])}"]
+    parts = [
+        f"Resolved entity: {name or syms[0]}",
+        f"Primary symbols: {', '.join(syms[:4])}",
+    ]
     return "\n".join(parts)
 
 
-def resolve_symbol_resolution_for_query(query: str) -> dict[str, Any]:
-    """Full symbol_resolution payload for ACL content and cache (schema_version 3: graph-aligned symbol_type)."""
+def resolve_symbol_resolution_for_query(
+    query: str,
+    llm_client: Any = None,
+) -> dict[str, Any]:
+    """Layered resolution: deterministic → optional LLM+Yahoo+OpenFIGI → heuristic extract."""
     q = (query or "").strip()
     cache_key = derive_cache_key(q)
     if not q:
-        return {
-            "schema_version": SYMBOL_RESOLUTION_SCHEMA_VERSION,
-            "status": "not_applicable",
-            "reason_code": "empty_query",
-            "cache_key": "",
-            "canonical_name": "",
-            "symbol_type": "",
-            "listings": [],
-            "by_tool": {},
-            "source": "planner",
-            "updated_at": _now_iso(),
-        }
-
-    listings: list[dict[str, Any]] = []
-    canonical_name = ""
-    symbol_type = "unknown"
-    source = "heuristic_planner"
+        return _not_applicable_payload("empty_query")
 
     issuers = _load_known_issuers()
     if cache_key and cache_key in issuers:
@@ -396,93 +541,130 @@ def resolve_symbol_resolution_for_query(query: str) -> dict[str, Any]:
         listings = [dict(x) for x in issuer["listings"]]
         canonical_name = issuer["canonical_name"]
         symbol_type = _normalize_symbol_type(issuer.get("symbol_type"))
+        return _resolved_payload(
+            listings,
+            cache_key,
+            canonical_name,
+            symbol_type,
+            source="known_issuer",
+            resolution_tier="deterministic_issuer",
+            confidence=1.0,
+        )
 
-    if not listings:
-        sym = extract_symbol_from_query(q)
-        if sym and sym != "AAPL":
-            listings = _listings_from_ticker(sym)
-            canonical_name = sym
-            symbol_type = _ticker_symbol_type_from_routing(sym)
+    det = try_deterministic_resolution(q)
+    if det is not None and passes_deterministic_threshold(det):
+        sym = det.symbol
+        listings = _listings_from_ticker(sym)
+        symbol_type = _ticker_symbol_type_from_routing(sym)
+        return _resolved_payload(
+            listings,
+            cache_key or f"sym:{sym.lower()}",
+            det.canonical_name,
+            symbol_type,
+            source="deterministic_aliases",
+            resolution_tier="deterministic",
+            confidence=float(det.confidence),
+            deterministic_reason=det.reason_code,
+        )
 
-    if not listings:
-        return {
-            "schema_version": SYMBOL_RESOLUTION_SCHEMA_VERSION,
-            "status": "not_applicable",
-            "reason_code": "no_listable_security",
-            "cache_key": cache_key or q[:80].lower(),
-            "canonical_name": "",
-            "symbol_type": "unknown",
-            "listings": [],
-            "by_tool": {},
-            "source": source,
-            "updated_at": _now_iso(),
+    if llm_client is not None:
+        inferred = llm_infer_symbol(llm_client, q)
+        if not inferred:
+            return _unresolved_payload(
+                cache_key or q[:80].lower(),
+                "llm_no_candidate",
+                "Could not infer a ticker from the query.",
+            )
+        cand = apply_ticker_aliases(inferred["candidate_symbol"])
+        yh = yahoo_validate_entity(cand, inferred.get("inferred_entity_name") or "")
+        if not yh.get("ok"):
+            return _unresolved_payload(
+                cache_key or q[:80].lower(),
+                "yahoo_entity_validation_failed",
+                str(yh.get("error") or "Yahoo validation failed"),
+                validation={"yahoo": yh},
+            )
+        og = map_us_equity_ticker(cand)
+        if not og.get("ok"):
+            return _unresolved_payload(
+                cache_key or q[:80].lower(),
+                str(og.get("reason_code") or "openfigi_failed"),
+                str(og.get("error") or "OpenFIGI validation failed"),
+                validation={
+                    "yahoo": yh,
+                    "openfigi": _trim_openfigi_for_payload(og),
+                },
+            )
+        listings = _listings_from_ticker(cand)
+        symbol_type = _ticker_symbol_type_from_routing(cand)
+        cn = (
+            inferred.get("inferred_entity_name")
+            or (yh.get("matched_fields") or {}).get("long_name")
+            or cand
+        )
+        val = {
+            "entity_validation": {
+                "method": yh.get("validation_method"),
+                "evidence_summary": yh.get("evidence_summary"),
+                "matched_fields": yh.get("matched_fields"),
+            },
+            "openfigi": _trim_openfigi_for_payload(og),
+            "llm_rationale": inferred.get("rationale"),
         }
+        return _resolved_payload(
+            listings,
+            cache_key or f"sym:{cand.lower()}",
+            str(cn),
+            symbol_type,
+            source="llm_openfigi_validated",
+            resolution_tier="llm_validated",
+            confidence=LLM_VALIDATED_CONFIDENCE,
+            validation=val,
+        )
 
-    primary = listings[0]
-    by_tool = _build_by_tool(listings, symbol_type=symbol_type)
+    sym = extract_symbol_from_query(q)
+    sym = apply_ticker_aliases(sym)
+    if sym and sym != "AAPL":
+        listings = _listings_from_ticker(sym)
+        symbol_type = _ticker_symbol_type_from_routing(sym)
+        return _resolved_payload(
+            listings,
+            cache_key or f"sym:{sym.lower()}",
+            sym,
+            symbol_type,
+            source="heuristic_planner",
+            resolution_tier="heuristic_extract",
+            confidence=HEURISTIC_EXTRACT_CONFIDENCE,
+        )
 
     return {
         "schema_version": SYMBOL_RESOLUTION_SCHEMA_VERSION,
-        "status": "resolved",
-        "cache_key": cache_key or (primary.get("symbol_yahoo") or "").lower(),
-        "canonical_name": canonical_name or primary.get("symbol_yahoo", ""),
-        "symbol_type": symbol_type,
-        "listings": listings,
-        "by_tool": by_tool,
-        "source": source,
+        "status": "not_applicable",
+        "reason_code": "no_listable_security",
+        "cache_key": cache_key or q[:80].lower(),
+        "canonical_name": "",
+        "symbol_type": "unknown",
+        "listings": [],
+        "by_tool": {},
+        "source": "heuristic_planner",
         "updated_at": _now_iso(),
+        "resolution_tier": "not_applicable",
+        "confidence": 0.0,
+        "validation": {},
     }
 
 
 def maybe_use_cached_resolution(
-    query: str, cached: Optional[dict[str, Any]]
+    query: str,
+    cached: Optional[dict[str, Any]],
+    llm_client: Any = None,
 ) -> dict[str, Any]:
     """Return cached entry if schema matches; else compute fresh."""
     if isinstance(cached, dict) and int(cached.get("schema_version", 0)) == SYMBOL_RESOLUTION_SCHEMA_VERSION:
-        return dict(cached)
-    return resolve_symbol_resolution_for_query(query)
-
-
-# ---------------------------------------------------------------------------
-# Runtime JSON cache under MEMORY_STORE_PATH (was symbol_resolution_cache)
-# ---------------------------------------------------------------------------
-
-_SYMBOL_RESOLUTION_CACHE_FILENAME = "symbol_resolution_cache.json"
-
-
-def _symbol_resolution_cache_path() -> str:
-    root = os.environ.get("MEMORY_STORE_PATH", "memory").rstrip("/")
-    return os.path.join(root, _SYMBOL_RESOLUTION_CACHE_FILENAME)
-
-
-def load_cache() -> dict[str, Any]:
-    path = _symbol_resolution_cache_path()
-    if not os.path.exists(path):
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
-def get_cached_entry(cache_key: str) -> Optional[dict[str, Any]]:
-    if not cache_key:
-        return None
-    data = load_cache()
-    entry = data.get(cache_key)
-    return entry if isinstance(entry, dict) else None
-
-
-def put_cached_entry(cache_key: str, entry: dict[str, Any]) -> None:
-    if not cache_key or not isinstance(entry, dict):
-        return
-    path = _symbol_resolution_cache_path()
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    data = load_cache()
-    data[cache_key] = entry
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
+        entry = dict(cached)
+        if entry.get("status") == "resolved" and isinstance(entry.get("listings"), list):
+            entry["listings"] = _normalize_listings_symbols(entry["listings"])
+            sym_type = str(entry.get("symbol_type") or "unknown")
+            entry["by_tool"] = _build_by_tool(entry["listings"], symbol_type=sym_type)
+        return entry
+    return resolve_symbol_resolution_for_query(query, llm_client=llm_client)

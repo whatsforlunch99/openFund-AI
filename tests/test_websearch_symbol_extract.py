@@ -1,13 +1,13 @@
-"""Tests for ticker extraction from free-form queries (websearch_agent)."""
+"""Tests for ticker extraction from free-form queries."""
 
 from unittest.mock import MagicMock
 
-from agents.websearch_agent import (
-    WebSearcherAgent,
-    _by_tool_symbol_for_iteration,
-    _pin_matches_iteration,
-    extract_symbol_from_query,
+from agents.websearch_agent import WebSearcherAgent
+from agents.websearch_helpers import (
+    by_tool_symbol_for_iteration,
+    pin_matches_iteration,
 )
+from util.symbol_query_extract import extract_symbol_from_query
 
 
 def test_extract_symbol_china_vanke_prefers_listed_ticker() -> None:
@@ -23,12 +23,12 @@ def test_normalize_symbol_china_vanke_matches_extract() -> None:
 
 
 def test_pin_matches_iteration_same_security_suffix() -> None:
-    assert _pin_matches_iteration("000002.SZ", "000002") is True
-    assert _pin_matches_iteration("000002.SZ", "000002.SZ") is True
+    assert pin_matches_iteration("000002.SZ", "000002") is True
+    assert pin_matches_iteration("000002.SZ", "000002.SZ") is True
 
 
 def test_pin_matches_iteration_different_securities() -> None:
-    assert _pin_matches_iteration("000002.SZ", "SPY") is False
+    assert pin_matches_iteration("000002.SZ", "SPY") is False
 
 
 def test_extract_spy_wins_over_sp500_phrase_in_same_query() -> None:
@@ -41,11 +41,11 @@ def test_extract_spy_wins_over_sp500_phrase_in_same_query() -> None:
 
 
 def test_merge_catalog_prefers_spy_over_spx_when_query_names_spy() -> None:
-    from agents.websearch_agent import _merge_catalog_symbols_for_query
+    from util.symbol_query_extract import merge_catalog_symbols_for_query
 
     q = "China Vanke and SPY (S&P 500 ETF)"
-    assert _merge_catalog_symbols_for_query(["SPX"], q) == ["SPY"]
-    assert _merge_catalog_symbols_for_query(["SPX", "VOO"], q)[:2] == ["SPY", "VOO"]
+    assert merge_catalog_symbols_for_query(["SPX"], q) == ["SPY"]
+    assert merge_catalog_symbols_for_query(["SPX", "VOO"], q)[:2] == ["SPY", "VOO"]
 
 
 def test_by_tool_symbol_for_iteration_uses_loop_symbol_when_pin_differs() -> None:
@@ -57,13 +57,13 @@ def test_by_tool_symbol_for_iteration_uses_loop_symbol_when_pin_differs() -> Non
         }
     }
     assert (
-        _by_tool_symbol_for_iteration(
+        by_tool_symbol_for_iteration(
             by_tool, "yahoo_finance_tool.get_fundamental", "SPY"
         )
         == "SPY"
     )
     assert (
-        _by_tool_symbol_for_iteration(
+        by_tool_symbol_for_iteration(
             by_tool, "yahoo_finance_tool.get_fundamental", "000002.SZ"
         )
         == "000002.SZ"

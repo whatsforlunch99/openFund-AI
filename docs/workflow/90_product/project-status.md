@@ -13,6 +13,7 @@ Tracks **major capability readiness**. Update when a capability becomes operatio
 | MCP server + client + file_tool | C1 | Live | `python -m openfund_mcp`; `file_tool.read_file`; `register_default_tools` skips market_tool/analyst_tool if optional deps (e.g. pandas) fail to import |
 | BaseAgent run loop | — | Live | receive, STOP break, handle_message; exits cleanly on STOP |
 | PlannerAgent orchestration | FR4 | Live | Decomposition + specialist dispatch; planner sufficiency check (LLM-based); refined planner round(s) up to MAX_RESEARCH_ROUNDS |
+| Layered planner symbol resolution | — | Live | Schema v4: deterministic aliases (`symbol_resolution_aliases.json`), LLM+Yahoo+OpenFIGI when `llm_client` set; `unresolved` skips financial by_tool; `OPENFIGI_API_KEY` |
 | LibrarianAgent | FR4 | Live | MCP retrieval (vector/kg/sql; optional file_tool when LLM selects it), LLM tool selection when llm_client is set, fallback content-key dispatch (vector_query, fund, sql_query) |
 | ResponderAgent | FR5, FR6 | Live | register_reply, broadcast_stop; responder LLM formatting when llm_client set, else OutputRail `format_for_user` + `check_compliance` by user_profile |
 | E2E one conversation | — | Live | `python main.py --e2e-once` (planner + librarian + websearcher + analyst + responder; static LLM fallback in e2e path) |

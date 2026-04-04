@@ -126,6 +126,11 @@ def _av_rate_limit_error(tool_name: str) -> str | None:
     )
 
 
+def alpha_vantage_cooldown_active() -> bool:
+    """True while in-process AV cooldown is active (skip further AV-backed calls this turn)."""
+    return time.time() < _AV_RATE_LIMITED_UNTIL
+
+
 def _make_api_request(function_name: str, params: dict) -> str:
     """Make API request and return response text. Raises AlphaVantageRateLimitError on rate limit."""
     api_params = params.copy()

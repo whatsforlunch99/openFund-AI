@@ -1,0 +1,42 @@
+---
+description: When preparing a git commit or reviewing staged changes — cohesion within files, low coupling between modules, then commit
+globs: scripts/review_staged_for_commit.py, scripts/git-hooks/**, scripts/commit-and-push.sh
+alwaysApply: false
+---
+
+# Git commit — cohesion and coupling review
+
+Use this rule when the user is about to **commit**, **push**, or asks to **review staged changes** for GitHub.
+
+## Workflow
+
+1. Run `python3 scripts/review_staged_for_commit.py --print-only` (or rely on `pre-commit` after `git add`) for automated guards and ruff.
+2. Review the **diff** (staged or proposed) with the checklist below.
+3. **Edit** the code to fix violations: merge scattered logic, extract only when it reduces coupling, remove duplication, align with existing module boundaries (`agents/`, `util/`, `openfund_mcp/`, `api/`, `llm/`).
+4. Prefer **small commits**; if the diff mixes unrelated concerns, suggest splitting.
+5. Only after fixes: `git commit` (and push if requested). Never commit `.env` or secrets.
+
+## High cohesion (within a file or module)
+
+- One main responsibility per file; helpers stay near their only caller unless reused elsewhere.
+- Avoid long scripts that mix orchestration, I/O, and domain rules — separate layers already used in this repo (e.g. agents vs util).
+- Related constants and small helpers for the same feature live together; avoid “grab bag” modules.
+
+## Low coupling (between files / packages)
+
+- Depend on **stable, narrow** interfaces: import specific functions or small facades, not whole package trees unnecessarily.
+- **util/** holds shared, generic helpers; **agents/** should not duplicate util logic — extend util or the owning agent.
+- **openfund_mcp/** tools stay MCP-facing; business orchestration stays in **agents/** and **api/**.
+- Cross-imports: prefer dependency direction **api → agents → util** and **agents → openfund_mcp** via MCP client, not agents importing deep MCP implementation details unless already the pattern.
+
+## Checklist (quick)
+
+- [ ] No secrets or `.env` in the commit.
+- [ ] No duplicate logic that belongs in an existing util/agent module.
+- [ ] New public functions documented in **file-structure.md** if the repo documents that symbol (per project rules).
+- [ ] Tests updated if behavior changed; **CHANGELOG.md** if user-visible.
+- [ ] Docs: update the **single owning doc** per `.cursor/rules/docs-structure.mdc` if contracts or behavior changed.
+
+## What the git hook does *not* do
+
+The `pre-commit` hook does **not** run the AI or auto-refactor. It blocks obvious secret paths, prints cohesion **hints**, and runs **ruff**. Semantic review and edits are done here in Cursor using this rule.

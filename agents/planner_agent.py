@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from typing import TYPE_CHECKING, Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
-from agents.websearch_agent import extract_symbol_from_query
+from agents.planner_decompose import decompose_planner_task
+from agents.planner_formatting import (
+    collected_has_answer_signal,
+    conversation_state_snippet,
+    format_aggregated_for_sufficiency,
+    format_planner_final,
+)
+from agents.planner_sufficiency import check_planner_sufficiency, get_planner_refined_steps
+from agents.planner_types import VALID_USER_PROFILES, TaskStep
 from util import interaction_log
+from util.agent_heuristics import get_planner_heuristics
+from util.answer_coverage import strong_equity_evidence_for_sufficiency
 from util.planner_symbol_resolution import (
     derive_cache_key,
     get_cached_entry,
@@ -20,32 +28,11 @@ from util.planner_symbol_resolution import (
     resolution_summary_for_prompt,
     resolve_symbol_resolution_for_query,
 )
-from util.agent_heuristics import get_planner_heuristics, planner_fallback_substring_symbol_pairs
 from util.specialist_snapshot import build_data_sources_from_collected
 
 logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from llm.base import LLMClient
-
-# Same allowed values as api/rest.py; normalize so Responder/OutputRail get consistent profile.
-VALID_USER_PROFILES = ("beginner", "long_term", "analyst")
-
-
-class TaskStep:
-    """Planner decompose tasks into many step, TaskStep holds target and instructions for the specific step.
-
-    Attributes:
-        agent: Target agent: "librarian" | "websearcher" | "analyst".
-        params: Parameters for the step (including "query"); forwarded as ACLMessage content. Either a dict with string keys and values of any type, defaulting to None.
-    """
-
-    def __init__(
-        self,
-        agent: str,
-        params: Optional[dict[str, Any]] = None,
-    ) -> None:
-        self.agent = agent
-        self.params = params or {}
 
 
 class PlannerAgent(BaseAgent):
@@ -139,7 +126,7 @@ class PlannerAgent(BaseAgent):
             if self._conversation_manager:
                 pending_list = list(self._round_pending[conversation_id])
                 still_waiting = ", ".join(pending_list) if pending_list else "none"
-                snippet = self._conversation_state_snippet(content)
+                snippet = conversation_state_snippet(content)
                 self._conversation_manager.append_flow(
                     conversation_id,
                     {
@@ -157,7 +144,7 @@ class PlannerAgent(BaseAgent):
             # if all agents have responded, compute the combined answer candidate
             if not self._round_pending[conversation_id]:
                 collected = self._collected[conversation_id]
-                final = self._format_final(collected)
+                final = format_planner_final(collected)
                 user_profile = self._user_profile_by_conversation.get(
                     conversation_id, "beginner"
                 )
@@ -169,13 +156,17 @@ class PlannerAgent(BaseAgent):
                 insufficient = False
                 if self._llm_client and original_query:
                     # Sufficiency phase: decide whether to stop or run a refined second round.
-                    aggregated = self._format_aggregated_for_sufficiency(collected)
-                    sufficient = self._check_sufficiency(original_query, aggregated)
+                    aggregated = format_aggregated_for_sufficiency(collected)
+                    sufficient = check_planner_sufficiency(
+                        self._llm_client, original_query, aggregated
+                    )
+                    if not sufficient and strong_equity_evidence_for_sufficiency(collected):
+                        sufficient = True
                     if sufficient:
                         pass
                     elif round_num < self._max_rounds:
-                        refined_steps = self._get_refined_steps(
-                            original_query, aggregated
+                        refined_steps = get_planner_refined_steps(
+                            self._llm_client, original_query, aggregated
                         )
                         if refined_steps:
                             self._round_number[conversation_id] = 2
@@ -245,7 +236,7 @@ class PlannerAgent(BaseAgent):
                 partial_insufficient = False
                 if send_to_responder:
                     if insufficient:
-                        if self._collected_has_answer_signal(collected):
+                        if collected_has_answer_signal(collected):
                             ph = get_planner_heuristics()
                             final = (
                                 ph.partial_insufficient_prefix
@@ -333,8 +324,14 @@ class PlannerAgent(BaseAgent):
 
         cache_key = derive_cache_key(query)
         cached = get_cached_entry(cache_key) if cache_key else None
-        symbol_resolution = maybe_use_cached_resolution(query, cached)
-        if cached is None and cache_key:
+        symbol_resolution = maybe_use_cached_resolution(
+            query, cached, llm_client=self._llm_client
+        )
+        if (
+            cached is None
+            and cache_key
+            and symbol_resolution.get("status") == "resolved"
+        ):
             put_cached_entry(cache_key, symbol_resolution)
         self._symbol_resolution_by_conversation[conversation_id] = symbol_resolution
 
@@ -429,453 +426,19 @@ class PlannerAgent(BaseAgent):
             result={"REQUEST": "sent to specialists", "agents": [s.agent for s in steps]},
         )
 
-    def _snippet(self, text: str | None, max_len: int = 120) -> str:
-        """Return text truncated to max_len with '...' if longer. Handles None/non-str."""
-        if text is None:
-            return ""
-        s = str(text).strip()
-        if len(s) <= max_len:
-            return s
-        return s[:max_len] + "..."
-
-    def _websearcher_price_line(self, w: dict[str, Any]) -> str:
-        """One-line price summary from websearcher normalized_fund so Responder always sees numbers."""
-        nf = w.get("normalized_fund")
-        if not isinstance(nf, list) or not nf:
-            return ""
-        parts: list[str] = []
-        for rec in nf[:3]:
-            if not isinstance(rec, dict):
-                continue
-            sym = rec.get("symbol") or "?"
-            pr = rec.get("price")
-            py = rec.get("price_yahoo")
-            src = rec.get("source") if isinstance(rec.get("source"), dict) else {}
-            price_src = src.get("price") if isinstance(src, dict) else None
-            if pr is not None:
-                try:
-                    line = f"{sym} ${float(pr):.2f}"
-                    if price_src:
-                        line += f" ({price_src})"
-                    elif py is not None:
-                        line += f" (Yahoo ${float(py):.2f})"
-                    parts.append(line)
-                except (TypeError, ValueError):
-                    pass
-            elif py is not None:
-                try:
-                    parts.append(f"{sym} ${float(py):.2f} (Yahoo)")
-                except (TypeError, ValueError):
-                    pass
-        return "; ".join(parts) if parts else ""
-
-    def _format_final(self, collected: dict[str, Any]) -> str:
-        """Turn collected agent outputs into a single string for Responder.
-
-        Args:
-            collected: Map of agent name to INFORM content (e.g. librarian, websearcher, analyst).
-
-        Returns:
-            Concatenated summary string (Librarian/WebSearcher/Analyst: ...).
-        """
-        parts = []
-        if "librarian" in collected:
-            c = collected["librarian"]
-            if c.get("content"):
-                parts.append(str(c["content"]))
-            
-            # if the librarian has retrieved documents or graph data, add a summary of the data
-            elif c.get("documents") or c.get("graph"):
-                bits: list[str] = []
-
-                docs = c.get("documents")
-                if isinstance(docs, list) and docs:
-                    bits.append(f"{len(docs)} doc(s)")
-
-                    # add a summary of the first document
-                    first = docs[0]
-                    if isinstance(first, dict):
-                        content_str = first.get("content") or first.get("text")
-                        if isinstance(content_str, str) and content_str.strip():
-                            bits.append(f' (e.g. "{self._snippet(content_str, 120)}")')
-
-                g = c.get("graph")
-                if isinstance(g, dict) and g.get("nodes"):
-                    nodes = g["nodes"]
-
-                    # add a summary of the graph nodes - the first 3 nodes
-                    if isinstance(nodes, list) and nodes:
-                        bits.append(f"{len(nodes)} graph node(s)")
-                        ids = []
-                        for n in nodes[:3]:
-                            if isinstance(n, dict):
-                                nid = n.get("id")
-                                if nid is None:
-                                    lbl = n.get("label")
-                                    nid = lbl[0] if isinstance(lbl, list) and lbl else lbl
-                                if nid is not None:
-                                    ids.append(str(nid))
-                        if ids:
-                            bits.append(f" ({', '.join(ids)})")
-                if bits:
-                    parts.append("Librarian: " + ", ".join(bits).strip() + ".")
-                else:
-                    parts.append("Librarian: no content.")
-            else:
-                parts.append("Librarian: data retrieved.")
-
-        if "websearcher" in collected:
-            w = collected["websearcher"]
-            # Include websearcher block if we have any structured payload (not only errors).
-            has_ws_payload = bool(
-                w.get("market_data")
-                or w.get("sentiment")
-                or w.get("normalized_fund")
-                or w.get("summary")
-            )
-            if has_ws_payload:
-                bits_ws: list[str] = []
-                # Symbol mismatch check: if websearcher returned data for wrong symbol, do not use it.
-                ws_query = w.get("query") or ""
-                expected_symbol = extract_symbol_from_query(ws_query) if isinstance(ws_query, str) else ""
-                nf = w.get("normalized_fund") or []
-                actual_symbols = [
-                    rec.get("symbol") for rec in nf
-                    if isinstance(rec, dict) and rec.get("symbol")
-                ]
-                symbol_mismatch = bool(
-                    expected_symbol
-                    and actual_symbols
-                    and expected_symbol.upper() not in {s.upper() for s in actual_symbols}
-                )
-                if symbol_mismatch:
-                    bits_ws.append(
-                        f"No market data could be retrieved for the requested symbol ({expected_symbol})."
-                    )
-                    price_line = ""
-                else:
-                    price_line = self._websearcher_price_line(w)
-                    if price_line:
-                        bits_ws.append(f"price: {price_line}")
-                summary_ws = w.get("summary")
-
-                # if there is a summary, add a snippet of the summary (longer cap when price already set)
-                if isinstance(summary_ws, str) and summary_ws.strip():
-                    cap = 280 if price_line else 120
-                    bits_ws.append(f'"{self._snippet(summary_ws, cap)}"')
-                elif not price_line:
-                    # if there is no summary, add a summary of the market data and sentiment data
-                    for key, label in (("market_data", "market data"), ("sentiment", "sentiment")):
-                        val = w.get(key)
-
-                        # if there is an error, add a summary of the error
-                        if isinstance(val, dict):
-                            err = val.get("error")
-                            if isinstance(err, str) and err.strip():
-                                bits_ws.append(f"{label}: error {self._snippet(err, 80)}")
-                            else:
-                                # if there is content, add 120-char snippet
-                                content_val = val.get("content")
-                                if isinstance(content_val, str) and content_val.strip():
-                                    bits_ws.append(f'{label}: "{self._snippet(content_val, 120)}"')
-                                else:
-                                    # else just say that there's a label
-                                    bits_ws.append(f"{label} present, no content")
-                if bits_ws:
-                    parts.append("WebSearcher: " + "; ".join(bits_ws) + ".")
-                else:
-                    parts.append("WebSearcher: no content.")
-
-        if "analyst" in collected:
-            a = collected["analyst"]
-            if a.get("analysis") is not None:
-                analysis_val = a["analysis"]
-                bits_a: list[str] = []
-
-                # if the analysis is a dictionary, add a summary of the confidence and summary
-                if isinstance(analysis_val, dict):
-                    conf = analysis_val.get("confidence")
-                    if conf is not None:
-                        bits_a.append(f"confidence {conf}")
-                    
-                    # if the summary is a string, add a snippet of the summary
-                    summary_a = analysis_val.get("summary")
-                    if isinstance(summary_a, str) and summary_a.strip():
-                        bits_a.append(f'"{self._snippet(summary_a, 120)}"')
-                    elif not bits_a:
-                        # if there is no confidence or summary, add a snippet of the analysis
-                        bits_a.append(self._snippet(str(analysis_val), 150))
-                else:
-                    # if the analysis is not a dictionary, add a snippet of the analysis
-                    bits_a.append(self._snippet(str(analysis_val), 120))
-                
-                if bits_a:
-                    parts.append("Analyst: " + " ".join(bits_a) + ".")
-                else:
-                    parts.append("Analyst: no content.")
-
-        return " ".join(parts) if parts else "Research round complete."
-
-    def _conversation_state_snippet(self, content: dict[str, Any], max_chars: int = 350) -> str:
-        """Human-readable summary of agent result for flow display (errors, summary, or key fields) for use in the conversation manager."""
-        if not content:
-            return ""
-
-        # Explicit error (e.g. from tool or MCP)
-        err = content.get("error")
-        if isinstance(err, str) and err.strip():
-            return f"Error: {self._snippet(err, 250)}"
-        if isinstance(content.get("market_data"), dict) and content["market_data"].get("error"):
-            e = content["market_data"]["error"]
-            return f"Error: {self._snippet(e, 250)}"
-
-        # Summary from LLM or agent
-        summary = content.get("summary")
-        if isinstance(summary, str) and summary.strip():
-            return f"Summary: {self._snippet(summary, max_chars)}"
-
-        # Structured keys: describe what's present and show a short preview
-        parts = []
-        for key in ("market_data", "sentiment", "analysis", "documents", "graph", "combined_data"):
-            val = content.get(key)
-            if val is None:
-                continue
-            if isinstance(val, dict) and val.get("error"):
-                parts.append(f"{key}: Error: {self._snippet(val.get('error'), 120)}")
-            elif isinstance(val, dict):
-                parts.append(f"{key}: present ({len(val)} keys)")
-            elif isinstance(val, list):
-                parts.append(f"{key}: {len(val)} items")
-            else:
-                parts.append(f"{key}: {self._snippet(str(val), 150)}")
-        if parts:
-            return " | ".join(parts)
-        return f"Result: {self._snippet(str(content), max_chars)}"
-
-    def _librarian_sql_signal_line(self, c: dict[str, Any]) -> str:
-        """Short line for sufficiency: whether SQL returned rows."""
-        sql = c.get("sql")
-        if not isinstance(sql, dict):
-            return ""
-        rc = sql.get("row_count")
-        try:
-            if isinstance(rc, int) and rc > 0:
-                return f"sql_row_count={rc}"
-        except (TypeError, ValueError):
-            pass
-        data = sql.get("data")
-        if isinstance(data, list) and len(data) > 0:
-            return f"sql_data_rows={len(data)}"
-        rows = sql.get("rows")
-        if isinstance(rows, list) and len(rows) > 0:
-            return f"sql_rows={len(rows)}"
-        return ""
-
-    def _collected_has_answer_signal(self, collected: dict[str, Any]) -> bool:
-        """True if at least one specialist returned usable facts (partial answer eligible)."""
-        w = collected.get("websearcher")
-        if isinstance(w, dict):
-            if self._websearcher_price_line(w).strip():
-                return True
-            summ = w.get("summary")
-            if isinstance(summ, str) and len(summ.strip()) >= 120:
-                return True
-        lib = collected.get("librarian")
-        if isinstance(lib, dict):
-            if self._librarian_sql_signal_line(lib):
-                return True
-            summ = lib.get("summary")
-            if isinstance(summ, str) and len(summ.strip()) >= 120:
-                return True
-            docs = lib.get("documents")
-            if isinstance(docs, list) and len(docs) > 0:
-                return True
-            g = lib.get("graph")
-            if isinstance(g, dict) and isinstance(g.get("nodes"), list) and len(g["nodes"]) > 0:
-                return True
-        an = collected.get("analyst")
-        if isinstance(an, dict):
-            av = an.get("analysis")
-            if isinstance(av, dict):
-                s = av.get("summary")
-                if isinstance(s, str) and len(s.strip()) >= 80:
-                    return True
-            elif av is not None and len(str(av).strip()) >= 80:
-                return True
-        return False
-
-    def _format_aggregated_for_sufficiency(self, collected: dict[str, Any]) -> str:
-        """Build a string from collected agent outputs for LLM sufficiency check."""
-        parts = []
-        for agent in ("librarian", "websearcher", "analyst"):
-            if agent not in collected:
-                continue
-            c = collected[agent]
-            if not isinstance(c, dict):
-                parts.append(f"[{agent}] (non-dict payload)")
-                continue
-            chunk_lines: list[str] = []
-            summary = c.get("summary")
-            if isinstance(summary, str) and summary.strip():
-                chunk_lines.append(summary.strip())
-            if agent == "websearcher":
-                pl = self._websearcher_price_line(c)
-                if pl:
-                    chunk_lines.append(f"normalized_fund_prices: {pl}")
-                nf = c.get("normalized_fund")
-                if isinstance(nf, list) and nf:
-                    syms = [
-                        str(rec.get("symbol", ""))
-                        for rec in nf
-                        if isinstance(rec, dict) and rec.get("symbol")
-                    ]
-                    if syms:
-                        chunk_lines.append(f"normalized_fund_symbols: {', '.join(syms[:8])}")
-            if agent == "librarian":
-                sql_line = self._librarian_sql_signal_line(c)
-                if sql_line:
-                    chunk_lines.append(sql_line)
-            if chunk_lines:
-                parts.append(f"[{agent}]\n" + "\n".join(chunk_lines))
-            elif c.get("market_data") or c.get("sentiment"):
-                parts.append(f"[{agent}] market/sentiment data present.")
-            elif c.get("analysis") is not None:
-                parts.append(f"[{agent}]\n{str(c.get('analysis', ''))[:2000]}")
-            else:
-                parts.append(f"[{agent}] data retrieved.")
-        return "\n\n".join(parts) if parts else "No data."
-
-    def _check_sufficiency(self, user_query: str, aggregated: str) -> bool:
-        """Call LLM to decide if aggregated info is sufficient. Returns True if SUFFICIENT."""
-        assert self._llm_client is not None  # caller checks before invoking
-        try:
-            from llm.prompts import get_planner_sufficiency_user_content
-
-            system = "You decide if the research is sufficient to answer the user. Answer only SUFFICIENT or INSUFFICIENT."
-            user_content = get_planner_sufficiency_user_content(user_query, aggregated)
-            out = self._llm_client.complete(system, user_content)
-            s = (out or "").strip().upper()
-            # Must start with SUFFICIENT but not INSUFFICIENT (substring would match both)
-            return s.startswith("SUFFICIENT") and not s.startswith("INSUFFICIENT")
-        except Exception as e:
-            logger.debug("Sufficiency check failed, treating as sufficient: %s", e)
-            return True
-
-    def _get_refined_steps(
-        self, user_query: str, aggregated: str
-    ) -> list[TaskStep]:
-        """Get steps for round 2 from LLM refined-queries JSON. Returns empty list on parse failure."""
-        assert self._llm_client is not None  # caller checks before invoking
-        try:
-            from llm.prompts import get_planner_refined_user_content
-
-            system = "You output a JSON object with keys librarian, websearcher, analyst (only include agents that can fill gaps). Each value is a query string."
-            user_content = get_planner_refined_user_content(user_query, aggregated)
-            out = self._llm_client.complete(system, user_content)
-            text = (out or "").strip()
-            if "```" in text:
-                match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
-                if match:
-                    text = match.group(1)
-            raw = json.loads(text)
-            if not isinstance(raw, dict):
-                return []
-            steps = []
-            for agent in ("librarian", "websearcher", "analyst"):
-                q = raw.get(agent)
-                if isinstance(q, str) and q.strip():
-                    steps.append(
-                        TaskStep(
-                            agent=agent,
-                            params={"query": q.strip()},
-                        )
-                    )
-            return steps
-        except Exception as e:
-            logger.debug("Refined steps parse failed: %s", e)
-            return []
-
     def decompose_task(
         self,
         query: str,
         user_memory: str = "",
         symbol_resolution: Optional[dict[str, Any]] = None,
     ) -> list[TaskStep]:
-        """Produce a ReAct-style task chain from the user query.
-
-        Uses llm_client.decompose_to_steps when available (Stage 10.2); otherwise
-        returns a fixed one-round chain (librarian, websearcher, analyst).
-
-        Args:
-            query: Raw user investment query.
-
-        Returns:
-            Ordered list of TaskSteps (one per specialist).
-        """
-        if self._llm_client is not None:
-            try:
-                # Use LLM to get step dicts; filter to allowed agents and build TaskSteps
-                step_dicts = self._llm_client.decompose_to_steps(
-                    query,
-                    memory_context=user_memory,
-                )
-
-                if step_dicts is not None:
-                    if not step_dicts:
-                        # LLM returned valid empty list: use single analyst step so pipeline does not stall
-                        return [
-                            TaskStep(
-                                agent="analyst",
-                                params={"query": query},
-                            )
-                        ]
-                    return [
-                        TaskStep(
-                            agent=s.get("agent", "librarian"),
-                            params=dict(s.get("params") or {}),
-                        )
-                        for s in step_dicts
-                        if isinstance(s, dict)
-                        and (s.get("agent") or "").strip().lower()
-                        in ("librarian", "websearcher", "analyst")
-                    ]
-            except Exception as e:
-                logger.debug("LLM task parse failed, using default steps: %s", e)
-        # No LLM or parse failed; use fixed three steps (librarian, websearcher, analyst)
-        # Pass vector_query and fund so the librarian calls vector_tool and kg_tool
-        # (demo can then use populated backends)
-        # Fallback fund/symbol: database/agent_heuristics.json query_substring_to_symbol
-        q_lower = query.lower()
-        fund = ""
-        if (
-            symbol_resolution
-            and symbol_resolution.get("status") == "resolved"
-            and isinstance(symbol_resolution.get("listings"), list)
-            and symbol_resolution["listings"]
-        ):
-            L0 = symbol_resolution["listings"][0]
-            if isinstance(L0, dict):
-                fund = str(L0.get("symbol_yahoo") or L0.get("symbol_compact") or "")
-        if not fund:
-            for substring, symbol in planner_fallback_substring_symbol_pairs():
-                if substring in q_lower:
-                    fund = symbol
-                    break
-        return [
-            TaskStep(
-                agent="librarian",
-                params={
-                    "query": query,
-                    "vector_query": query,
-                    "fund": fund,
-                },
-            ),
-            TaskStep(
-                agent="websearcher",
-                params={"query": query, "fund": fund} if fund else {"query": query},
-            ),
-            TaskStep(agent="analyst", params={"query": query}),
-        ]
+        """Produce a task chain from the user query (LLM or fixed three-step fallback)."""
+        return decompose_planner_task(
+            self._llm_client,
+            query,
+            user_memory=user_memory,
+            symbol_resolution=symbol_resolution,
+        )
 
     def create_research_request(
         self,

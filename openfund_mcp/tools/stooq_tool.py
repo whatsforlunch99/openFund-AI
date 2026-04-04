@@ -34,6 +34,17 @@ def _ensure_us_suffix(symbol: str) -> str:
     return s
 
 
+def _stooq_symbol_candidates(symbol: str) -> list[str]:
+    """Try Stooq identifiers: qualified first, then plain ticker for US names that fail as SYM.US."""
+    s = (symbol or "").strip().upper()
+    if not s:
+        return ["SPY.US", "SPY"]
+    if "." in s:
+        return [s]
+    with_us = f"{s}.US"
+    return [with_us, s]
+
+
 def get_price(payload: dict) -> dict:
     """Fetch latest price for a symbol from stooq.
 
@@ -59,23 +70,31 @@ def get_price(payload: dict) -> dict:
     if not symbol:
         return {"error": "Missing required 'symbol'", "timestamp": _now_iso()}
 
-    sym_stooq = _ensure_us_suffix(symbol)
-    url = f"{_STOOQ_BASE}?s={sym_stooq}&i=d"
+    last_err = "No data"
+    rows: list[Any] = []
+    sym_stooq = ""
+    for sym_stooq in _stooq_symbol_candidates(symbol):
+        url = f"{_STOOQ_BASE}?s={sym_stooq}&i=d"
+        try:
+            resp = requests.get(url, timeout=max(1.0, _HTTP_TIMEOUT))
+            resp.raise_for_status()
+            text = resp.text
+        except Exception as e:
+            last_err = str(e)
+            logger.warning("stooq get_price failed for %s: %s", sym_stooq, e)
+            continue
 
-    try:
-        resp = requests.get(url, timeout=max(1.0, _HTTP_TIMEOUT))
-        resp.raise_for_status()
-        text = resp.text
-    except Exception as e:
-        logger.exception("stooq get_price failed")
-        return {"error": str(e), "timestamp": _now_iso()}
+        reader = csv.DictReader(StringIO(text))
+        rows = list(reader)
+        if rows:
+            break
+        last_err = f"No data for {sym_stooq}"
+    else:
+        rows = []
 
-    # Parse CSV: Date,Open,High,Low,Close,Volume
-    reader = csv.DictReader(StringIO(text))
-    rows = list(reader)
     if not rows:
         return {
-            "error": f"No data for {sym_stooq}",
+            "error": last_err,
             "timestamp": _now_iso(),
         }
 

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# OpenFund-AI: run before every commit. Install: ./scripts/install-git-hooks.sh
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+exec python3 scripts/review_staged_for_commit.py

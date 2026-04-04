@@ -1,245 +1,252 @@
 # OpenFund-AI
 
-Live multi-agent investment research backend (Planner, Librarian, WebSearcher, Analyst, Responder) over MCP tools and FastAPI.
+**OpenFund-AI** is a **multi-agent investment research backend**: it takes a natural-language question, runs it through a **Planner** and specialist agents (**Librarian**, **WebSearcher**, **Analyst**), gathers evidence via **MCP tools** (vector DB, graph, SQL, market data, news), and returns **one profile-tailored answer** through a **Responder**—with **safety** on input and **compliance** checks on output. The product surface is **API-first** (FastAPI REST + WebSocket); there is no first-party web UI in this repo.
 
-## Start
+---
 
-Preferred single command:
+## Purpose and goals
+
+- **Problem:** Users need investment-research answers suited to their expertise—not a one-size-fits-all paragraph.
+- **Approach:** Orchestrated research (one or more planner rounds), **external data only through MCP**, single component produces the final user-facing text, explicit **timeouts** and error paths.
+- **User profiles** (shape tone and depth of the answer):
+  - `beginner` — conclusion-first, minimal jargon, risk awareness
+  - `long_term` — horizons, trends, drawdown-style framing
+  - `analyst` — rigor, metrics, assumptions where applicable
+
+**Product scope** (current phase) is summarized in [docs/workflow/90_product/prd.md](docs/workflow/90_product/prd.md): single conversational turn per request, optional `conversation_id` for continuity/polling, no token streaming to the client, no bundled UI.
+
+---
+
+## Architecture (design)
+
+### Layered flow
+
+```mermaid
+flowchart TB
+  subgraph client [Clients]
+    HTTP[REST_WebSocket]
+  end
+  subgraph app [Application]
+    API[api]
+    Safety[safety]
+    Bus[a2a_MessageBus]
+    Planner[PlannerAgent]
+    Lib[LibrarianAgent]
+    WS[WebSearcherAgent]
+    Ana[AnalystAgent]
+    Resp[ResponderAgent]
+    Out[output_OutputRail]
+  end
+  subgraph tools [Tools]
+    MCP[MCP_server_openfund_mcp]
+  end
+  HTTP --> API
+  API --> Safety
+  Safety --> Bus
+  Planner --> Bus
+  Lib --> Bus
+  WS --> Bus
+  Ana --> Bus
+  Resp --> Bus
+  Lib --> MCP
+  WS --> MCP
+  Ana --> MCP
+  Resp --> Out
+```
+
+- **A2A (agent-to-agent):** FIPA-style **ACL messages** on an in-memory **message bus** (`a2a/`). Performatives include REQUEST, INFORM, STOP, etc.
+- **Hub-and-spoke:** Only the **Planner** orchestrates; specialists reply to the Planner. The **Responder** produces the final answer and ends the conversation (STOP).
+- **MCP:** All access to PostgreSQL, Neo4j, Milvus, market/news/file tools goes through **`openfund_mcp`** (FastMCP). The API spawns the MCP server as a subprocess and talks over stdio (`openfund_mcp/mcp_client.py`). External clients can run `python -m openfund_mcp` the same way.
+- **LLM:** Used for task decomposition, specialist tool selection, planner sufficiency/refinement, and responder formatting when configured. See [docs/workflow/02_planning/backend.md](docs/workflow/02_planning/backend.md) for timeouts (`LLM_TIMEOUT_SECONDS`, `E2E_TIMEOUT_SECONDS`).
+
+**Package roles** (high cohesion / low coupling) are documented in [docs/workflow/02_planning/dependency-contract.md](docs/workflow/02_planning/dependency-contract.md). Code map: [docs/workflow/02_planning/file-structure.md](docs/workflow/02_planning/file-structure.md).
+
+---
+
+## Data
+
+### What lives where
+
+| Area | Role |
+|------|------|
+| [`database/stats_data/`](database/stats_data/) | CSV sources for **PostgreSQL** (stats/metrics tables) |
+| [`database/graph_data/neo4j_export/`](database/graph_data/neo4j_export/) | Normalized **Neo4j** bundle (`graph_nodes.csv`, `graph_relationships.csv`, …) |
+| [`database/text_data/`](database/text_data/) | JSON inputs for **Milvus** / text indexing |
+| [`database/agent_heuristics.json`](database/agent_heuristics.json) | Shared heuristics (WebSearcher/planner/analyst hints) |
+| [`database/symbol_resolution_*.json`](database/) | Curated symbol resolution (aliases, issuers, routing) |
+| `memory/` (default `MEMORY_STORE_PATH`) | Runtime persistence: conversations, users, optional user/situation memory, symbol resolution cache |
+
+### Loading data into backends
+
+**Supported ingestion path:** [scripts/data_loader.py](scripts/data_loader.py) — loads from `database/*` into SQL / Neo4j / Milvus when those services are configured. Schema and loader behavior: [docs/data_prep/revision_plan.md](docs/data_prep/revision_plan.md), [stats-data-schema.md](docs/data_prep/stats-data-schema.md), [graph-data-schema.md](docs/data_prep/graph-data-schema.md), [text-data-schema.md](docs/data_prep/text-data-schema.md).
+
+```bash
+python scripts/data_loader.py --load-mode existing
+# Full rebuild (destructive); Neo4j mode tunable via NEO4J_FRESH_IMPORT_MODE
+python scripts/data_loader.py --load-mode fresh-all
+```
+
+Optional Neo4j tooling: `scripts/load_neo4j_graph_bundle.py` (validate/load/probe)—see command table below.
+
+---
+
+## Installation
+
+### Prerequisites
+
+- **Python 3.11+** ([pyproject.toml](pyproject.toml) `requires-python`)
+- Optional: Docker or local installs for **PostgreSQL**, **Neo4j**, **Milvus** when you want real backends (otherwise many tools return mocks/empty results).
+
+### Steps
+
+1. Clone the repository and `cd` to the project root.
+2. Create and activate a virtual environment:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate   # Windows: .venv\Scripts\activate
+   ```
+3. Install the package and extras:
+   ```bash
+   pip install -e .
+   pip install -e ".[dev]"       # ruff, black, pytest, …
+   pip install -e ".[llm]"       # live LLM (OpenAI-compatible / DeepSeek, etc.)
+   pip install -e ".[backends]"  # drivers for Postgres, Neo4j, Milvus as needed
+   ```
+4. Environment:
+   ```bash
+   cp .env.example .env
+   ```
+   Reference: [docs/shared/ENV.md](docs/shared/ENV.md). **`LLM_API_KEY`** is required for full live behavior at startup in the typical API path.
+
+---
+
+## How to run
+
+### Recommended: one command
 
 ```bash
 ./scripts/run.sh
 ```
 
-Windows (PowerShell):
+This can copy `.env` from `.env.example`, optionally install extras (`--install-deps`), optionally start local backends, optionally load funds (`--funds existing|fresh-symbols|fresh-all|skip`), then start the **API** and, by default, the **terminal chat client**. Use **`--no-chat`** for API only.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1
-```
+**Windows:** `powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1` (same flags as below).
 
-This can:
-- bootstrap `.env` from `.env.example`
-- optionally install deps (`--install-deps`)
-- optionally start local backends (`--no-backends` to skip)
-- optionally load funds data (`--funds existing|fresh-symbols|fresh-all|skip`)
-- start API and interactive terminal chat (use `--no-chat` for API only)
-
-## Common CLI
+Common flags:
 
 ```bash
 ./scripts/run.sh --help
 ./scripts/run.sh --port 8010
 ./scripts/run.sh --no-backends
 ./scripts/run.sh --funds existing
-./scripts/run.sh --funds fresh-symbols
-./scripts/run.sh --funds fresh-all
-./scripts/run.sh --funds skip
 ./scripts/run.sh --install-deps
 ./scripts/run.sh --no-chat
 ```
 
-Windows (PowerShell):
+Stop local backends: `./scripts/stop.sh`.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --help
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --port 8010
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --no-backends
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --funds existing
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --funds fresh-symbols
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --funds fresh-all
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --funds skip
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --install-deps
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1 --no-chat
-```
-
-Direct API run:
+### API only (without run.sh)
 
 ```bash
 python main.py --serve --port 8000
 ```
 
-Stop local backends:
+Smoke **E2E** (one conversation, CI-friendly): `python main.py --e2e-once`.
+
+### MCP server (stdio, for external tools)
 
 ```bash
-./scripts/stop.sh
+python -m openfund_mcp
 ```
 
-## Development Setup
+Runbook detail: [docs/workflow/03_tools_and_mcp/mcp-server.md](docs/workflow/03_tools_and_mcp/mcp-server.md).
 
-### Prerequisites
+---
 
-- **Python 3.11+** (see `requires-python` in [pyproject.toml](pyproject.toml))
-- Optional: virtualenv or venv for isolation
+## Usage
 
-### Setup
+### Chat request
 
-1. Clone the repo and go to the project root.
-2. Create and activate a virtualenv (recommended):
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate   # Windows: .venv\Scripts\activate
-   ```
-3. Install the package with dev and optional extras:
-   ```bash
-   pip install -e .
-   pip install -e ".[dev]"
-   pip install -e ".[llm]"        # for live LLM (OpenAI/DeepSeek)
-   pip install -e ".[backends]"    # for PostgreSQL, Neo4j, Milvus
-   ```
-4. Copy environment template and set variables as needed:
-   ```bash
-   cp .env.example .env
-   ```
-   See [ENV.md](docs/shared/ENV.md) for variable reference.
+**POST /chat** body (JSON):
 
-### Available Commands
+- `query` (required)
+- `user_profile`: `beginner` | `long_term` | `analyst`
+- `user_id` (optional)
+- `conversation_id` (optional; omit to start a new conversation)
 
-<!-- AUTO-GENERATED: from README, scripts/run.sh, main.py, data_manager, pyproject.toml -->
+**WebSocket `/ws`** follows the same logical flow; emits `flow` events then a single terminal `response` / `timeout` / `error` event.
+
+**GET /conversations/{id}** returns state including optional `flow` and merged **`data_sources`** snapshots after planner rounds.
+
+Other endpoints: **GET /health**, **POST /register**, **POST /login**. Full contracts: [docs/workflow/02_planning/backend.md](docs/workflow/02_planning/backend.md).
+
+### Timeouts
+
+- Synchronous chat wait can return **408**; body includes `conversation_id`—poll **GET /conversations/{id}** for `final_response` if the run finishes later.
+- Defaults: see `E2E_TIMEOUT_SECONDS` and `LLM_TIMEOUT_SECONDS` in [ENV.md](docs/shared/ENV.md) / backend doc.
+
+---
+
+## Command reference
 
 | Command | Description |
 |---------|-------------|
-| `./scripts/run.sh` | Single entrypoint: bootstrap .env, optional backends/funds, start API and chat |
-| `./scripts/run.sh --port 8010` | Run API on port 8010 |
-| `./scripts/run.sh --no-backends` | Skip starting Postgres/Neo4j/Milvus |
-| `./scripts/run.sh --funds existing` | Load funds: existing \| fresh-symbols \| fresh-all \| skip |
-| `./scripts/run.sh --install-deps` | Install Python extras [backends, llm] |
-| `./scripts/run.sh --no-chat` | Start API only; do not launch interactive chat client |
-| `./scripts/stop.sh` | Stop local backends (Postgres, Neo4j, Milvus) |
-| `python scripts/load_neo4j_graph_bundle.py --validate-only` | Check `database/graph_data/neo4j_export` CSVs |
-| `python scripts/load_neo4j_graph_bundle.py --load` | Import that bundle into Neo4j (needs `NEO4J_*` in `.env`; large) |
-| `python scripts/load_neo4j_graph_bundle.py --probe-vanke` | Quick `get_relations("China Vanke Co Ltd")` against live Neo4j |
-| `python main.py --serve --port 8000` | Run API directly (no run.sh) |
-| `python main.py --e2e-once` | Run one E2E conversation and exit (for CI) |
-| `python -m openfund_mcp` | Run MCP server over stdio (for external clients) |
-| `python -m data_manager --help` | Data management CLI help |
-| `python -m data_manager sql "SELECT ..."` | Run a SQL query on PostgreSQL |
-| `python -m data_manager neo4j "MATCH ..."` | Run Cypher on Neo4j |
-| `python -m data_manager milvus ...` | Milvus index/delete documents |
-| `python -m data_manager collect ...` | Collect data for symbols |
-| `python scripts/data_loader.py --load-mode existing` | Load SQL/Neo4j/Milvus from `database/*` sources |
-| `NEO4J_FRESH_IMPORT_MODE=auto python scripts/data_loader.py --load-mode fresh-all --components neo4j` | Prefer offline `neo4j-admin` for full Neo4j rebuilds; fallback to online in `auto` mode |
-| `python scripts/benchmark_neo4j_load.py --mode auto --runs 3 --target-seconds 180` | Benchmark Neo4j fresh-all import throughput and pass/fail target |
-| `pytest tests/ -v` | Run test suite |
-| `ruff check .` | Lint (see pyproject.toml [tool.ruff]) |
-| `black .` | Format (see pyproject.toml [tool.black]) |
+| `./scripts/run.sh` | Bootstrap env, optional backends/funds, API + chat |
+| `./scripts/run.sh --no-chat` | API only |
+| `./scripts/stop.sh` | Stop local Postgres/Neo4j/Milvus helpers |
+| `python scripts/data_loader.py --load-mode existing` | Load SQL/Neo4j/Milvus from `database/*` |
+| `NEO4J_FRESH_IMPORT_MODE=auto python scripts/data_loader.py --load-mode fresh-all --components neo4j` | Neo4j full rebuild (offline import preferred in `auto`) |
+| `python scripts/benchmark_neo4j_load.py --mode auto --runs 3 --target-seconds 180` | Benchmark Neo4j fresh import |
+| `python scripts/load_neo4j_graph_bundle.py --validate-only` | Validate graph CSV bundle |
+| `python main.py --serve --port 8000` | Run API without run.sh |
+| `python main.py --e2e-once` | One-shot E2E conversation |
+| `python -m openfund_mcp` | MCP server over stdio |
+| `pytest tests/ -v` | Test suite |
+| `ruff check .` / `black .` | Lint / format |
 
-<!-- END AUTO-GENERATED -->
-
-## API
-
-Implemented endpoints:
-- `GET /health`
-- `POST /register`
-- `POST /login`
-- `POST /chat`
-- `GET /conversations/{conversation_id}`
-- `WebSocket /ws`
-
-Auth model:
-- register/login by `username` + password
-- duplicate usernames rejected
-
-## API Endpoints (Reference)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check; tools and LLM status |
-| `/register` | POST | Register user (username, password) |
-| `/login` | POST | Login (username, password) |
-| `/chat` | POST | Send query; returns response or 408 timeout |
-| `/conversations/{conversation_id}` | GET | Get conversation state |
-| `/ws` | WebSocket | Same flow as POST /chat; streaming flow events |
-
-## Data CLI
+### Git hooks (optional)
 
 ```bash
-python scripts/data_loader.py --load-mode existing
-python scripts/data_loader.py --load-mode fresh-all
-NEO4J_FRESH_IMPORT_MODE=auto python scripts/data_loader.py --load-mode fresh-all --components neo4j
-python scripts/benchmark_neo4j_load.py --mode auto --runs 3 --target-seconds 180
-# Example SQL against loaded stats tables:
-python -c "import os; print('Set DATABASE_URL to run SQL via MCP/sql_tool')"
+./scripts/install-git-hooks.sh
 ```
 
-## Testing
+Runs staged-file checks (secrets guardrails, cohesion hints, `ruff` on staged Python) before `git commit`. Semantic review is manual or via Cursor—see [docs/workflow/git-commit-cohesion-review.md](docs/workflow/git-commit-cohesion-review.md). Optional: `./scripts/commit-and-push.sh -m "message"`.
 
-- **Run all tests:** `pytest tests/ -v`
-- **Run a subset:** `pytest tests/test_capabilities.py -v` or `pytest tests/ -k "stage_2" -v`
-- **Stage tests:** See [progress.md](docs/workflow/90_product/progress.md) and [test_plan.md](docs/shared/test_plan.md) for stage-specific commands (e.g. `pytest tests/test-stages.py -k stage_2_1 -v`).
-- Tests use mocks for external services (Milvus, Neo4j, HTTP) where possible; in-process MCP uses `MCPServer()` + `MCPClient(server)`.
-- **E2E:** `python main.py --e2e-once` runs one full conversation (requires no API key; uses fallbacks).
+---
 
-## Code Style
+## Testing and development
 
-- **Linter:** [Ruff](https://docs.astral.sh/ruff/) — config in `[tool.ruff]` in [pyproject.toml](pyproject.toml). Run: `ruff check .`
-- **Formatter:** [Black](https://black.readthedocs.io/) — config in `[tool.black]`. Run: `black .`
-- **Type checking:** Optional — `mypy` is in `[dev]`; `ignore_missing_imports = true` for third-party libs.
-- **Conventions:** See [.cursor/rules/simple-readable-code.mdc](.cursor/rules/simple-readable-code.mdc) and [python-code-style](https://github.com/cursor/skills/blob/main/skills/python-code-style/SKILL.md) for short functions, stdlib-first, no premature abstraction.
+- **Stages / matrix:** [docs/shared/test_plan.md](docs/shared/test_plan.md), [docs/workflow/90_product/progress.md](docs/workflow/90_product/progress.md).
+- **Typical commands:** `pytest tests/test-stages.py -v`, targeted `pytest tests/ -k keyword`.
+- **Style:** Ruff + Black in [pyproject.toml](pyproject.toml); project rules in [.cursor/rules/](.cursor/rules/).
 
-## Submitting Changes
+---
 
-- Prefer small, reviewable diffs; state the plan in a few bullets before editing.
-- Add or update tests for behavioral changes.
-- For user-visible or notable changes, add an entry to [CHANGELOG.md](CHANGELOG.md) and update [project-status.md](docs/workflow/90_product/project-status.md) if a capability goes live.
-- Run `pytest tests/ -v` and `ruff check .` before pushing.
+## Troubleshooting
 
-## Operations / Runbook
+| Symptom | What to check |
+|---------|----------------|
+| Startup fails on LLM | `LLM_API_KEY` and `pip install -e ".[llm]"` |
+| Missing market/analyst tools | `pip install -e ".[backends]"`; API keys per [backend.md](docs/workflow/02_planning/backend.md) |
+| Empty librarian/graph/vector results | `DATABASE_URL`, `NEO4J_URI`, `MILVUS_URI`; run `data_loader.py --load-mode existing` |
+| POST /chat **408** | Raise `E2E_TIMEOUT_SECONDS`; confirm LLM/provider latency |
+| Neo4j connection errors | Backend running; verify `NEO4J_*` in `.env` and Bolt port |
 
-### Deployment
+---
 
-<!-- AUTO-GENERATED: from README, scripts/run.sh, demo.md -->
+## Documentation index
 
-1. **Prerequisites:** Python 3.11+, `.env` from `.env.example` with required vars (see [ENV.md](docs/shared/ENV.md)).
-2. **Install:** `pip install -e .` and optionally `pip install -e ".[llm]"` and `pip install -e ".[backends]"`.
-3. **Start (recommended):** From project root run `./scripts/run.sh`. This can bootstrap `.env`, start local backends (Postgres/Neo4j/Milvus), and load funds data, then start the API. Use `--no-chat` for API only.
-4. **Or start API only:** `python main.py --serve --port 8000` (no backends).
-5. **Stop local backends:** `./scripts/stop.sh`.
+| Topic | Doc |
+|-------|-----|
+| User-visible flow | [user-flow.md](docs/workflow/00_overview/user-flow.md), [use-case-trace-beginner.md](docs/workflow/00_overview/use-case-trace-beginner.md) |
+| API & behavior | [backend.md](docs/workflow/02_planning/backend.md) |
+| Code layout | [file-structure.md](docs/workflow/02_planning/file-structure.md), [dependency-contract.md](docs/workflow/02_planning/dependency-contract.md) |
+| Product / status | [prd.md](docs/workflow/90_product/prd.md), [project-status.md](docs/workflow/90_product/project-status.md), [progress.md](docs/workflow/90_product/progress.md) |
+| MCP tools | [03_tools_and_mcp/README.md](docs/workflow/03_tools_and_mcp/README.md), [agent-tools-reference.md](docs/workflow/03_tools_and_mcp/agent-tools-reference.md) |
+| Env vars | [ENV.md](docs/shared/ENV.md) |
+| Data prep | [revision_plan.md](docs/data_prep/revision_plan.md), `docs/data_prep/*-data-schema.md` |
+| Changelog | [CHANGELOG.md](CHANGELOG.md) |
 
-<!-- END AUTO-GENERATED -->
+---
 
-### Health Checks
-
-<!-- AUTO-GENERATED: from api/rest.py -->
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/health` | GET | Liveness and readiness. Returns `tools` (registered MCP tool names) and `llm_configured` for quick verification. |
-
-Use **GET /health** to confirm the API is up and that MCP tools and LLM are configured. For full API contracts see [backend.md](docs/workflow/02_planning/backend.md).
-
-<!-- END AUTO-GENERATED -->
-
-### Common Issues and Fixes
-
-| Issue | Cause | Fix |
-|-------|--------|-----|
-| "Unknown tool" or market_tool/analyst_tool missing | Optional deps not installed or skipped at startup | Install `pip install -e ".[backends]"` or `.[llm]`; check startup log for "market_tool skipped" / "analyst_tool skipped". Set ALPHA_VANTAGE_API_KEY or FINNHUB_API_KEY as in [backend.md](docs/workflow/02_planning/backend.md). |
-| LLM not working / "LLM is required" at startup | Missing LLM_API_KEY or llm extra | Set `LLM_API_KEY` in `.env`; run `pip install -e ".[llm]"`. For DeepSeek set `LLM_BASE_URL` and `LLM_MODEL`. |
-| Neo4j connection refused on 7687 | Stale pid file or process not running | Remove stale pid file or run `neo4j console` in a separate terminal; wait for "Bolt enabled on localhost:7687". See [demo.md](docs/demo.md#troubleshooting). |
-| POST /chat timeout (408) | LLM slow or unreachable; timeout too low | Increase `E2E_TIMEOUT_SECONDS` in `.env`; verify LLM_API_KEY and LLM_BASE_URL (if used) and provider reachability. |
-| Empty or stub responses | Backends not running or no data | Run `python scripts/data_loader.py --load-mode existing`; ensure DATABASE_URL, NEO4J_URI, MILVUS_URI are set. |
-| MCP server fails to start (subprocess) | MCP SDK not installed | Run `pip install mcp` (or install full deps). API spawns MCP server via `python -m openfund_mcp`. |
-
-More troubleshooting: [demo.md](docs/demo.md).
-
-### Rollback
-
-- **Application:** Stop the API process; redeploy previous version and restart (e.g. `./scripts/run.sh --no-chat` or `python main.py --serve`).
-- **Data:** Backends (Postgres, Neo4j, Milvus) are not auto-migrated by the app; restore from backups if you need to revert data changes.
-- **Config:** Restore previous `.env` and restart.
-
-### Monitoring and Alerts
-
-- **Liveness:** GET `/health` should return 200; use for load balancer or orchestrator health checks.
-- **Logs:** Structured logs include `request.received`, `pipeline.*`, `planner.decompose`, `agent.*`, `response.generated`. Set `INTERACTION_LOG=1` for per-call JSON logging; see [backend.md](docs/workflow/02_planning/backend.md) and [demo.md](docs/demo.md).
-
-## Docs
-
-- **Shared:** [ENV](docs/shared/ENV.md), [test_plan](docs/shared/test_plan.md), [websearcher-git-sync-notes](docs/shared/websearcher-git-sync-notes.md) (historical)
-- **Workflow:** [user-flow](docs/workflow/00_overview/user-flow.md), [use-case-trace-beginner](docs/workflow/00_overview/use-case-trace-beginner.md) | [backend](docs/workflow/02_planning/backend.md), [file-structure](docs/workflow/02_planning/file-structure.md) | [MCP docs index](docs/workflow/03_tools_and_mcp/README.md), [agent-tools-reference](docs/workflow/03_tools_and_mcp/agent-tools-reference.md), [mcp-server](docs/workflow/03_tools_and_mcp/mcp-server.md) | [prd](docs/workflow/90_product/prd.md), [project-status](docs/workflow/90_product/project-status.md), [progress](docs/workflow/90_product/progress.md), [frontend](docs/workflow/90_product/frontend.md)
-- **Data prep:** [revision_plan](docs/data_prep/revision_plan.md) (loader-first overview + verification), [stats-data-schema](docs/data_prep/stats-data-schema.md), [graph-data-schema](docs/data_prep/graph-data-schema.md), [text-data-schema](docs/data_prep/text-data-schema.md)
-- **RL pipeline:** [rl_pipeline/README](docs/rl_pipeline/README.md)
-
-## Notes
-
-- `LLM_API_KEY` is required for live LLM decomposition/specialist behavior.
-- Run commands from project root.
+Run all commands from the **repository root** unless a script documents otherwise.

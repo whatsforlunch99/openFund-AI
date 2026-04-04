@@ -479,6 +479,12 @@ def get_price(payload: dict) -> dict[str, Any]:
             "timestamp": _now_iso(),
             "source": "yahoo",
         }
+        ln = meta.get("longName")
+        sn = meta.get("shortName")
+        if isinstance(ln, str) and ln.strip():
+            out["longName"] = ln.strip()
+        if isinstance(sn, str) and sn.strip():
+            out["shortName"] = sn.strip()
         for key, field in [("open", "open"), ("high", "high"), ("low", "low"), ("volume", "volume")]:
             vals = quote.get(field)
             if vals is not None and len(vals) > 0 and vals[-1] is not None:

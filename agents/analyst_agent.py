@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
+from openfund_mcp.tools.market_tool import alpha_vantage_cooldown_active
 from util import interaction_log
 from util.agent_heuristics import get_analyst_heuristics
 
@@ -15,6 +16,67 @@ if TYPE_CHECKING:
     from llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
+
+
+def _tool_error_is_av_cooldown(res: dict) -> bool:
+    err = res.get("error")
+    if not isinstance(err, str):
+        return False
+    e = err.lower()
+    return "cooldown" in e or "rate limit" in e
+
+
+def _resolved_symbol_from_planner(symbol_resolution: Any) -> Optional[str]:
+    """Primary listing symbol when planner resolution is resolved; else None."""
+    if not isinstance(symbol_resolution, dict):
+        return None
+    if symbol_resolution.get("status") != "resolved":
+        return None
+    lst = symbol_resolution.get("listings") or []
+    if not lst or not isinstance(lst[0], dict):
+        return None
+    sym = lst[0].get("symbol_yahoo") or lst[0].get("symbol_compact")
+    if isinstance(sym, str) and sym.strip():
+        return sym.strip().upper()
+    return None
+
+
+def apply_resolved_symbol_to_analyst_calls(
+    tool_calls: list[dict[str, Any]], symbol_resolution: Any
+) -> list[dict[str, Any]]:
+    """When symbol_resolution is resolved, force analyst_tool.get_indicators symbol/ticker to match."""
+    locked = _resolved_symbol_from_planner(symbol_resolution)
+    if not locked:
+        return tool_calls
+    out: list[dict[str, Any]] = []
+    for tc in tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        tool = tc.get("tool", "")
+        if tool != "analyst_tool.get_indicators":
+            out.append(tc)
+            continue
+        payload = tc.get("payload")
+        pl = dict(payload) if isinstance(payload, dict) else {}
+        for key in ("symbol", "ticker"):
+            if key not in pl:
+                continue
+            raw = pl[key]
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            cur = raw.strip().upper()
+            if cur != locked:
+                logger.warning(
+                    "Analyst tool payload %s=%s overridden to %s (planner symbol_resolution)",
+                    key,
+                    cur,
+                    locked,
+                )
+                pl[key] = locked
+        if "symbol" not in pl and "ticker" not in pl:
+            pl["symbol"] = locked
+        out.append({"tool": tool, "payload": pl})
+    return out
 
 
 def _derive_symbol(structured_data: dict, market_data: dict) -> str:
@@ -126,13 +188,22 @@ class AnalystAgent(BaseAgent):
                 else ANALYST_ALLOWED_TOOL_NAMES
             )
             tool_descriptions = get_analyst_tool_descriptions(registered)
-            user_content = f"Sub-query from planner: {query}"
+            lock = _resolved_symbol_from_planner(content.get("symbol_resolution"))
+            lock_line = (
+                f"\nPlanner resolved symbol (use this for all analyst market calls): {lock}\n"
+                if lock
+                else ""
+            )
+            user_content = f"Sub-query from planner: {query}{lock_line}"
             tool_calls = self._llm_client.select_tools(
                 ANALYST_TOOL_SELECTION, user_content, tool_descriptions
             )
             # Discard any tool the LLM returned that is not in allowed (and registered)
             tool_calls = filter_tool_calls_to_allowed(tool_calls, allowed)
             tool_calls = normalize_tool_calls(tool_calls)
+            tool_calls = apply_resolved_symbol_to_analyst_calls(
+                tool_calls, content.get("symbol_resolution")
+            )
             if tool_calls:
                 gathered = self._execute_tool_calls_analyst(tool_calls)
                 if gathered is not None:
@@ -233,9 +304,21 @@ class AnalystAgent(BaseAgent):
             payload = tc.get("payload") or {}
             if not isinstance(tool, str) or not tool.strip():
                 continue
+            if tool == "analyst_tool.get_indicators" and alpha_vantage_cooldown_active():
+                gathered.append(
+                    {
+                        "error": (
+                            "analyst_tool.get_indicators skipped: Alpha Vantage cooldown active "
+                            "(batch skip for this turn)."
+                        )
+                    }
+                )
+                break
             result = self.mcp_client.call_tool(tool, payload)
             if isinstance(result, dict):
                 gathered.append(result)
+                if tool == "analyst_tool.get_indicators" and _tool_error_is_av_cooldown(result):
+                    break
             else:
                 gathered.append({"content": str(result)})
         return gathered if gathered else None

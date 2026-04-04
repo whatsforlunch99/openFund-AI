@@ -45,8 +45,10 @@ Decision rule:
 - SUFFICIENT if a useful, non-fabricated answer can be produced now, even with minor gaps. Prefer SUFFICIENT when:
   - The user asked to compare or choose among named investments and the WebSearcher block includes concrete prices or normalized_fund lines for each main instrument mentioned, OR
   - The librarian block includes factual SQL/performance rows for part of the question, OR
+  - The librarian block includes structured_timeseries_metrics (computed from internal SQL) together with a WebSearcher price line for the same equity theme, OR
   - Any specialist returned substantive narrative summaries (not only API errors).
   Partial data (e.g. prices without full 10-year series, or one leg of a two-asset comparison) still counts as SUFFICIENT if the user could get a caveated, honest answer from what is present.
+  Do not answer INSUFFICIENT when both a current price (WebSearcher normalized_fund) and multi-row SQL or structured_timeseries_metrics for the symbol are present unless the user asked for something clearly beyond that evidence.
 - INSUFFICIENT only when there is no reliable signal for the core of the question, or another round is very likely to add decisive facts (not merely polish).
 
 Output only one token."""
@@ -124,7 +126,8 @@ Write a compact summary with:
 Hard constraints:
 - Be factual and source-grounded to provided data only.
 - Do not speculate or provide investment advice.
-- If evidence conflicts, call it out explicitly."""
+- If evidence conflicts, call it out explicitly.
+- If the message begins with structured counts (graph nodes/edges, SQL rows), never claim there are no records when those counts are greater than zero."""
 
 # Tool selection: given decomposed query and tool list, output JSON array of tool calls.
 LIBRARIAN_TOOL_SELECTION = """You are the Librarian tool planner.
@@ -145,6 +148,7 @@ Guidelines:
 - Use concrete identifiers in payload (symbol/entity/path/query).
 - Do not include unknown payload keys.
 - When using sql_tool.run_query or sql_tool.export_results, write SQL only against the PostgreSQL schema listed above (correct table and column names).
+- For kg_tool.get_relations, when the sub-query concerns a resolved equity (not an ETF), include prefer_dataset: "equities" in the payload to reduce noisy cross-dataset matches.
 
 Output only the JSON array, no markdown or explanation. If no tools are needed, output []."""
 
@@ -194,7 +198,8 @@ Format (strict):
 - Prefer "Headline | one-sentence summary" when you can; otherwise output the headline only.
 - No markdown, no bullets, no numbering, no JSON.
 - If you have no relevant items, output a single line: No recent items available.
-Hard constraints: Do not fabricate URLs or claim you fetched live feeds; this is a best-effort textual fallback only."""
+Hard constraints: Do not fabricate URLs or claim you fetched live feeds; this is a best-effort textual fallback only.
+Treat this output as low-confidence synthesis: the downstream system will flag it as synthetic and must not present it as verified headlines."""
 
 # When all MCP/market tools fail (no price, no fundamentals), WebSearcher calls LLM once.
 # _llm_data_search_fallback parses optional price from text via _extract_price_from_text and
@@ -259,6 +264,8 @@ Output a JSON array of tool calls. Each element: "tool" or "tool_name" (exact na
 Guidelines:
 - Use explicit symbol and time window in payload when possible.
 - Avoid duplicate calls with overlapping payloads.
+- Request only indicators that the sub-query needs (e.g. one of RSI/MACD/Bollinger), not a full stack by default.
+- Do NOT use analyst_tool.get_indicators for raw price/OHLCV (no indicator named close, open, high, low, volume). For price history use market_tool.get_stock_data or sql_tool on yahoo_timeseries / yahoo_quote_metrics.
 
 Output only JSON array. If no tools needed, output []."""
 
@@ -280,9 +287,14 @@ Answer structure:
 3) Risks/uncertainties
 4) Practical next-check items (non-advisory)
 
+Graded answers (Level 2 partial):
+- When price data and/or internal historical metrics (e.g. Librarian series/CAGR/drawdown) are present, lead with those facts even if some vendor feeds failed or news is thin.
+- Explicitly list what is missing (e.g. live P/E, vendor indicators in cooldown) in one short sentence instead of implying the whole research failed.
+
 Hard constraints:
 - No explicit buy/sell instruction.
 - Do not fabricate missing facts.
+- If the research note mentions synthetic/low-confidence news (no verified feed URLs), do not cite those headlines as confirmed facts; omit them from evidence bullets or label them clearly as unverified context.
 - If data is insufficient, state that clearly and what is missing.
 - Output answer text only."""
 
@@ -325,7 +337,29 @@ def get_librarian_user_content(query: str, combined_data: Any) -> str:
     Returns:
         String to pass as user content to the LLM.
     """
-    return f"query: {query}\n\ncombined_data:\n{_data_summary(combined_data)}"
+    counts = ""
+    if isinstance(combined_data, dict):
+        parts_c: list[str] = []
+        g = combined_data.get("graph")
+        if isinstance(g, dict):
+            nn = len(g.get("nodes") or [])
+            ne = len(g.get("edges") or [])
+            if nn or ne:
+                parts_c.append(f"graph_nodes={nn}, graph_edges={ne}")
+        sql = combined_data.get("sql")
+        if isinstance(sql, dict):
+            rows = sql.get("rows")
+            if isinstance(rows, list):
+                parts_c.append(f"sql_rows={len(rows)}")
+            rc = sql.get("row_count")
+            if isinstance(rc, int):
+                parts_c.append(f"sql_row_count={rc}")
+        docs = combined_data.get("documents")
+        if isinstance(docs, list) and docs:
+            parts_c.append(f"documents={len(docs)}")
+        if parts_c:
+            counts = "Retrieval counts (trust these; do not contradict with 'no data' if nonzero): " + ", ".join(parts_c) + "\n\n"
+    return f"query: {query}\n\n{counts}combined_data:\n{_data_summary(combined_data)}"
 
 
 def get_websearcher_user_content(query: str, fetched_data: Any) -> str:

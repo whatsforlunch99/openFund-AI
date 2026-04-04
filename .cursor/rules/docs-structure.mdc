@@ -29,6 +29,8 @@ All docs live in `/docs`. Each document has a single responsibility; no overlap 
 | **test_plan.md** | Test matrix and docs-consistency checklist; references progress for slice context. |
 | **demo.md** | How to run demo mode and troubleshoot; module layout in file-structure. |
 | **use-case-trace-beginner.md** | Step-by-step function trace for one beginner request (debugging/onboarding). |
+| **docs/workflow/git-commit-cohesion-review.md** | Git hooks + pre-commit review script; cohesion/coupling checklist; Cursor-assisted review before commit (companion to `.cursor/rules/git-commit-cohesion-review.mdc`). |
+| **docs/workflow/02_planning/dependency-contract.md** | Allowed import direction between packages (`api`, `agents`, `util`, `openfund_mcp`, `llm`, `a2a`); doc/tool sync rules; data ingestion source of truth. |
 
 **Generated:** **api-test-results.md** is produced by `scripts/test_third_party_apis.py`; operational only, not edited by hand.
 
@@ -48,6 +50,8 @@ All docs live in `/docs`. Each document has a single responsibility; no overlap 
 - **test_plan.md:** Stage/test matrix or docs checklist updated.
 - **demo.md:** Demo run steps or troubleshooting changed.
 - **use-case-trace-beginner.md:** Request flow or function sequence for the traced path changed.
+- **git-commit-cohesion-review.md / git-commit-cohesion-review.mdc:** Hook install steps, review script behavior, or cohesion/coupling workflow for commits changed.
+- **dependency-contract.md:** Layering rules or ingestion source-of-truth changed.
 
 ## Governance
 

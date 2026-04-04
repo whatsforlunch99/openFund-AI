@@ -1,0 +1,18 @@
+{
+  "ticker_aliases": {
+    "NVDIA": {
+      "symbol": "NVDA",
+      "canonical_name": "NVIDIA Corporation"
+    }
+  },
+  "company_names": {
+    "nvidia": {
+      "symbol": "NVDA",
+      "canonical_name": "NVIDIA Corporation"
+    },
+    "nvidia corporation": {
+      "symbol": "NVDA",
+      "canonical_name": "NVIDIA Corporation"
+    }
+  }
+}

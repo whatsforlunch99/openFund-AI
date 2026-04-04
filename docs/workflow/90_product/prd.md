@@ -49,7 +49,7 @@ Users need investment-research answers tailored to their expertise (beginner, lo
 4. **Orchestration:** The orchestrator (Planner) decides which internal specialists to call (one or more) and decomposes the user query into agent-specific sub-queries. Specialists determine which tools to use and with what parameters (e.g. via LLM using prompts and tool descriptions). The Planner runs the planner sufficiency check and, when the planner sufficiency check passes, requests a final response.
 5. **Response:** Only one component may produce the final user-facing answer. Response is formatted for the user’s profile and must pass compliance checks before delivery.
 6. **Termination:** Conversation is marked complete when the final response is delivered. No further processing for that conversation.
-7. **Timeout:** If processing exceeds the configured limit, the user receives a timeout status and no response body.
+7. **Timeout:** If processing exceeds the configured limit for the **synchronous chat wait** (e.g. HTTP/WebSocket handler), the user receives a timeout status and no response body. Long-running work may still complete in the background; the client can poll conversation state (see [backend.md](../02_planning/backend.md)).
 
 ---
 
@@ -57,7 +57,7 @@ Users need investment-research answers tailored to their expertise (beginner, lo
 
 - External data (e.g. vector DB, graph, market, analyst API) is accessed only through a defined tool layer (MCP); no direct backend access from orchestration logic.
 - Response formatting and compliance are mandatory before the answer is considered delivered.
-- E2E processing must respect a configurable timeout (default 30 seconds).
+- **Timeouts (engineering, not a single PRD number):** Per-LLM calls use `LLM_TIMEOUT_SECONDS` (default 30s). Full-stack chat/E2E waits use `E2E_TIMEOUT_SECONDS` (default **180s** in implementation). Product expectation: users always get a clear timeout or error, not a silent hang—see [backend.md](../02_planning/backend.md) for 408 and polling.
 
 ---
 

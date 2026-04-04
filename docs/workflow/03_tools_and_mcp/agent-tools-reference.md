@@ -113,12 +113,12 @@ Backed by Neo4j (`NEO4J_URI`). When `NEO4J_URI` is unset, all calls return mock/
 
 #### kg_tool.get_relations
 
-- **Description:** Get 1-hop relationships and connected nodes for a company/fund. Matches `id`, exact `name`/`symbol`, Neo4j `elementId`, punctuation-insensitive name overlap with planner text, or planner text containing a **multi-character** symbol (single-letter tickers are not substring-matched). Omits `node_id` in Cypher so demo graphs without that property do not emit DBMS warnings; CSV loads set `id` from symbol (or node id).
-- **Payload:** `entity` (required, string) — symbol (e.g. `000002.SZ`), `id`, exact name, or planner sub-query naming the issuer.
+- **Description:** Get 1-hop relationships and connected nodes for a company/fund. **Exact match first** on `node_id`, `symbol`, `name`, or Neo4j `elementId`; if nothing matches, falls back to punctuation-insensitive name overlap or multi-character symbol substring rules. Optional `prefer_dataset` (e.g. `equities`, `etfs`) filters both phases to that graph dataset bucket and reduces cross-dataset noise. Does not reference a non-existent `id` property on nodes (avoids Neo4j DBMS warnings on CSV-loaded graphs).
+- **Payload:** `entity` (required, string) — symbol (e.g. `000002.SZ`), `node_id`, exact name, or planner text; `prefer_dataset` (optional string).
 - **Returns:** `{"nodes": [...], "edges": [...]}` or `{"error": str}`.
 - **Sample call:**
   ```json
-  { "entity": "000002.SZ" }
+  { "entity": "AAPL", "prefer_dataset": "equities" }
   ```
 
 #### kg_tool.get_node_by_id
@@ -216,7 +216,7 @@ Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls retur
 #### sql_tool.run_query
 
 - **Description:** Execute a SQL query with optional parameterized values. Returns rows as a list of dicts. Use only tables/columns from the documented schema (see `docs/data_prep/stats-data-schema.md`).
-- **Payload:** `query` (required, string — use `%s` or `%(name)s` for psycopg2 parameters), `params` (optional, dict or tuple).
+- **Payload:** `query` (required, string — use `%s` or `%(name)s` for psycopg2 parameters), `params` (optional, dict for named placeholders, or list/tuple for positional `%s` — lists are coerced to tuples).
 - **Returns:** `{"rows": [...], "schema": [...], "params": {...}}` or `{"error": str}`.
 - **Sample call:**
   ```json
@@ -236,7 +236,7 @@ Backed by PostgreSQL (`DATABASE_URL`). When `DATABASE_URL` is unset, calls retur
 #### sql_tool.export_results
 
 - **Description:** Run a SQL query and return results as JSON or CSV, with an optional row limit. Use only schema from `scripts/data_loader.py` / `database/stats_data/*.csv`.
-- **Payload:** `query` (required, string), `params` (optional), `format` (optional: `"json"` | `"csv"`, default `"json"`), `row_limit` (optional, int, default 1000).
+- **Payload:** `query` (required, string), `params` (optional dict, list, or tuple — same rules as `run_query`; list values map to positional `%s`), `format` (optional: `"json"` | `"csv"`, default `"json"`), `row_limit` (optional, int, default 1000).
 - **Returns:** `{"data": ...}` (list of dicts for JSON, CSV string for CSV), `"schema": [...]`, `"row_count": int`; or `{"error": str}`.
 - **Sample call:**
   ```json
@@ -447,8 +447,8 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
 
 #### analyst_tool.get_indicators
 
-- **Description:** Compute technical indicators (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, etc.) from OHLCV data over a lookback window. Routes to Alpha Vantage (`MCP_INDICATOR_VENDOR`: `alpha_vantage` only).
-- **Payload:** `symbol` or `ticker` (required, string), `indicator` (required, string — e.g. `close_50_sma`, `close_200_sma`, `rsi`, `macd`, `boll`, `atr`), `as_of_date` or `curr_date` (required, string `yyyy-mm-dd`), `look_back_days` (required, int).
+- **Description:** Compute technical indicators (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, etc.) from OHLCV data over a lookback window. Routes to Alpha Vantage (`MCP_INDICATOR_VENDOR`: `alpha_vantage` only). **Not** for raw price series: `close`, `open`, `high`, `low`, `volume` are rejected with guidance to use `market_tool.get_stock_data` or `sql_tool` on `yahoo_timeseries` / `yahoo_quote_metrics`.
+- **Payload:** `symbol` or `ticker` (required, string), `indicator` (required, string — e.g. `close_50_sma`, `close_200_sma`, `rsi`, `macd`, `boll`, `atr`; not bare `close`/`open`/etc.), `as_of_date` or `curr_date` (required, string `yyyy-mm-dd`), `look_back_days` (required, int).
 - **Returns:** `{"content": str, "timestamp": str}` or `{"error": str}`.
 - **Supported indicators (Alpha Vantage):** `close_50_sma`, `close_200_sma`, `close_10_ema`, `macd`, `macds`, `macdh`, `rsi`, `boll`, `boll_ub`, `boll_lb`, `atr`, `vwma`.
 - **Sample call:**

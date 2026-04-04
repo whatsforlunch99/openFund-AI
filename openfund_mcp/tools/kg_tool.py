@@ -9,61 +9,18 @@ import csv
 import json
 from typing import Any, Optional
 
+from openfund_mcp.tools.kg_graph_schema_constants import (
+    CATEGORY_FIELDS as _CATEGORY_FIELDS,
+    DATASET_FILES as _DATASET_FILES,
+    DIMENSION_REL as _DIMENSION_REL,
+)
+
 logger = logging.getLogger(__name__)
 
 # Safe identifier for Cypher (label, property key): alphanumeric and underscore only.
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 _driver = None
-
-_DATASET_FILES: dict[str, str] = {
-    "funds": "funds.csv",
-    "equities": "equities.csv",
-    "etfs": "etfs.csv",
-    "indices": "indices.csv",
-    "currencies": "currencies.csv",
-    "cryptos": "cryptos.csv",
-    "moneymarkets": "moneymarkets.csv",
-}
-
-# Category-like fields per dataset used to build shared category nodes.
-_CATEGORY_FIELDS: dict[str, list[str]] = {
-    "funds": ["currency", "category_group", "category", "family", "exchange"],
-    "equities": [
-        "currency",
-        "sector",
-        "industry_group",
-        "industry",
-        "exchange",
-        "market",
-        "country",
-        "state",
-        "market_cap",
-    ],
-    "etfs": ["currency", "category_group", "category", "family", "exchange"],
-    "indices": ["currency", "category_group", "category", "exchange"],
-    "currencies": ["base_currency", "quote_currency", "exchange"],
-    "cryptos": ["cryptocurrency", "currency", "exchange"],
-    "moneymarkets": ["currency", "family", "exchange"],
-}
-
-_DIMENSION_REL: dict[str, tuple[str, str]] = {
-    "currency": ("Currency", "DENOMINATED_IN"),
-    "category_group": ("CategoryGroup", "IN_CATEGORY_GROUP"),
-    "category": ("Category", "IN_CATEGORY"),
-    "family": ("Family", "IN_FAMILY"),
-    "exchange": ("Exchange", "LISTED_ON"),
-    "sector": ("Sector", "IN_SECTOR"),
-    "industry_group": ("IndustryGroup", "IN_INDUSTRY_GROUP"),
-    "industry": ("Industry", "IN_INDUSTRY"),
-    "market": ("Market", "IN_MARKET"),
-    "country": ("Country", "IN_COUNTRY"),
-    "state": ("State", "IN_STATE"),
-    "market_cap": ("MarketCapClass", "IN_MARKET_CAP_CLASS"),
-    "base_currency": ("BaseCurrency", "HAS_BASE_CURRENCY"),
-    "quote_currency": ("QuoteCurrency", "HAS_QUOTE_CURRENCY"),
-    "cryptocurrency": ("CryptoTicker", "TRACKS_CRYPTO"),
-}
 
 
 def _norm_value(v: Any) -> str:
@@ -114,7 +71,7 @@ def _node_to_dict(node: Any) -> dict[str, Any]:
     out: dict[str, Any] = {"label": labels}
     # Use node's id or name property when present so get_relations returns same shape as demo.
     if hasattr(node, "items"):
-        out["id"] = node.get("id") or node.get("name") or nid
+        out["id"] = node.get("node_id") or node.get("id") or node.get("name") or nid
         for k, v in node.items():
             if k != "label":
                 out[k] = v
@@ -785,13 +742,17 @@ def _entity_compact_alnum(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
 
 
-# Predicate on node `e` for get_relations (shared by relationship hop and isolated-node fallback).
-_GET_RELATIONS_ENTITY_PREDICATE = """trim(toString($entity)) <> '' AND (
-        e.id = $entity
-        OR e.name = $entity
-        OR e.symbol = $entity
-        OR toString(elementId(e)) = $entity
-        OR (
+# Exact match first (symbol, node_id, name, element id) — avoids Neo4j warnings on missing `id` property.
+_GET_RELATIONS_PREDICATE_EXACT = """trim(toString($entity)) <> '' AND (
+        (e.node_id IS NOT NULL AND toLower(toString(e.node_id)) = toLower(trim(toString($entity))))
+        OR (e.symbol IS NOT NULL AND toLower(trim(toString(e.symbol))) = toLower(trim(toString($entity))))
+        OR (e.name IS NOT NULL AND toLower(trim(toString(e.name))) = toLower(trim(toString($entity))))
+        OR toString(elementId(e)) = trim(toString($entity))
+    )"""
+
+# Fuzzy / substring fallback when exact phase returns nothing (no `e.id`; graph uses node_id).
+_GET_RELATIONS_PREDICATE_FUZZY = """trim(toString($entity)) <> '' AND (
+        (
             size($entity_compact) >= 4
             AND e.name IS NOT NULL
             AND (
@@ -806,13 +767,16 @@ _GET_RELATIONS_ENTITY_PREDICATE = """trim(toString($entity)) <> '' AND (
         )
     )"""
 
+_GET_RELATIONS_DATASET_FILTER = """ AND ($prefer_dataset = '' OR coalesce(toString(e.dataset), '') = $prefer_dataset)"""
 
-def get_relations(entity: str) -> dict:
+
+def get_relations(entity: str, prefer_dataset: str = "") -> dict:
     """
     Get relations for an entity (e.g. fund, manager).
 
     Args:
         entity: Entity identifier.
+        prefer_dataset: Optional graph dataset bucket (e.g. ``equities``, ``etfs``) to bias fuzzy matches.
 
     Returns:
         Dict with nodes, edges, and entity. When NEO4J_URI is unset, returns mock.
@@ -838,28 +802,33 @@ def get_relations(entity: str) -> dict:
     ec = _entity_compact_alnum(entity_s)
     if len(ec) < 4:
         ec = ""
-    params = {"entity": entity_s, "entity_compact": ec}
+    pref_ds = (prefer_dataset or "").strip().lower()
+    params = {
+        "entity": entity_s,
+        "entity_compact": ec,
+        "prefer_dataset": pref_ds,
+    }
     db = os.environ.get("NEO4J_DATABASE", "neo4j")
-    # One-hop: match id/name/symbol/elementId, punctuation-insensitive name (entity_compact),
-    # or entity text containing a multi-char ticker. Isolated nodes (degree 0) do not match
-    # ``(e)-[r]-(other)``; see fallback below.
-    cypher_rels = """
-    MATCH (e)-[r]-(other)
-    WHERE """ + _GET_RELATIONS_ENTITY_PREDICATE + """
-    RETURN e, type(r) AS rel_type, other
-    LIMIT 100
-    """
-    cypher_isolated = """
-    MATCH (e)
-    WHERE """ + _GET_RELATIONS_ENTITY_PREDICATE + """
-    RETURN e
-    LIMIT 25
-    """
-    try:
-        records, _, _ = driver.execute_query(cypher_rels, parameters_=params, database_=db)
+    ds_clause = _GET_RELATIONS_DATASET_FILTER if pref_ds else ""
+
+    def _run_phase(predicate_body: str) -> tuple[list[dict], list[dict]]:
+        where_full = f"({predicate_body}){ds_clause}"
+        cypher_rels = f"""
+        MATCH (e)-[r]-(other)
+        WHERE {where_full}
+        RETURN e, type(r) AS rel_type, other
+        LIMIT 100
+        """
+        cypher_isolated = f"""
+        MATCH (e)
+        WHERE {where_full}
+        RETURN e
+        LIMIT 25
+        """
         nodes: list[dict] = []
         edges: list[dict] = []
         seen: set[str] = set()
+        records, _, _ = driver.execute_query(cypher_rels, parameters_=params, database_=db)
         for record in records:
             e, rel_type, other = record["e"], record["rel_type"], record["other"]
             nd_e = _node_to_dict(e)
@@ -884,6 +853,12 @@ def get_relations(entity: str) -> dict:
                 if eid and eid not in seen:
                     nodes.append(nd_e)
                     seen.add(eid)
+        return nodes, edges
+
+    try:
+        nodes, edges = _run_phase(_GET_RELATIONS_PREDICATE_EXACT)
+        if not nodes:
+            nodes, edges = _run_phase(_GET_RELATIONS_PREDICATE_FUZZY)
         return {"nodes": nodes, "edges": edges, "entity": entity}
     except Exception as e:
         logger.exception("kg_tool.get_relations failed: %s", e)
@@ -1942,7 +1917,10 @@ def validate_graph_csv_bundle_for_neo4j(
 # arg_specs: list of (param_name, payload_keys, default, coerce). coerce = int or None.
 TOOL_SPECS: list[tuple[str, str, list[str], list, str | None]] = [
     ("kg_tool.query_graph", "query_graph", [], [("cypher", ["cypher"], "", None), ("params", ["params"], None, None)], None),
-    ("kg_tool.get_relations", "get_relations", ["entity"], [("entity", ["entity"], "", None)], None),
+    ("kg_tool.get_relations", "get_relations", ["entity"], [
+        ("entity", ["entity"], "", None),
+        ("prefer_dataset", ["prefer_dataset", "dataset"], "", None),
+    ], None),
     ("kg_tool.get_node_by_id", "get_node_by_id", [], [("id_val", ["id_val", "id"], "", None), ("id_key", ["id_key"], "id", None)], None),
     ("kg_tool.get_neighbors", "get_neighbors", [], [
         ("node_id", ["node_id", "id"], "", None),

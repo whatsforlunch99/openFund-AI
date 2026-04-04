@@ -595,7 +595,11 @@ def create_app(
                     "status": "timeout",
                     "conversation_id": conversation_id,
                     "response": None,
-                    "message": "The request took too long. Your question may still be processing. Send the same message again in a moment to get the answer when ready.",
+                    "message": (
+                        "The request took too long. The pipeline may still be finishing. "
+                        "Poll GET /conversations/{conversation_id} for status and final_response, "
+                        "or retry the same chat message shortly."
+                    ),
                     "flow": manager.get_flow_events(conversation_id),
                 },
             )

@@ -8,6 +8,16 @@ Work breakdown (slices/stages), runnable verification commands, solved repeated 
 
 Development proceeds in **slices**; each slice is a runnable checkpoint. Tests live in `tests/test-stages.py`. Run full suite: `pytest tests/test-stages.py -v`. Planner now supports capped planner rounds (`MAX_RESEARCH_ROUNDS`, default 2) via an LLM-based planner sufficiency check; unresolved responder-side confidence hooks remain future work.
 
+**Layered symbol resolution (v4):** `util/planner_symbol_resolution.py` orchestrates deterministic aliases (`database/symbol_resolution_aliases.json`), optional LLM + Yahoo meta + OpenFIGI (`OPENFIGI_API_KEY`), `unresolved` financial skips; `pytest tests/test_symbol_resolution.py -v`.
+
+**Implementation notes (AAPL-trace fixes):** SQL bind `params` accept list/tuple/dict; analyst blocks raw OHLCV indicators and locks symbols to planner resolution; default `E2E_TIMEOUT_SECONDS=180` and 408 body mention polling `GET /conversations/{id}`; WebSearcher uses resolved symbols before fund catalog, skips ETFdb for `equities`, Stooq falls back bare ticker, news/AV soft caps + cooldown; `kg_tool.get_relations` exact-first Cypher + optional `prefer_dataset`; librarian summary user content includes retrieval counts; interaction `TRACE` ids are globally monotonic. Golden checklist: [test_plan.md](../../shared/test_plan.md).
+
+**Implementation notes (Codex / NVDA trace follow-ups):** `util/answer_coverage.py` + planner override when price + SQL/metrics; `util/timeseries_metrics.py` on Librarian SQL; WebSearcher Yahoo `get_price` + optional `get_fundamental`, Stooq after Yahoo for US-style tickers, `news_synthetic` / `news_confidence`; analyst batch-skip on AV cooldown; `market_tool.alpha_vantage_cooldown_active()`. Tests: `pytest tests/test_timeseries_metrics.py -v`.
+
+**Git hooks:** `./scripts/install-git-hooks.sh` sets `core.hooksPath=scripts/git-hooks`; `pre-commit` runs `scripts/review_staged_for_commit.py` (secret path blocks, cohesion-by-directory hints, `ruff check` on staged `.py` when `ruff` is on PATH). Cohesion/coupling *edits* use Cursor rule `git-commit-cohesion-review` and `docs/workflow/git-commit-cohesion-review.md`.
+
+**Layering / cohesion refactor:** [dependency-contract.md](../02_planning/dependency-contract.md) documents import direction. `extract_symbol_from_query` moved to `util/symbol_query_extract.py` (no `util` → `agents`). Planner split: `planner_types`, `planner_formatting`, `planner_decompose`, `planner_sufficiency`, slim `planner_agent.py`. WebSearcher helpers in `agents/websearch_helpers.py`. Symbol resolution JSON cache in `util/symbol_resolution/cache_io.py`. `data_manager/` tree removed from file-structure (package not in repo); ingestion = `scripts/data_loader.py`.
+
 ### Slice summary
 
 | Slice | What you add | Runnable checkpoint |

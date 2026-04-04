@@ -268,11 +268,25 @@ def get_indicators_av(
 
 # --- Vendor routing ---
 
+# Raw OHLCV is not a technical indicator; LLMs often pass "close" — steer to market/sql tools.
+_FORBIDDEN_RAW_PRICE_INDICATORS = frozenset(
+    {"close", "open", "high", "low", "volume", "adj_close", "ohlc", "ohlcv"}
+)
+
 
 def _route_indicators(
     symbol: str, indicator: str, as_of_date: str, look_back_days: int
 ) -> dict:
     """Route get_indicators to configured vendor (alpha_vantage)."""
+    ind_key = (indicator or "").strip().lower()
+    if ind_key in _FORBIDDEN_RAW_PRICE_INDICATORS:
+        return {
+            "error": (
+                f"get_indicators is for technical indicators (e.g. rsi, macd, close_50_sma), "
+                f"not raw '{indicator}'. Use market_tool.get_stock_data for OHLCV, or "
+                f"sql_tool.export_results on yahoo_timeseries / yahoo_quote_metrics."
+            )
+        }
     blocked = _av_rate_limit_error("analyst_tool.get_indicators")
     if blocked:
         return {"error": blocked}

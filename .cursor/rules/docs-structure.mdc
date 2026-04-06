@@ -9,50 +9,46 @@ All docs live in `/docs`. Each document has a single responsibility; no overlap 
 
 | Document | Purpose |
 |----------|---------|
-| **user-flow.md** | Application behavioral flow from user perspective: entry points, navigation, screen/state transitions, decision branches, auth boundaries, error states, session lifecycle. No UI styling, schema, or implementation. |
-| **prd.md** | What the system must do and why: problem statement, target users, scope, functional requirements, constraints, acceptance criteria, success metrics. No API definitions or implementation. |
-| **backend.md** | Server-side behavior and architecture: system overview, API contracts, data models, business rules, validation, auth, error handling, integrations. No UI or product rationale. |
-| **frontend.md** | Frontend architecture and behavior. Leave blank until frontend planning begins. |
-| **file-structure.md** | Codebase organization: directory layout, module boundaries, file responsibilities, and per-function (name, responsibility, inputs, outputs, side effects, example usage). No business reasoning, flow, or execution history. |
-| **progress.md** | Development execution state: work breakdown (tasks, status, blockers), implementation notes (decisions, PRD deviations, refactors), repeated errors & resolutions. Changelog lives at repo root in **CHANGELOG.md**. Update progress right after implementation; update CHANGELOG.md for user-visible or notable changes. |
-| **project-status.md** | Major capability readiness table: Capability | Status | Notes. Status: Not Started, In Progress, Live, Deprecated. |
+| **docs/workflow/00_overview/user-flow.md** | Application behavioral flow from user perspective: entry points, navigation, state transitions, auth boundaries, and error paths. |
+| **docs/workflow/90_product/prd.md** | What the system must do and why: scope, requirements, acceptance criteria, constraints, and success metrics. |
+| **docs/workflow/02_planning/backend.md** | Server-side behavior and architecture: API contracts, data models, business rules, validation, auth, integrations. |
+| **docs/workflow/02_planning/frontend.md** | Frontend architecture and behavior (if/when frontend planning is in scope). |
+| **docs/workflow/02_planning/file-structure.md** | Codebase organization, module boundaries, file responsibilities, and function-level responsibilities. |
+| **docs/workflow/90_product/progress.md** | Development execution state: tasks, status, blockers, implementation notes, and stage checkpoints. |
+| **docs/workflow/90_product/project-status.md** | Major capability readiness table and lifecycle state transitions. |
 
 ### Supporting / reference docs
 
 | Document | Purpose |
 |----------|---------|
-| **docs/workflow/03_tools_and_mcp/README.md** | Index for MCP docs: which file owns contracts vs agent design vs server runbook. |
-| **docs/workflow/03_tools_and_mcp/agent-tools-reference.md** | MCP tool reference: payloads, samples, per-agent tool lists; keep in sync with `llm/tool_descriptions.py`. |
-| **docs/shared/websearcher-git-sync-notes.md** | Historical git/MCP migration notes only (not API reference). |
-| **data-manager-agent.md** | Data Manager Agent design: collection, distribution, CLI, triggers; no duplication of backend system overview. |
-| **fund-data-schema.md** | Fund data schema: JSON fields and DB mapping for datasets/funds; companion to data-manager-agent. |
-| **test_plan.md** | Test matrix and docs-consistency checklist; references progress for slice context. |
-| **demo.md** | How to run demo mode and troubleshoot; module layout in file-structure. |
-| **use-case-trace-beginner.md** | Step-by-step function trace for one beginner request (debugging/onboarding). |
-| **docs/workflow/git-commit-cohesion-review.md** | Git hooks + pre-commit review script; cohesion/coupling checklist; Cursor-assisted review before commit (companion to `.cursor/rules/git-commit-cohesion-review.mdc`). |
-| **docs/workflow/02_planning/dependency-contract.md** | Allowed import direction between packages (`api`, `agents`, `util`, `openfund_mcp`, `llm`, `a2a`); doc/tool sync rules; data ingestion source of truth. |
+| **docs/workflow/03_tools_and_mcp/README.md** | Index for MCP docs and ownership boundaries. |
+| **docs/workflow/03_tools_and_mcp/agent-tools-reference.md** | MCP tool payloads, samples, and per-agent allowlists; keep in sync with `llm/tool_descriptions.py`. |
+| **docs/shared/websearcher-git-sync-notes.md** | Historical git/MCP migration notes only. |
+| **docs/shared/test_plan.md** | Test matrix and docs-consistency checklist. |
+| **docs/workflow/00_overview/use-case-trace-beginner.md** | Step-by-step function trace for one beginner request. |
+| **docs/workflow/git-commit-cohesion-review.md** | Git hooks + pre-commit cohesion/coupling workflow. |
+| **docs/workflow/02_planning/dependency-contract.md** | Allowed import direction between packages and ingestion source-of-truth. |
+
+**Optional/if present:** auxiliary docs such as `demo.md`, data-manager design docs, or schema supplements can be used as references, but must not duplicate canonical ownership above.
 
 **Generated:** **api-test-results.md** is produced by `scripts/test_third_party_apis.py`; operational only, not edited by hand.
 
 ## Update triggers (when to touch which doc)
 
-- **user-flow.md:** New screen/state, navigation or auth flow change, error path change, new entry point.
-- **prd.md:** New feature approved, scope/acceptance criteria/business requirements/success metrics change.
-- **backend.md:** API contracts, data models, business rules, auth, integrations, validation change.
-- **frontend.md:** When frontend architecture, components, or state management are defined.
-- **file-structure.md:** New module, changed file responsibility, function added/removed/refactored, directory structure change.
-- **progress.md:** Task completed/created, architectural decision, recurring error identified, behavioral change from a fix, dependency change. Update right after implementation. For **changelog entries** (features, fixes, refactors), update **CHANGELOG.md** at repo root.
-- **project-status.md:** Capability becomes operational, state change, deprecated, or release milestone.
-- **03_tools_and_mcp/README.md:** New file in this folder or change to doc boundaries.
-- **03_tools_and_mcp/agent-tools-reference.md:** MCP tools added/removed/renamed or payload contract changed; keep in sync with llm/tool_descriptions.py.
-- **data-manager-agent.md:** Data Manager design, CLI, or trigger behavior changed.
-- **fund-data-schema.md:** Fund JSON or DB schema for datasets/funds changed.
-- **test_plan.md:** Stage/test matrix or docs checklist updated.
-- **demo.md:** Demo run steps or troubleshooting changed.
-- **use-case-trace-beginner.md:** Request flow or function sequence for the traced path changed.
-- **git-commit-cohesion-review.md / git-commit-cohesion-review.mdc:** Hook install steps, review script behavior, or cohesion/coupling workflow for commits changed.
-- **dependency-contract.md:** Layering rules or ingestion source-of-truth changed.
+- **docs/workflow/00_overview/user-flow.md:** New entry point, navigation/state path, auth boundary, or error path.
+- **docs/workflow/90_product/prd.md:** Approved feature/scope change, acceptance criteria update, business requirement change.
+- **docs/workflow/02_planning/backend.md:** API/data model/business rule/auth/integration/validation changes.
+- **docs/workflow/02_planning/frontend.md:** Frontend architecture/component/state management changes.
+- **docs/workflow/02_planning/file-structure.md:** New module, file responsibility changes, function add/remove/refactor.
+- **docs/workflow/90_product/progress.md:** Task completion/new task, notable implementation decision, recurring issue and resolution.
+- **docs/workflow/90_product/project-status.md:** Capability state changes (Not Started/In Progress/Live/Deprecated).
+- **docs/workflow/03_tools_and_mcp/README.md:** MCP doc boundary or ownership changes.
+- **docs/workflow/03_tools_and_mcp/agent-tools-reference.md:** MCP tools/payload contracts/allowlists changed.
+- **docs/shared/test_plan.md:** Stage test matrix or docs consistency checklist changed.
+- **docs/workflow/00_overview/use-case-trace-beginner.md:** Traced request flow/function sequence changed.
+- **docs/workflow/git-commit-cohesion-review.md / .cursor/rules/git-commit-cohesion-review.mdc:** Hook install/review workflow behavior changed.
+- **docs/workflow/02_planning/dependency-contract.md:** Package layering or ingestion source-of-truth changed.
 
 ## Governance
 
-A feature is not complete until: PRD reflects it, User Flow reflects the interaction, Backend reflects implementation, File Structure reflects code, Progress logs the change, Project Status reflects capability state. Documentation integrity is mandatory.
+A feature is not complete until PRD, user-flow, backend/file-structure, progress, and project-status are consistent. Documentation integrity is mandatory.

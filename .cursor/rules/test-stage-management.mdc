@@ -1,15 +1,14 @@
----
-description: When a stage is completed, add tests per docs/progress.md to tests/test-stages.py
+description: When a stage is completed, add tests per workflow product docs to tests/test-stages.py
 alwaysApply: true
 ---
 
 # Test Case Management (Staged Implementation)
 
-When you **complete implementation for a stage**, add the corresponding test cases to **tests/test-stages.py** as specified in [docs/progress.md](docs/progress.md) and [docs/prd.md](docs/prd.md).
+When you **complete implementation for a stage**, add the corresponding test cases to **tests/test-stages.py** as specified in [docs/workflow/90_product/progress.md](docs/workflow/90_product/progress.md) and [docs/workflow/90_product/prd.md](docs/workflow/90_product/prd.md).
 
 ## Workflow
 
-1. After implementing a stage, open [docs/progress.md](docs/progress.md) for the stage list and runnable commands, and [docs/prd.md](docs/prd.md) for behavior and decisions.
+1. After implementing a stage, open [docs/workflow/90_product/progress.md](docs/workflow/90_product/progress.md) for the stage list and runnable commands, and [docs/workflow/90_product/prd.md](docs/workflow/90_product/prd.md) for behavior and decisions.
 2. Implement each test case listed there as one or more pytest test functions.
 3. Add them to **tests/test-stages.py**, grouped by stage (e.g. a class `TestStage2MessageBus` or a module-level comment `# --- Stage N ---` and tests below it).
 4. Use pytest conventions: `test_*` names, assert expectations; mock external deps (Milvus, Neo4j, HTTP, etc.) so tests run without real services.
@@ -18,8 +17,8 @@ When you **complete implementation for a stage**, add the corresponding test cas
 
 - **Single file:** `tests/test-stages.py` holds all stage tests.
 - **Organization:** Group tests by stage number/name so the file stays scannable (e.g. Stage 2 block, then Stage 3 block).
-- **Stage 1:** progress.md specifies a runnable CLI check only; no pytest for Stage 1.1 unless you add a smoke test.
+- **Stage 1:** the progress doc specifies a runnable CLI check only; no pytest for Stage 1.1 unless you add a smoke test.
 
 ## Reference
 
-Use [docs/progress.md](docs/progress.md) for work breakdown and runnable commands; [docs/prd.md](docs/prd.md) for what to test. Run with `pytest tests/test-stages.py -v` (or `-k stage_2`).
+Use [docs/workflow/90_product/progress.md](docs/workflow/90_product/progress.md) for work breakdown and runnable commands; [docs/workflow/90_product/prd.md](docs/workflow/90_product/prd.md) for what to test. Run with `pytest tests/test-stages.py -v` (or `-k stage_2`).

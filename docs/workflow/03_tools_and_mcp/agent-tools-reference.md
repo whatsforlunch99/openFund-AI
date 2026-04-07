@@ -1,6 +1,6 @@
 # Agent Tools Reference
 
-This document lists every MCP tool available in OpenFund-AI, with callable format, payload parameters, and sample calls. It is intended as a reference for agents to know what they can call and how.
+This document lists agent-facing MCP tools used by specialists in OpenFund-AI, with callable format, payload parameters, and sample calls. It is intended as a reference for agents to know what they can call and how.
 
 ## Scope (what belongs here)
 
@@ -23,7 +23,7 @@ When **Librarian**, **WebSearcher**, or **Analyst** receive a request from the P
 
 **Code sync:** The allowed tool sets for each agent are maintained in `llm/tool_descriptions.py` (`LIBRARIAN_ALLOWED_TOOL_NAMES`, `WEBSEARCHER_ALLOWED_TOOL_NAMES`, `ANALYST_ALLOWED_TOOL_NAMES`). The LLM prompt for each agent is injected with only that agent's tool descriptions, and any tool name the LLM returns outside the allowed set is discarded at runtime by `filter_tool_calls_to_allowed()` before execution. Keep this file and `llm/tool_descriptions.py` in sync when adding or removing tools (this path: `docs/workflow/03_tools_and_mcp/agent-tools-reference.md`).
 
-All tools are registered in the **single MCP server** (`openfund_mcp/mcp_server.py`): FastMCP app for production stdio and MCPServer.register_default_tools() for in-process tests. All tool implementations live under `openfund_mcp/tools/`. The API and agents use **MCPClient** to call the server over stdio. `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed.
+All tools are registered in the **single MCP server** (`openfund_mcp/mcp_server.py`): FastMCP app for production stdio and MCPServer.register_default_tools() for in-process tests. All tool implementations live under `openfund_mcp/tools/`. The API and agents use **MCPClient** to call the server over stdio. `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed. Some ingestion/validation MCP tools are runtime-registered but intentionally out of specialist scope in this document.
 
 ---
 
@@ -434,7 +434,7 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
 #### market_tool.get_global_news
 
 - **Description:** Fetch recent global financial/market news (not ticker-specific).
-- **Payload:** `as_of_date` or `curr_date` (optional, string `yyyy-mm-dd`), `look_back_days` (optional, int, default 7), `limit` (optional, int, default 10).
+- **Payload:** `as_of_date` or `curr_date` (required, string `yyyy-mm-dd`), `look_back_days` (optional, int, default 7), `limit` (optional, int, default 10).
 - **Returns:** `{"content": str, "timestamp": str}` or `{"error": str}`.
 - **Sample call:**
   ```json
@@ -448,7 +448,7 @@ When the backend is unavailable or the dependency is missing, calls return `{"er
 #### analyst_tool.get_indicators
 
 - **Description:** Compute technical indicators (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, etc.) from OHLCV data over a lookback window. Routes to Alpha Vantage (`MCP_INDICATOR_VENDOR`: `alpha_vantage` only). **Not** for raw price series: `close`, `open`, `high`, `low`, `volume` are rejected with guidance to use `market_tool.get_stock_data` or `sql_tool` on `yahoo_timeseries` / `yahoo_quote_metrics`.
-- **Payload:** `symbol` or `ticker` (required, string), `indicator` (required, string — e.g. `close_50_sma`, `close_200_sma`, `rsi`, `macd`, `boll`, `atr`; not bare `close`/`open`/etc.), `as_of_date` or `curr_date` (required, string `yyyy-mm-dd`), `look_back_days` (required, int).
+- **Payload:** `symbol` or `ticker` (required, string), `indicator` (required, string — e.g. `close_50_sma`, `close_200_sma`, `rsi`, `macd`, `boll`, `atr`; not bare `close`/`open`/etc.), `as_of_date` or `curr_date` (required, string `yyyy-mm-dd`), `look_back_days` (optional, int, default 30).
 - **Returns:** `{"content": str, "timestamp": str}` or `{"error": str}`.
 - **Supported indicators (Alpha Vantage):** `close_50_sma`, `close_200_sma`, `close_10_ema`, `macd`, `macds`, `macdh`, `rsi`, `boll`, `boll_ub`, `boll_lb`, `atr`, `vwma`.
 - **Sample call:**
@@ -479,7 +479,7 @@ Each agent uses `mcp_client.call_tool(...)` to access MCP tools. **Planner** and
 | Agent | Tools available |
 |---|---|
 | **Librarian** | `file_tool.read_file` · `vector_tool.search` · `vector_tool.get_by_ids` · `vector_tool.upsert_documents` · `vector_tool.health_check` · `vector_tool.create_collection_from_config` · `kg_tool.query_graph` · `kg_tool.get_relations` · `kg_tool.get_node_by_id` · `kg_tool.get_neighbors` · `kg_tool.get_graph_schema` · `kg_tool.shortest_path` · `kg_tool.get_similar_nodes` · `kg_tool.fulltext_search` · `kg_tool.bulk_export` · `kg_tool.bulk_create_nodes` · `sql_tool.run_query` · `sql_tool.explain_query` · `sql_tool.export_results` · `sql_tool.connection_health_check` · `get_capabilities` |
-| **WebSearcher** | `fund_catalog_tool.search` · `news_tool.search_rss` · `news_tool.search_yahoo_rss` · `news_tool.search_gdelt` · `stooq_tool.get_price` · `yahoo_finance_tool.get_price` · `etfdb_tool.get_fund_data` · `market_tool.get_fundamentals` · `market_tool.get_stock_data` · `market_tool.get_balance_sheet` · `market_tool.get_cashflow` · `market_tool.get_income_statement` · `market_tool.get_insider_transactions` · `market_tool.get_news` · `market_tool.get_global_news` · `get_capabilities` |
+| **WebSearcher** | `fund_catalog_tool.search` · `news_tool.search_rss` · `news_tool.search_yahoo_rss` · `news_tool.search_gdelt` · `stooq_tool.get_price` · `yahoo_finance_tool.get_price` · `yahoo_finance_tool.get_fundamental` · `etfdb_tool.get_fund_data` · `market_tool.get_fundamentals` · `market_tool.get_stock_data` · `market_tool.get_balance_sheet` · `market_tool.get_cashflow` · `market_tool.get_income_statement` · `market_tool.get_insider_transactions` · `market_tool.get_news` · `market_tool.get_global_news` · `get_capabilities` |
 | **Analyst** | `analyst_tool.get_indicators` · `get_capabilities` |
 | **Planner** | _(none — orchestrates specialists and sends decomposed queries via ACL)_ |
 | **Responder** | _(none — formats the final answer)_ |

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import socket
 import time
 import uuid
 from contextlib import redirect_stderr, redirect_stdout
@@ -46,8 +47,17 @@ def _ensure_milvus_connection() -> tuple[bool, str | None]:
     except ImportError:
         return False, "Milvus driver not installed. Run: pip install -e '.[backends]'"
     host, port = _parse_milvus_uri(uri)
+    # Fail fast when endpoint is unreachable to avoid long driver-level blocking.
+    probe_start = time.time()
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            pass
+    except Exception as e:
+        return False, f"Milvus connection failed: {e}"
+
     last_error = None
     for attempt in range(5):
+        attempt_start = time.time()
         try:
             connections.connect(alias="default", host=host, port=port)
             _milvus_connected = True

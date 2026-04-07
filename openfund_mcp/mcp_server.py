@@ -127,6 +127,20 @@ class MCPServer:
         from openfund_mcp.tools import sql_tool
 
         self._register_specs(sql_tool, sql_tool.TOOL_SPECS)
+        try:
+            from openfund_mcp.tools import file_tool
+
+            self.register_tool(
+                "file_tool.read_file",
+                _payload_handler(
+                    file_tool.read_file,
+                    required_keys=["path"],
+                    arg_specs=[("path", ["path"], "", None)],
+                    result_key=None,
+                ),
+            )
+        except ImportError:
+            pass
 
         market_tool: Any | None = None
         try:
@@ -216,6 +230,18 @@ def _create_fastmcp_app() -> Any:
     if FastMCP is None:
         raise RuntimeError("MCP SDK not installed. Run: pip install mcp")
     app = FastMCP("openfund-ai")
+
+    # ---------------------------------------------------------------------------
+    # file_tool
+    # ---------------------------------------------------------------------------
+    from openfund_mcp.tools import file_tool as ft
+
+    @app.tool(
+        name="file_tool.read_file",
+        description="Read file content. Payload: path (string).",
+    )
+    def file_tool_read_file(path: str = "") -> dict:
+        return ft.read_file(path=path)
 
     # ---------------------------------------------------------------------------
     # vector_tool
@@ -544,7 +570,7 @@ def _create_fastmcp_app() -> Any:
 
         @app.tool(
             name="market_tool.get_global_news",
-            description="Global/macro financial news. as_of_date (optional yyyy-mm-dd), look_back_days (optional int, default 7), limit (optional int, default 10).",
+            description="Global/macro financial news. as_of_date (required yyyy-mm-dd), look_back_days (optional int, default 7), limit (optional int, default 10).",
         )
         def market_tool_get_global_news(
             as_of_date: str = "",
@@ -596,17 +622,17 @@ def _create_fastmcp_app() -> Any:
 
         @app.tool(
             name="news_tool.search_rss",
-            description="Google News RSS search. query (string), limit (optional int).",
+            description="Google News RSS search. query (string), days (optional int).",
         )
-        def news_tool_search_rss(query: str = "", limit: Optional[int] = None) -> dict:
-            return nt.search_rss({"query": query, "limit": limit} if limit is not None else {"query": query})
+        def news_tool_search_rss(query: str = "", days: Optional[int] = None) -> dict:
+            return nt.search_rss({"query": query, "days": days} if days is not None else {"query": query})
 
         @app.tool(
             name="news_tool.search_yahoo_rss",
-            description="Yahoo Finance RSS. query (string), limit (optional int).",
+            description="Yahoo Finance RSS fixed feed. limit (optional int).",
         )
-        def news_tool_search_yahoo_rss(query: str = "", limit: Optional[int] = None) -> dict:
-            return nt.search_yahoo_rss({"query": query, "limit": limit} if limit is not None else {"query": query})
+        def news_tool_search_yahoo_rss(limit: Optional[int] = None) -> dict:
+            return nt.search_yahoo_rss({"limit": limit} if limit is not None else {})
 
         @app.tool(
             name="news_tool.search_gdelt",
@@ -707,6 +733,7 @@ def _create_fastmcp_app() -> Any:
     from openfund_mcp.tools import capabilities as cap
 
     _tool_names: list[str] = [
+        "file_tool.read_file",
         "vector_tool.search",
         "vector_tool.get_by_ids",
         "vector_tool.upsert_documents",

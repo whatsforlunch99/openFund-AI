@@ -111,7 +111,7 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](../02_p
 
 - **MCP `register_default_tools` failing when pandas missing:** `register_default_tools()` imported all tools in one block; if `analyst_tool` (or `market_tool`) failed to import (e.g. missing pandas), stage 2.1/2.2 tests failed. Fix: import `file_tool` first and register it; register `market_tool` and `analyst_tool` only inside try/except ImportError so optional tools are skipped when deps are missing.
 
-- **Community-common tools implemented:** Per [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md) and [backend.md](../02_planning/backend.md): kg_tool (`get_node_by_id`, `get_neighbors`, `get_graph_schema`), sql_tool (`explain_query`, `export_results`, `connection_health_check`), vector_tool (`get_by_ids`, `upsert_documents`, `health_check`), and `get_capabilities` (openfund_mcp/tools/capabilities.py) are implemented and registered in `register_default_tools`. Mock behavior when env unset; tests in tests/test_kg_tool.py, test_sql_tool.py, test_vector_tool.py, test_capabilities.py. Backend maintenance commands (populate, sql, neo4j, milvus) are provided via `data_manager/backend_cli.py` and `add_backend_subcommands` under `python -m data_manager`.
+- **Community-common tools implemented:** Per [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md) and [backend.md](../02_planning/backend.md): kg_tool (`get_node_by_id`, `get_neighbors`, `get_graph_schema`), sql_tool (`explain_query`, `export_results`, `connection_health_check`), vector_tool (`get_by_ids`, `upsert_documents`, `health_check`), and `get_capabilities` (`openfund_mcp/tools/_shared/capabilities.py`) are implemented and registered in `register_default_tools`. Mock behavior when env unset; tests in tests/test_kg_tool.py, test_sql_tool.py, test_vector_tool.py, test_capabilities.py. Backend maintenance commands (populate, sql, neo4j, milvus) are provided via `data_manager/backend_cli.py` and `add_backend_subcommands` under `python -m data_manager`.
 
 - **Deferred community-common tools implemented:** kg_tool: `shortest_path`, `get_similar_nodes`, `fulltext_search`, `bulk_export`, `bulk_create_nodes`; vector_tool: `create_collection_from_config`. All registered in `register_default_tools`; mock when NEO4J_URI/MILVUS_URI unset. Tests in tests/test_kg_tool.py and tests/test_vector_tool.py. Fulltext search requires an existing Neo4j fulltext index; bulk_export allows only read-only Cypher (MATCH/CALL).
 
@@ -120,7 +120,7 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](../02_p
 - **Interactive chat and run.sh:** `scripts/chat_cli.py` is a terminal chat client that POSTs to the running API `/chat` endpoint. It prompts "You: ", sends the line (with optional `--port`, `--profile`), prints "Assistant: <response>", and handles 200/408/400/422/404/500 and connection errors. `./scripts/run.sh` by default starts the API in the background, waits for it (curl /openapi.json), runs `chat_cli.py` in the foreground, and on chat exit kills the server (trap EXIT/INT/TERM). Use `--no-chat` to start the API only (previous behavior: `exec main.py --serve`).
 
 - **Tools and LLM diagnostics:** On startup, api/rest logs "MCP tools registered: [...]" and "LLM: model=..., base_url=...". mcp_server logs optional availability through the canonical `openfund_mcp/tools/registry.py`. GET /health returns `{tools: [...], llm_configured: bool}`. MCPClient.get_registered_tool_names() returns sorted list of registered tool names. Librarian, WebSearcher, and Analyst filter tool descriptions and allowed sets to only registered tools (get_*_tool_descriptions(registered_tool_names), filter_tool_calls_to_allowed with allowed ∩ registered) so the LLM does not suggest tools that are missing. docs/demo.md has Setup checklist and expanded troubleshooting; README links to it.
-- **MCP tool package reorganization (phased cut):** Real implementations now live under domain packages (`openfund_mcp/tools/{market,websearch,graph,vector,sql,vendor}`) with canonical registration through `openfund_mcp/tools/registry.py` and metadata in `openfund_mcp/tools/registry_metadata.py`. Legacy flat `*_tool.py` modules are retained as temporary compatibility shims for one pass before final removal.
+- **MCP tool package reorganization finalized:** Real implementations live under domain packages (`openfund_mcp/tools/{market,websearch,graph,vector,sql,vendor,analyst,file,_shared}`), and legacy flat modules (`analyst_tool.py`, `file_tool.py`, `fund_catalog_tool.py`, `kg_graph_schema_constants.py`, `capabilities.py`) are removed. `fund_catalog_tool.search` now uses PostgreSQL-backed symbol discovery in `openfund_mcp/tools/websearch/fund_catalog.py` (no FinanceDatabase fallback).
 
 - **FastMCP single path (openfund_mcp):** MCP package renamed from `mcp` to `openfund_mcp` so the official `mcp` SDK can be used. All tool access goes through the MCP server: API/agents use **MCPClient** to spawn the server as a subprocess (`python -m openfund_mcp`) and connect over stdio; external clients (e.g. Claude Desktop) run the same server. Config: `MCP_SERVER_COMMAND`, `MCP_SERVER_ARGS`, `MCP_SERVER_CWD` in config/config.py. Tests use in-process **MCPServer** + **MCPClient(server)**; production uses no MCPServer instance. See [mcp-server.md](../03_tools_and_mcp/mcp-server.md) and [backend.md](../02_planning/backend.md).
 
@@ -142,9 +142,9 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](../02_p
 
 ### Backend tool integrations (implemented; env-gated)
 
-- **openfund_mcp/tools/kg_tool.py:** `query_graph(cypher, params)` — uses neo4j driver with NEO4J_URI/NEO4J_USER/NEO4J_PASSWORD when set; runs Cypher with params; returns rows (and nodes/edges for get_relations). When NEO4J_URI is unset, returns mock. On error returns {"error": "..."}.
-- **openfund_mcp/tools/sql_tool.py:** `run_query(query, params)` — uses psycopg2 with DATABASE_URL when set; parameterized execution; returns dict with rows, schema, params. When DATABASE_URL is unset, returns mock data. On error returns {"error": "..."}.
-- **openfund_mcp/tools/vector_tool.py:** `search(query, top_k, filter)` — when MILVUS_URI set: connects to Milvus, lazy-loads sentence-transformers embedding model, embeds query, searches collection; returns list of docs with scores. When MILVUS_URI is unset, returns mock data. `index_documents(docs)` embeds and upserts; returns indexed count; when MILVUS_URI unset returns error.
+- **openfund_mcp/tools/graph/tool.py:** `query_graph(cypher, params)` — uses neo4j driver with NEO4J_URI/NEO4J_USER/NEO4J_PASSWORD when set; runs Cypher with params; returns rows (and nodes/edges for get_relations). When NEO4J_URI is unset, returns mock. On error returns {"error": "..."}.
+- **openfund_mcp/tools/sql/tool.py:** `run_query(query, params)` — uses psycopg2 with DATABASE_URL when set; parameterized execution; returns dict with rows, schema, params. When DATABASE_URL is unset, returns mock data. On error returns {"error": "..."}.
+- **openfund_mcp/tools/vector/tool.py:** `search(query, top_k, filter)` — when MILVUS_URI set: connects to Milvus, lazy-loads sentence-transformers embedding model, embeds query, searches collection; returns list of docs with scores. When MILVUS_URI is unset, returns mock data. `index_documents(docs)` embeds and upserts; returns indexed count; when MILVUS_URI unset returns error.
 
 **Install backends (optional):** `pip install -e ".[backends]"` or `pip install neo4j psycopg2-binary pymilvus sentence-transformers`.
 
@@ -158,11 +158,11 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](../02_p
 
 ### Stubs (NotImplementedError today)
 
-- **openfund_mcp/tools/file_tool.py:** `list_files(prefix)` — list paths under MCP_FILE_BASE_DIR + prefix (e.g. os.listdir/glob); return list of relative paths.
-- **openfund_mcp/tools/market_tool.py:** `fetch(fund_or_symbol)` — wrap get_stock_data or get_fundamentals; add timestamp; return dict.
-- **openfund_mcp/tools/market_tool.py:** `fetch_bulk(symbols)` — loop symbols, call existing vendor-routed helpers; return dict keyed by symbol with timestamp.
-- **openfund_mcp/tools/market_tool.py:** `search_web(query)` — call Tavily API if TAVILY_API_KEY set; normalize to list of dicts with timestamp; else fallback (e.g. get_news with date range).
-- **openfund_mcp/tools/analyst_tool.py:** `run_analysis(payload)` — if ANALYST_API_URL set: POST payload with optional ANALYST_API_KEY; return response JSON; else return stub dict.
+- **openfund_mcp/tools/file/tool.py:** `list_files(prefix)` — list paths under MCP_FILE_BASE_DIR + prefix (e.g. os.listdir/glob); return list of relative paths.
+- **openfund_mcp/tools/market/routing.py:** `fetch(fund_or_symbol)` — wrap get_stock_data or get_fundamentals; add timestamp; return dict.
+- **openfund_mcp/tools/market/routing.py:** `fetch_bulk(symbols)` — loop symbols, call existing vendor-routed helpers; return dict keyed by symbol with timestamp.
+- **openfund_mcp/tools/market/routing.py:** `search_web(query)` — call Tavily API if TAVILY_API_KEY set; normalize to list of dicts with timestamp; else fallback (e.g. get_news with date range).
+- **openfund_mcp/tools/analyst/tool.py:** `run_analysis(payload)` — if ANALYST_API_URL set: POST payload with optional ANALYST_API_KEY; return response JSON; else return stub dict.
 - **agents/responder_agent.py:** `evaluate_confidence(analysis)` — return float from analysis.get("confidence") or computed from distribution/indicators. **Current behavior:** Not implemented (NotImplementedError); only the Planner runs the planner sufficiency check (via LLM). Responder formats the final answer and does not use confidence to decide termination.
 - **agents/responder_agent.py:** `should_terminate(confidence)` — compare to RESPONDER_CONFIDENCE_THRESHOLD; return True to stop, False to request a refined planner round. **Current behavior:** Not implemented (NotImplementedError). See backend.md: Responder does not use confidence.
 - **agents/responder_agent.py:** `format_response(analysis, user_profile)` — build string from analysis (e.g. summary); call OutputRail.format_for_user; return formatted string.
@@ -174,9 +174,9 @@ Per-slice and per-stage behavior details: [prd.md](prd.md), [backend.md](../02_p
 
 ### Suggested implementation order
 
-1. **Low effort:** file_tool.list_files (directory listing under base_dir).
-2. **Unify market:** market_tool.fetch, fetch_bulk, search_web (wrap existing vendor-routed/Tavily).
-3. **Custom analyst:** analyst_tool.run_analysis (HTTP POST to ANALYST_API_URL).
+1. **Low effort:** file/tool.py `list_files` (directory listing under base_dir).
+2. **Unify market:** market/routing.py `fetch`, `fetch_bulk`, `search_web` (wrap existing vendor-routed/Tavily).
+3. **Custom analyst:** analyst/tool.py `run_analysis` (HTTP POST to ANALYST_API_URL).
 4. **Backends:** kg_tool, sql_tool, vector_tool are already implemented; validate with live Neo4j/Postgres/Milvus when instances are available.
 5. **Phase 2:** ResponderAgent confidence/termination/format/refinement and PlannerAgent resolve_conflicts (planner sufficiency check + refined planner rounds already exist; conflict reconciliation is still pending).
 

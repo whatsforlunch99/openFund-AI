@@ -7,7 +7,7 @@ import pytest
 
 def test_get_capabilities_structure(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_capabilities returns neo4j, postgres, milvus, tools."""
-    from openfund_mcp.tools import capabilities
+    from openfund_mcp.tools._shared import capabilities
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
@@ -23,7 +23,7 @@ def test_get_capabilities_structure(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_get_capabilities_backends_reflect_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Backend flags reflect env vars."""
-    from openfund_mcp.tools import capabilities
+    from openfund_mcp.tools._shared import capabilities
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)

@@ -522,7 +522,7 @@ def test_vendor_config_route_indicators_av_and_fallback(
 ) -> None:
     """When AV fails, _route_indicators returns error."""
     try:
-        from openfund_mcp.tools import analyst_tool
+        from openfund_mcp.tools.analyst import tool as analyst_tool
         from openfund_mcp.tools.market.routing import AlphaVantageRateLimitError
     except ImportError as e:
         pytest.skip(f"MCP analyst_tool not available: {e}")
@@ -971,7 +971,7 @@ def test_stage_5_2() -> None:
         pytest.skip(f"MCP not available: {e}")
 
     stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("openfund_mcp.tools.analyst_tool._route_indicators", return_value=stub):
+    with patch("openfund_mcp.tools.analyst.tool._route_indicators", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1043,7 +1043,7 @@ def test_stage_5_4() -> None:
         pytest.skip(f"Stage 5.4 deps not available: {e}")
 
     stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("openfund_mcp.tools.analyst_tool._route_indicators", return_value=stub):
+    with patch("openfund_mcp.tools.analyst.tool._route_indicators", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1238,7 +1238,7 @@ def test_stage_7_1() -> None:
 
 def test_stage_8_1() -> None:
     """Stage 8.1: OutputRail format_for_user and check_compliance."""
-    from output.output_rail import OutputRail
+    from safety.safety_gateway import OutputRail
 
     rail = OutputRail()
     text = "Fund X returned 5%."
@@ -1398,7 +1398,7 @@ def test_stage_10_2_responder_llm_prompt() -> None:
     from a2a.acl_message import ACLMessage, Performative
     from a2a.message_bus import InMemoryMessageBus
     from agents.responder_agent import ResponderAgent
-    from output.output_rail import OutputRail
+    from safety.safety_gateway import OutputRail
 
     bus = InMemoryMessageBus()
     bus.register_agent("responder")
@@ -1545,7 +1545,7 @@ def test_stage_10_2_analyst_llm_prompt() -> None:
         pytest.skip(f"Stage 10.2 analyst deps not available: {e}")
 
     stub = {"content": "mock indicators", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("openfund_mcp.tools.analyst_tool._route_indicators", return_value=stub):
+    with patch("openfund_mcp.tools.analyst.tool._route_indicators", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)

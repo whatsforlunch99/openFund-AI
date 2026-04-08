@@ -109,9 +109,9 @@ def _spec_from_tool_spec(module: Any, row: tuple[str, str, list[str], list, str 
 
 
 def _load_modules() -> dict[str, Any]:
-    from openfund_mcp.tools import capabilities
+    from openfund_mcp.tools._shared import capabilities
     from openfund_mcp.tools.file import tool as file_tool
-    from openfund_mcp.tools import fund_catalog_tool
+    from openfund_mcp.tools.websearch import fund_catalog as fund_catalog_tool
     from openfund_mcp.tools.graph import tool as kg_tool
     from openfund_mcp.tools.websearch import tool as news_tool
     from openfund_mcp.tools.sql import tool as sql_tool
@@ -133,7 +133,7 @@ def _load_modules() -> dict[str, Any]:
         "yahoo_finance_tool": yahoo_finance_tool,
     }
     try:
-        from openfund_mcp.tools import analyst_tool
+        from openfund_mcp.tools.analyst import tool as analyst_tool
 
         out["analyst_tool"] = analyst_tool
     except ImportError:

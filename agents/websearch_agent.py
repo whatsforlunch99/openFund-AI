@@ -187,7 +187,7 @@ class WebSearcherAgent(BaseAgent):
             v = reply_content.get(k)
             if isinstance(v, dict) and not v.get("error"):
                 c = v.get("content") or ""
-                if isinstance(c, str) and len(c.strip()) > 20:
+                if isinstance(c, str) and c.strip():
                     return False
         return True
 

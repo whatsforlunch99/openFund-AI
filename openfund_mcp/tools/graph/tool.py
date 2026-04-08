@@ -9,7 +9,7 @@ import csv
 import json
 from typing import Any, Optional
 
-from openfund_mcp.tools.kg_graph_schema_constants import (
+from openfund_mcp.tools.graph.schema_constants import (
     CATEGORY_FIELDS as _CATEGORY_FIELDS,
     DATASET_FILES as _DATASET_FILES,
     DIMENSION_REL as _DIMENSION_REL,

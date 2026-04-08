@@ -65,19 +65,19 @@ OpenFund-AI/
 │   ├── mcp_client.py
 │   ├── mcp_server.py          # FastMCP app + MCPServer; all tools from openfund_mcp.tools
 │   └── tools/
-│       ├── vector_tool.py
-│       ├── kg_tool.py
-│       ├── kg_graph_schema_constants.py  # Dataset filenames, category fields, dimension rel types for CSV build
-│       ├── sql_tool.py
-│       ├── market_tool.py
-│       ├── analyst_tool.py
-│       ├── news_tool.py
-│       ├── fund_catalog_tool.py
-│       ├── stooq_tool.py
-│       ├── yahoo_finance_tool.py
-│       ├── etfdb_tool.py
-│       ├── file_tool.py
-│       ├── capabilities.py
+│       ├── vector/tool.py
+│       ├── graph/tool.py
+│       ├── graph/schema_constants.py  # Dataset filenames, category fields, dimension rel types for CSV build
+│       ├── sql/tool.py
+│       ├── market/routing.py
+│       ├── analyst/tool.py
+│       ├── websearch/tool.py
+│       ├── websearch/fund_catalog.py
+│       ├── vendor/stooq.py
+│       ├── vendor/yahoo_finance.py
+│       ├── vendor/etfdb.py
+│       ├── file/tool.py
+│       ├── _shared/capabilities.py
 │       └── ...
 ├── config/
 │   ├── __init__.py
@@ -1610,7 +1610,7 @@ result = server.dispatch("read_file", {"path": "CHANGELOG.md"})
 
 ---
 
-# openfund_mcp/tools/file_tool.py
+# openfund_mcp/tools/file/tool.py
 
 **Purpose:** MCP tool for reading file content and listing files by prefix. When MCP_FILE_BASE_DIR is set, read_file only allows paths under that directory (path traversal protection). Used by agents via MCPClient.
 
@@ -1624,7 +1624,7 @@ result = server.dispatch("read_file", {"path": "CHANGELOG.md"})
 
 **Example usage:**
 ```python
-from openfund_mcp.tools.file_tool import read_file
+from openfund_mcp.tools.file.tool import read_file
 out = read_file("CHANGELOG.md")
 # out["content"], out["path"]
 ```
@@ -1694,15 +1694,15 @@ result = index_documents([{"content": "Fund X ...", "fund_id": "X"}])
 
 ---
 
-# openfund_mcp/tools/kg_graph_schema_constants.py
+# openfund_mcp/tools/graph/schema_constants.py
 
 **Purpose:** `DATASET_FILES`, `CATEGORY_FIELDS`, `DIMENSION_REL` for `kg_tool.build_graph_csvs` (static schema maps separated from query/load logic).
 
 ---
 
-# openfund_mcp/tools/kg_tool.py
+# openfund_mcp/tools/graph/tool.py
 
-**Purpose:** MCP tool for Cypher and relation queries against Neo4j; CSV bundle build/load. Imports graph CSV constants from `kg_graph_schema_constants.py`. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD.
+**Purpose:** MCP tool for Cypher and relation queries against Neo4j; CSV bundle build/load. Imports graph CSV constants from `graph/schema_constants.py`. Config: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD.
 
 ---
 
@@ -1816,7 +1816,7 @@ assert "timestamp" in data
 
 ---
 
-# openfund_mcp/tools/analyst_tool.py
+# openfund_mcp/tools/analyst/tool.py
 
 **Purpose:** MCP tool for quantitative/statistical analysis. run_analysis(payload): POST to custom Analyst API (payload dict). get_indicators_av(...): Alpha Vantage technical indicators (same file). **_route_indicators** calls get_indicators_av; on failure returns error (no yfinance). Timestamps use _now_iso() imported from market_tool. MCP handler decomposes payload into symbol, indicator, as_of_date, look_back_days. Returns include `timestamp`. Config: ANALYST_API_URL, optional ANALYST_API_KEY; MCP_INDICATOR_VENDOR via market_tool.
 
@@ -1886,7 +1886,7 @@ result = run_query("SELECT * FROM funds WHERE id = :id", {"id": "X"})
 
 ---
 
-# openfund_mcp/tools/capabilities.py
+# openfund_mcp/tools/_shared/capabilities.py
 
 **Purpose:** Introspection of which backends and tools are available. Used by MCP tool `get_capabilities`.
 

@@ -1,4 +1,4 @@
-"""Static CSV→graph schema maps for kg_tool.build_graph_csvs (cohesion: data vs query code)."""
+"""Static CSV->graph schema maps for graph tool CSV build."""
 
 DATASET_FILES: dict[str, str] = {
     "funds": "funds.csv",
@@ -47,3 +47,4 @@ DIMENSION_REL: dict[str, tuple[str, str]] = {
     "quote_currency": ("QuoteCurrency", "HAS_QUOTE_CURRENCY"),
     "cryptocurrency": ("CryptoTicker", "TRACKS_CRYPTO"),
 }
+

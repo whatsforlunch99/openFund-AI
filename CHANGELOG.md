@@ -7,6 +7,7 @@ Summary of notable changes. Newest first. Format based on [Keep a Changelog](htt
 ### Changed
 
 - **Breaking (MCP backends):** `vector_tool`, `kg_tool`, and `sql_tool` no longer return synthetic “mock” domain data when `MILVUS_URI`, `NEO4J_URI`, or `DATABASE_URL` is unset. Expect explicit `{"error": "... not set"}` (and empty lists/entities where applicable) or an empty `vector_tool.search` result. Added `llm/static_client.py` (`StaticLLMClient`) for tests/E2E without a live LLM. Stage tests and MCP client imports use `openfund_mcp` paths; `startup_user.log` is gitignored.
+- **Tools layout finalized:** Remaining flat modules were moved and removed (`analyst_tool.py`, `file_tool.py`, `fund_catalog_tool.py`, `kg_graph_schema_constants.py`, `capabilities.py`). Implementations now live under `openfund_mcp/tools/{analyst,file,websearch,graph,_shared}`; registry imports were rewired accordingly. `fund_catalog_tool.search` is now DB-backed via PostgreSQL symbol tables (including `index_symbol_map` and `fund_info`) with stable `matches[{symbol,name,asset_class,exchange}]` output and explicit error when `DATABASE_URL` is unset.
 
 ### Added
 

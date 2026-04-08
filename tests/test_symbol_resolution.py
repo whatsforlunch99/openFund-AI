@@ -206,7 +206,7 @@ def test_llm_path_unresolved_without_openfigi_key(monkeypatch) -> None:
         }
 
     monkeypatch.setattr(
-        "openfund_mcp.tools.yahoo_finance_tool.get_price",
+        "openfund_mcp.tools.vendor.yahoo_finance.get_price",
         _fake_yahoo_price,
     )
     monkeypatch.delenv("OPENFIGI_API_KEY", raising=False)

@@ -8,7 +8,7 @@ This document lists agent-facing MCP tools used by specialists in OpenFund-AI, w
 |----------|----------------------------|
 | Tool names, payloads, return shapes, sample JSON | WebSearcher merge logic, `normalized_fund` schema, symbol heuristics → [websearcher-design.md](websearcher-design.md) |
 | Per-agent allowlists and “tool selection guide” tables | News citation assignment and dedupe rules → [news-searcher-design.md](news-searcher-design.md) |
-| Sync note with `llm/tool_descriptions.py` | Running the stdio server, MCPClient env → [mcp-server.md](mcp-server.md) |
+| Sync note with `openfund_mcp/tools/registry.py` | Running the stdio server, MCPClient env → [mcp-server.md](mcp-server.md) |
 | | Folder index → [README.md](README.md) |
 
 **How to call a tool:**
@@ -21,7 +21,7 @@ result = mcp_client.call_tool("<tool_name>", { ...payload... })
 
 When **Librarian**, **WebSearcher**, or **Analyst** receive a request from the Planner, they use an **LLM call** with a prompt and the **tool descriptions in this document** (and their per-agent tool list) to determine **which tools to call and with what parameters**. They then execute those tool calls via `mcp_client.call_tool(tool_name, payload)`. The "Summary: tools available per agent" and the per-agent "tool selection guide" tables below are the **tool-description input** for that LLM (or for human reference).
 
-**Code sync:** The allowed tool sets for each agent are maintained in `llm/tool_descriptions.py` (`LIBRARIAN_ALLOWED_TOOL_NAMES`, `WEBSEARCHER_ALLOWED_TOOL_NAMES`, `ANALYST_ALLOWED_TOOL_NAMES`). The LLM prompt for each agent is injected with only that agent's tool descriptions, and any tool name the LLM returns outside the allowed set is discarded at runtime by `filter_tool_calls_to_allowed()` before execution. Keep this file and `llm/tool_descriptions.py` in sync when adding or removing tools (this path: `docs/workflow/03_tools_and_mcp/agent-tools-reference.md`).
+**Code sync:** The allowed tool sets for each agent are maintained in `openfund_mcp/tools/registry_metadata.py` (`LIBRARIAN_ALLOWED_TOOL_NAMES`, `WEBSEARCHER_ALLOWED_TOOL_NAMES`, `ANALYST_ALLOWED_TOOL_NAMES`) and consumed via `openfund_mcp/tools/registry.py` for canonical registration. The LLM prompt for each agent is injected with only that agent's tool descriptions, and any tool name the LLM returns outside the allowed set is discarded at runtime by `filter_tool_calls_to_allowed()` before execution. Keep this file and `openfund_mcp/tools/registry_metadata.py` in sync when adding or removing tools (this path: `docs/workflow/03_tools_and_mcp/agent-tools-reference.md`).
 
 All tools are registered in the **single MCP server** (`openfund_mcp/mcp_server.py`): FastMCP app for production stdio and MCPServer.register_default_tools() for in-process tests. All tool implementations live under `openfund_mcp/tools/`. The API and agents use **MCPClient** to call the server over stdio. `market_tool` and `analyst_tool` are optional — they are skipped if their dependencies (e.g. `pandas`) are not installed. Some ingestion/validation MCP tools are runtime-registered but intentionally out of specialist scope in this document.
 

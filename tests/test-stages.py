@@ -452,7 +452,7 @@ def test_stage_2_2_trading_tools() -> None:
 def test_vendor_config_get_market_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_market_vendor() reads MCP_MARKET_VENDOR; default alpha_vantage; invalid/unset -> alpha_vantage."""
     try:
-        from openfund_mcp.tools.market_tool import get_market_vendor
+        from openfund_mcp.tools.market.routing import get_market_vendor
     except ImportError as e:
         pytest.skip(f"MCP market_tool not available: {e}")
 
@@ -478,7 +478,7 @@ def test_vendor_config_get_market_vendor(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_vendor_config_get_indicator_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_indicator_vendor() reads MCP_INDICATOR_VENDOR; default alpha_vantage; invalid -> alpha_vantage."""
     try:
-        from openfund_mcp.tools.market_tool import get_indicator_vendor
+        from openfund_mcp.tools.market.routing import get_indicator_vendor
     except ImportError as e:
         pytest.skip(f"MCP market_tool not available: {e}")
 
@@ -497,8 +497,8 @@ def test_vendor_config_route_stock_data_av_and_fallback(
 ) -> None:
     """When MCP_MARKET_VENDOR=alpha_vantage, _route_stock_data tries AV; on failure returns error."""
     try:
-        from openfund_mcp.tools import market_tool
-        from openfund_mcp.tools.market_tool import AlphaVantageRateLimitError
+        from openfund_mcp.tools.market import routing as market_tool
+        from openfund_mcp.tools.market.routing import AlphaVantageRateLimitError
     except ImportError as e:
         pytest.skip(f"MCP market_tool not available: {e}")
 
@@ -523,7 +523,7 @@ def test_vendor_config_route_indicators_av_and_fallback(
     """When AV fails, _route_indicators returns error."""
     try:
         from openfund_mcp.tools import analyst_tool
-        from openfund_mcp.tools.market_tool import AlphaVantageRateLimitError
+        from openfund_mcp.tools.market.routing import AlphaVantageRateLimitError
     except ImportError as e:
         pytest.skip(f"MCP analyst_tool not available: {e}")
 
@@ -951,7 +951,7 @@ def test_stage_5_1() -> None:
         pytest.skip(f"MCP not available: {e}")
 
     stub = {"content": "mock fundamentals", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("openfund_mcp.tools.market_tool._route_fundamentals", return_value=stub):
+    with patch("openfund_mcp.tools.market.routing._route_fundamentals", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1002,9 +1002,9 @@ def test_stage_5_3() -> None:
         pytest.skip(f"Stage 5.3 deps not available: {e}")
 
     stub = {"content": "mock", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("openfund_mcp.tools.market_tool._route_fundamentals", return_value=stub), patch(
-        "openfund_mcp.tools.market_tool._route_news", return_value=stub
-    ), patch("openfund_mcp.tools.market_tool._route_global_news", return_value=stub):
+    with patch("openfund_mcp.tools.market.routing._route_fundamentals", return_value=stub), patch(
+        "openfund_mcp.tools.market.routing._route_news", return_value=stub
+    ), patch("openfund_mcp.tools.market.routing._route_global_news", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1089,10 +1089,10 @@ def test_websearcher_news_searcher() -> None:
         "timestamp": "2026-03-10T08:00:00Z",
     }
     market_stub = {"content": "mock", "timestamp": "2026-03-10T08:00:00Z"}
-    with patch("openfund_mcp.tools.news_tool.search_rss", return_value=rss_stub), patch(
-        "openfund_mcp.tools.market_tool._route_fundamentals", return_value=market_stub
-    ), patch("openfund_mcp.tools.market_tool._route_news", return_value=market_stub), patch(
-        "openfund_mcp.tools.market_tool._route_global_news", return_value=market_stub
+    with patch("openfund_mcp.tools.websearch.routing.search_rss", return_value=rss_stub), patch(
+        "openfund_mcp.tools.market.routing._route_fundamentals", return_value=market_stub
+    ), patch("openfund_mcp.tools.market.routing._route_news", return_value=market_stub), patch(
+        "openfund_mcp.tools.market.routing._route_global_news", return_value=market_stub
     ):
         server = MCPServer()
         server.register_default_tools()
@@ -1498,9 +1498,9 @@ def test_stage_10_2_websearcher_llm_prompt() -> None:
         pytest.skip(f"Stage 10.2 websearcher deps not available: {e}")
 
     stub = {"content": "mock", "timestamp": "2024-01-01T00:00:00Z"}
-    with patch("openfund_mcp.tools.market_tool._route_fundamentals", return_value=stub), patch(
-        "openfund_mcp.tools.market_tool._route_news", return_value=stub
-    ), patch("openfund_mcp.tools.market_tool._route_global_news", return_value=stub):
+    with patch("openfund_mcp.tools.market.routing._route_fundamentals", return_value=stub), patch(
+        "openfund_mcp.tools.market.routing._route_news", return_value=stub
+    ), patch("openfund_mcp.tools.market.routing._route_global_news", return_value=stub):
         server = MCPServer()
         server.register_default_tools()
         client = MCPClient(server)
@@ -1910,7 +1910,7 @@ def test_data_loader_skips_when_no_backends() -> None:
 
 def test_stage_10_3_filter_drops_disallowed_tools():
     """filter_tool_calls_to_allowed removes tool names not in the allowed set."""
-    from llm.tool_descriptions import (
+    from openfund_mcp.tools.registry_metadata import (
         ANALYST_ALLOWED_TOOL_NAMES,
         LIBRARIAN_ALLOWED_TOOL_NAMES,
         WEBSEARCHER_ALLOWED_TOOL_NAMES,
@@ -1941,7 +1941,7 @@ def test_stage_10_3_filter_drops_disallowed_tools():
 
 def test_stage_10_3_filter_allows_all_when_all_valid():
     """filter_tool_calls_to_allowed passes through every call when all are in allowed set."""
-    from llm.tool_descriptions import WEBSEARCHER_ALLOWED_TOOL_NAMES, filter_tool_calls_to_allowed
+    from openfund_mcp.tools.registry_metadata import WEBSEARCHER_ALLOWED_TOOL_NAMES, filter_tool_calls_to_allowed
 
     tool_calls = [
         {"tool": "market_tool.get_fundamentals", "payload": {"ticker": "TSLA"}},
@@ -1953,7 +1953,7 @@ def test_stage_10_3_filter_allows_all_when_all_valid():
 
 def test_stage_10_3_filter_empty_list():
     """filter_tool_calls_to_allowed returns [] when no tool calls are provided."""
-    from llm.tool_descriptions import ANALYST_ALLOWED_TOOL_NAMES, filter_tool_calls_to_allowed
+    from openfund_mcp.tools.registry_metadata import ANALYST_ALLOWED_TOOL_NAMES, filter_tool_calls_to_allowed
 
     assert filter_tool_calls_to_allowed([], ANALYST_ALLOWED_TOOL_NAMES) == []
 
@@ -1962,7 +1962,7 @@ def test_stage_10_3_filter_empty_list():
 
 def test_stage_10_4_normalize_mixed_tool_and_tool_name():
     """normalize_tool_calls outputs only 'tool' key; accepts both 'tool' and 'tool_name'."""
-    from llm.tool_descriptions import normalize_tool_calls
+    from openfund_mcp.tools.registry_metadata import normalize_tool_calls
 
     raw = [
         {"tool": "vector_tool.search", "payload": {"query": "Q"}},
@@ -1979,7 +1979,7 @@ def test_stage_10_4_normalize_mixed_tool_and_tool_name():
 
 def test_stage_10_4_normalize_skips_non_dict_and_invalid_tool():
     """normalize_tool_calls skips non-dict items, non-string tool, empty tool."""
-    from llm.tool_descriptions import normalize_tool_calls
+    from openfund_mcp.tools.registry_metadata import normalize_tool_calls
 
     raw = [
         {"tool": "a_tool.foo", "payload": {}},
@@ -1996,7 +1996,7 @@ def test_stage_10_4_normalize_skips_non_dict_and_invalid_tool():
 
 def test_stage_10_4_normalize_payload_default_and_copy():
     """normalize_tool_calls uses {} for missing/non-dict payload; payload is shallow copy."""
-    from llm.tool_descriptions import normalize_tool_calls
+    from openfund_mcp.tools.registry_metadata import normalize_tool_calls
 
     raw = [
         {"tool": "x.y", "payload": {"a": 1}},
@@ -2013,7 +2013,7 @@ def test_stage_10_4_normalize_payload_default_and_copy():
 
 def test_stage_10_4_normalize_empty_list():
     """normalize_tool_calls returns [] for empty input."""
-    from llm.tool_descriptions import normalize_tool_calls
+    from openfund_mcp.tools.registry_metadata import normalize_tool_calls
 
     assert normalize_tool_calls([]) == []
 

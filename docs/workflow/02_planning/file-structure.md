@@ -124,7 +124,7 @@ OpenFund-AI/
     │   │   └── frontend.md
     │   ├── 03_tools_and_mcp/
     │   │   ├── README.md                  # Folder index: scope of each doc, dependency direction
-    │   │   ├── agent-tools-reference.md   # MCP tool payloads and per-agent tool lists (sync with llm/tool_descriptions.py)
+    │   │   ├── agent-tools-reference.md   # MCP tool payloads and per-agent tool lists (sync with openfund_mcp/tools/registry.py)
     │   │   ├── mcp-server.md              # Run stdio server + MCPClient / Claude Desktop only
     │   │   ├── websearcher-design.md      # WebSearcher agent design: parallel sources, schema, Planner contract
     │   │   └── news-searcher-design.md    # News Search within WebSearcher: citations, merge rules (not full tool tables)

@@ -16,7 +16,7 @@ Apply this goal whenever you **read**, **edit**, or **add** files under `docs/` 
 | Goal | Meaning |
 |------|--------|
 | **High cohesion (within a file)** | Each document has **one primary responsibility** (see [docs-structure.mdc](../rules/docs-structure.mdc)). Sections should support that job only; if unrelated concerns appear (e.g. API contracts inside a user-flow doc), move or split and link. |
-| **Low coupling (between files)** | **One canonical source** per fact or contract (e.g. tool payloads in [agent-tools-reference.md](../../docs/workflow/03_tools_and_mcp/agent-tools-reference.md) with code in `llm/tool_descriptions.py`). Other docs **link** to the canonical file instead of duplicating tables, payload lists, or long procedures. Folder indexes (e.g. [03_tools_and_mcp/README.md](../../docs/workflow/03_tools_and_mcp/README.md)) clarify which file owns what. |
+| **Low coupling (between files)** | **One canonical source** per fact or contract (e.g. tool payloads in [agent-tools-reference.md](../../docs/workflow/03_tools_and_mcp/agent-tools-reference.md) with code in `openfund_mcp/tools/registry.py`). Other docs **link** to the canonical file instead of duplicating tables, payload lists, or long procedures. Folder indexes (e.g. [03_tools_and_mcp/README.md](../../docs/workflow/03_tools_and_mcp/README.md)) clarify which file owns what. |
 
 **Do:** Add cross-links; add a short “Scope” or “Out of scope” block when a doc’s boundary is easy to confuse; move historical/ops notes out of reference folders into `docs/shared/` or product notes when they are not part of the same concern.
 

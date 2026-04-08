@@ -10,8 +10,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
 from typing import Any
+
+from openfund_mcp.tools._shared.time import now_iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ _HTTP_TIMEOUT = 10.0
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return now_iso_utc()
 
 
 def _find_by_local_name(parent: ET.Element, local: str) -> ET.Element | None:

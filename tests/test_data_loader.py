@@ -42,7 +42,7 @@ def test_table_name_and_column_derivation_from_stats_csv_stems() -> None:
 
 
 def test_neo4j_existing_mode_calls_append_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     repo_root = Path(__file__).resolve().parents[1]
     neo4j_dir = repo_root / "database" / "graph_data" / "neo4j_export"
@@ -76,7 +76,7 @@ def test_neo4j_existing_mode_calls_append_only(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_neo4j_fresh_all_wipes_then_appends(monkeypatch: pytest.MonkeyPatch) -> None:
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     repo_root = Path(__file__).resolve().parents[1]
     neo4j_dir = repo_root / "database" / "graph_data" / "neo4j_export"
@@ -110,7 +110,7 @@ def test_neo4j_fresh_all_wipes_then_appends(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_milvus_fresh_all_deletes_loader_source_and_upserts(monkeypatch: pytest.MonkeyPatch) -> None:
-    from openfund_mcp.tools import vector_tool
+    from openfund_mcp.tools.vector import tool as vector_tool
 
     repo_root = Path(__file__).resolve().parents[1]
     text_dir = repo_root / "database" / "text_data"

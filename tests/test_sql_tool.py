@@ -7,7 +7,7 @@ import pytest
 
 def test_explain_query_error_when_db_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When DATABASE_URL is unset, explain_query returns error."""
-    from openfund_mcp.tools import sql_tool
+    from openfund_mcp.tools.sql import tool as sql_tool
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
     out = sql_tool.explain_query("SELECT 1")
@@ -17,7 +17,7 @@ def test_explain_query_error_when_db_unset(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_explain_query_rejects_non_select(monkeypatch: pytest.MonkeyPatch) -> None:
     """explain_query rejects non-SELECT query."""
-    from openfund_mcp.tools import sql_tool
+    from openfund_mcp.tools.sql import tool as sql_tool
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
     out = sql_tool.explain_query("DELETE FROM t")
@@ -27,7 +27,7 @@ def test_explain_query_rejects_non_select(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_export_results_error_when_db_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When DATABASE_URL is unset, export_results returns error."""
-    from openfund_mcp.tools import sql_tool
+    from openfund_mcp.tools.sql import tool as sql_tool
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
     out = sql_tool.export_results("SELECT 1", format="json")
@@ -38,7 +38,7 @@ def test_export_results_error_when_db_unset(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_export_results_csv_error_when_db_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """export_results format=csv returns empty string data when DATABASE_URL unset."""
-    from openfund_mcp.tools import sql_tool
+    from openfund_mcp.tools.sql import tool as sql_tool
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
     out = sql_tool.export_results("SELECT 1", format="csv")
@@ -48,7 +48,7 @@ def test_export_results_csv_error_when_db_unset(monkeypatch: pytest.MonkeyPatch)
 
 def test_export_results_rejects_non_select(monkeypatch: pytest.MonkeyPatch) -> None:
     """export_results rejects non-SELECT query."""
-    from openfund_mcp.tools import sql_tool
+    from openfund_mcp.tools.sql import tool as sql_tool
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
     out = sql_tool.export_results("INSERT INTO t VALUES (1)")
@@ -57,7 +57,7 @@ def test_export_results_rejects_non_select(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_export_results_invalid_format(monkeypatch: pytest.MonkeyPatch) -> None:
     """export_results with invalid format returns error."""
-    from openfund_mcp.tools import sql_tool
+    from openfund_mcp.tools.sql import tool as sql_tool
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
     out = sql_tool.export_results("SELECT 1", format="xml")
@@ -66,7 +66,7 @@ def test_export_results_invalid_format(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_export_results_list_params_coerced(monkeypatch: pytest.MonkeyPatch) -> None:
     """LLM-shaped list params are normalized before DATABASE_URL check."""
-    from openfund_mcp.tools import sql_tool
+    from openfund_mcp.tools.sql import tool as sql_tool
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
     out = sql_tool.export_results(
@@ -79,7 +79,7 @@ def test_export_results_list_params_coerced(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_normalize_sql_bind_params() -> None:
-    from openfund_mcp.tools import sql_tool
+    from openfund_mcp.tools.sql import tool as sql_tool
 
     assert sql_tool._normalize_sql_bind_params(None) is None
     assert sql_tool._normalize_sql_bind_params({"a": 1}) == {"a": 1}
@@ -89,7 +89,7 @@ def test_normalize_sql_bind_params() -> None:
 
 def test_connection_health_check_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When DATABASE_URL is unset, connection_health_check returns ok: false."""
-    from openfund_mcp.tools import sql_tool
+    from openfund_mcp.tools.sql import tool as sql_tool
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
     out = sql_tool.connection_health_check()

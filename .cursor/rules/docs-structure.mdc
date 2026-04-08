@@ -22,7 +22,7 @@ All docs live in `/docs`. Each document has a single responsibility; no overlap 
 | Document | Purpose |
 |----------|---------|
 | **docs/workflow/03_tools_and_mcp/README.md** | Index for MCP docs and ownership boundaries. |
-| **docs/workflow/03_tools_and_mcp/agent-tools-reference.md** | MCP tool payloads, samples, and per-agent allowlists; keep in sync with `llm/tool_descriptions.py`. |
+| **docs/workflow/03_tools_and_mcp/agent-tools-reference.md** | MCP tool payloads, samples, and per-agent allowlists; keep in sync with `openfund_mcp/tools/registry.py` and `openfund_mcp/tools/registry_metadata.py`. |
 | **docs/shared/websearcher-git-sync-notes.md** | Historical git/MCP migration notes only. |
 | **docs/shared/test_plan.md** | Test matrix and docs-consistency checklist. |
 | **docs/workflow/00_overview/use-case-trace-beginner.md** | Step-by-step function trace for one beginner request. |

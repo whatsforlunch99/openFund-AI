@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
 from agents.base_agent import BaseAgent
-from openfund_mcp.tools.market_tool import alpha_vantage_cooldown_active
+from openfund_mcp.tools.market.routing import alpha_vantage_cooldown_active
 from util import interaction_log
 from util.agent_heuristics import get_analyst_heuristics
 
@@ -170,7 +170,7 @@ class AnalystAgent(BaseAgent):
         # When LLM is available, try tool selection first; fall back to content-based if empty/fail
         if self._llm_client is not None:
             from llm.prompts import ANALYST_TOOL_SELECTION
-            from llm.tool_descriptions import (
+            from openfund_mcp.tools.registry_metadata import (
                 ANALYST_ALLOWED_TOOL_NAMES,
                 filter_tool_calls_to_allowed,
                 get_analyst_tool_descriptions,

@@ -16,7 +16,7 @@ Non-negotiable import and responsibility boundaries for refactors. Derived from 
 
 ## Documentation coupling
 
-- Tool names and payloads: keep [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md) and `llm/tool_descriptions.py` in sync.
+- Tool names and payloads: keep [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md) and `openfund_mcp/tools/registry.py` in sync.
 - Design docs (`websearcher-design.md`, `news-searcher-design.md`) link to the reference; do not duplicate full payload tables.
 
 ## Data ingestion

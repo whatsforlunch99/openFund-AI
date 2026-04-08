@@ -1,6 +1,6 @@
 """Validate that every tool in docs/workflow/03_tools_and_mcp/agent-tools-reference.md is registered.
 
-Uses llm/tool_descriptions.TOOL_DESCRIPTIONS_BY_NAME as the source of tool names.
+Uses openfund_mcp/tools/tool_descriptions.TOOL_DESCRIPTIONS_BY_NAME as the source of tool names.
 Calls each registered tool with a minimal payload; asserts the server does not
 return 'Unknown tool'. Backend errors (e.g. missing API key, unset MILVUS_URI)
 are allowed; only 'Unknown tool' is treated as failure.
@@ -13,7 +13,7 @@ from concurrent.futures import TimeoutError as FuturesTimeout
 
 import pytest
 
-from llm.tool_descriptions import TOOL_DESCRIPTIONS_BY_NAME
+from openfund_mcp.tools.registry_metadata import TOOL_DESCRIPTIONS_BY_NAME
 from openfund_mcp.mcp_client import MCPClient
 from openfund_mcp.mcp_server import MCPServer
 

@@ -179,7 +179,7 @@ class LiveLLMClient:
                 system_prompt = system_prompt.format(tool_descriptions=tool_descriptions)
             text = self.complete(system_prompt, user_content)
 
-            from llm.tool_descriptions import normalize_tool_calls
+            from openfund_mcp.tools.registry_metadata import normalize_tool_calls
 
             # Parse raw model output and normalize to [{"tool", "payload"}].
             parsed = self._parse_tool_calls(text)

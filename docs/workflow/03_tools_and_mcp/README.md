@@ -6,7 +6,7 @@ This folder documents **how OpenFund exposes MCP tools** and **how agents use th
 
 | File | Responsibility | Read this for |
 |------|----------------|---------------|
-| [agent-tools-reference.md](agent-tools-reference.md) | **Canonical** tool names, payloads, sample JSON, per-agent allowlists, selection hints | LLM/tool contracts, `mcp_client.call_tool`, parity with `llm/tool_descriptions.py` |
+| [agent-tools-reference.md](agent-tools-reference.md) | **Canonical** tool names, payloads, sample JSON, per-agent allowlists, selection hints | LLM/tool contracts, `mcp_client.call_tool`, parity with `openfund_mcp/tools/registry.py` |
 | [mcp-server.md](mcp-server.md) | Running the FastMCP stdio server (`python -m openfund_mcp`), MCPClient env, Claude Desktop snippet | Operations and external MCP clients only |
 | [websearcher-design.md](websearcher-design.md) | WebSearcher agent: parallel finance + news, `normalized_fund`, symbol resolution, Planner INFORM shape | `agents/websearch_agent.py` behavior—not full tool payloads |
 | [news-searcher-design.md](news-searcher-design.md) | News subsystem: citations (`NEWS1`…), merge/dedupe rules, verification | News/citations—tool payloads still live in agent-tools-reference |
@@ -14,7 +14,7 @@ This folder documents **how OpenFund exposes MCP tools** and **how agents use th
 ## Dependency direction (low coupling)
 
 ```text
-llm/tool_descriptions.py  ←→  agent-tools-reference.md   (must stay in sync)
+openfund_mcp/tools/registry.py  ←→  agent-tools-reference.md   (must stay in sync)
          │
          ▼
 websearcher-design.md ──► agent-tools-reference.md   (design points to contracts)
@@ -29,6 +29,6 @@ mcp-server.md ──► agent-tools-reference.md           (tool list by referen
 
 - Tool implementations: `openfund_mcp/tools/`
 - Server + dispatch: `openfund_mcp/mcp_server.py`
-- Per-agent allowlists and descriptions: `llm/tool_descriptions.py`
+- Per-agent allowlists and descriptions: `openfund_mcp/tools/registry_metadata.py` (compatibility exports via `tool_descriptions.py`)
 
 Historical git/sync notes (backup branch, pre-`openfund_mcp` migration) live outside this folder: [websearcher-git-sync-notes.md](../../shared/websearcher-git-sync-notes.md).

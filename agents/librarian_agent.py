@@ -79,7 +79,7 @@ class LibrarianAgent(BaseAgent):
         # When LLM is available, try tool selection first; fall back to content-key if empty/fail
         if self._llm_client is not None:
             from llm.prompts import LIBRARIAN_TOOL_SELECTION
-            from llm.tool_descriptions import (
+            from openfund_mcp.tools.registry_metadata import (
                 LIBRARIAN_ALLOWED_TOOL_NAMES,
                 filter_tool_calls_to_allowed,
                 get_librarian_tool_descriptions,

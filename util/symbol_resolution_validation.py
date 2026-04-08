@@ -29,7 +29,7 @@ def yahoo_validate_entity(
         {"ok": True, "matched_fields": {...}, "evidence_summary": str, "validation_method": "yahoo_chart_meta"}
         or {"ok": False, "error": str}
     """
-    from openfund_mcp.tools import yahoo_finance_tool
+    from openfund_mcp.tools.vendor import yahoo_finance as yahoo_finance_tool
 
     sym = (candidate_symbol or "").strip().upper()
     inferred = (inferred_entity_name or "").strip()

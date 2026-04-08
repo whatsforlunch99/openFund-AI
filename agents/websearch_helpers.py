@@ -38,7 +38,7 @@ def query_implies_news_intent(query: str) -> bool:
 def alpha_vantage_cooldown_message() -> str | None:
     """If AV is in rate-limit cooldown, return skip message for any AV-backed market_tool call."""
     try:
-        from openfund_mcp.tools import market_tool as mt
+        from openfund_mcp.tools.market import routing as mt
 
         return mt._av_rate_limit_error("market_tool.get_news")
     except Exception:

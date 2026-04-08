@@ -7,7 +7,7 @@ import pytest
 
 def test_get_by_ids_error_when_milvus_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When MILVUS_URI is unset, get_by_ids returns error."""
-    from openfund_mcp.tools import vector_tool
+    from openfund_mcp.tools.vector import tool as vector_tool
 
     monkeypatch.delenv("MILVUS_URI", raising=False)
     out = vector_tool.get_by_ids(["id1", "id2"])
@@ -17,7 +17,7 @@ def test_get_by_ids_error_when_milvus_unset(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_get_by_ids_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_by_ids with empty list returns empty entities."""
-    from openfund_mcp.tools import vector_tool
+    from openfund_mcp.tools.vector import tool as vector_tool
 
     monkeypatch.delenv("MILVUS_URI", raising=False)
     out = vector_tool.get_by_ids([])
@@ -26,7 +26,7 @@ def test_get_by_ids_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_upsert_documents_unset_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """When MILVUS_URI is unset, upsert_documents returns error."""
-    from openfund_mcp.tools import vector_tool
+    from openfund_mcp.tools.vector import tool as vector_tool
 
     monkeypatch.delenv("MILVUS_URI", raising=False)
     out = vector_tool.upsert_documents([{"id": "x", "content": "hi"}])
@@ -37,7 +37,7 @@ def test_upsert_documents_unset_returns_error(monkeypatch: pytest.MonkeyPatch) -
 
 def test_upsert_documents_missing_id_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """upsert_documents with doc missing 'id' returns error (when MILVUS_URI set we still validate first)."""
-    from openfund_mcp.tools import vector_tool
+    from openfund_mcp.tools.vector import tool as vector_tool
 
     monkeypatch.setenv("MILVUS_URI", "http://localhost:19530")
     try:
@@ -50,7 +50,7 @@ def test_upsert_documents_missing_id_returns_error(monkeypatch: pytest.MonkeyPat
 
 def test_health_check_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When MILVUS_URI is unset, health_check returns ok: false."""
-    from openfund_mcp.tools import vector_tool
+    from openfund_mcp.tools.vector import tool as vector_tool
 
     monkeypatch.delenv("MILVUS_URI", raising=False)
     out = vector_tool.health_check()
@@ -78,7 +78,7 @@ def test_vector_community_tools_via_mcp_dispatch(monkeypatch: pytest.MonkeyPatch
 
 def test_create_collection_from_config_unset_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """When MILVUS_URI is unset, create_collection_from_config returns error."""
-    from openfund_mcp.tools import vector_tool
+    from openfund_mcp.tools.vector import tool as vector_tool
 
     monkeypatch.delenv("MILVUS_URI", raising=False)
     out = vector_tool.create_collection_from_config("test_coll", 384)
@@ -89,7 +89,7 @@ def test_create_collection_from_config_unset_returns_error(monkeypatch: pytest.M
 def test_create_collection_from_config_missing_name_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """create_collection_from_config with empty name returns error when MILVUS_URI set."""
     monkeypatch.setenv("MILVUS_URI", "http://localhost:19530")
-    from openfund_mcp.tools import vector_tool
+    from openfund_mcp.tools.vector import tool as vector_tool
 
     try:
         out = vector_tool.create_collection_from_config("", 384)

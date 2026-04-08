@@ -1,0 +1,2 @@
+"""Websearch domain package."""
+

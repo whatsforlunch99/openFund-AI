@@ -169,7 +169,7 @@ Single fund/ETF record shape produced by `_normalise_to_schema`:
 | News | `_fetch_news_sources`, `_normalize_and_merge_news`, `_build_news_with_citations` |
 | Planner price line | `agents/planner_agent.py` — `_websearcher_price_line`, `_format_final` |
 | Prompts | `llm/prompts.py` — `WEBSEARCHER_SYSTEM`, `WEBSEARCHER_NEWS_FALLBACK_SYSTEM`, `WEBSEARCHER_LLM_FALLBACK_SYSTEM`, `WEBSEARCHER_CONFLICT_RESOLUTION_SYSTEM` |
-| Tool allowlist | `llm/tool_descriptions.py` — `WEBSEARCHER_ALLOWED_TOOL_NAMES` |
+| Tool allowlist | `openfund_mcp/tools/registry_metadata.py` — `WEBSEARCHER_ALLOWED_TOOL_NAMES` |
 
 ---
 

@@ -52,7 +52,7 @@ def main() -> int:
     if load_dotenv:
         load_dotenv(_root() / ".env")
 
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     out_dir = os.path.abspath(args.output_dir)
     v = kg_tool.validate_graph_csv_bundle_for_neo4j(out_dir, sample_limit=20)

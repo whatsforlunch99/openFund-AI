@@ -7,8 +7,11 @@ alwaysApply: true
 
 ## Diffs and edits
 
+- Think before acting. Read existing files before writing code.
 - Prefer small, reviewable diffs. Avoid sweeping refactors unless explicitly requested.
 - Before editing: identify the file(s) to change and state the plan in 3–6 bullets.
+- Prefer editing over rewriting whole files.
+- Do not re-read files that were already read unless new context requires it.
 - Never invent APIs, configs, or file paths. If unsure, search the repo first.
 - Keep changes consistent with existing style and architecture.
 
@@ -29,6 +32,7 @@ alwaysApply: true
 
 - If you need to run commands, propose the exact command and why.
 - When changes may break the build, run the fastest relevant check first.
+- Test code changes before declaring the task done.
 
 ## Output formatting
 
@@ -37,5 +41,9 @@ alwaysApply: true
 
 ## Preferences
 
+- Be concise in output but thorough in reasoning.
+- No sycophantic openers or closing fluff.
+- Keep solutions simple and direct.
 - Concise explanation, concrete steps, copy-pasteable commands.
 - Default language for explanation: English.
+- User instructions always override this file.

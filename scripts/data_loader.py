@@ -420,7 +420,7 @@ def load_neo4j_from_csv_bundle(neo4j_csv_dir: Path, load_mode: str) -> dict[str,
     out: dict[str, Any] = {}
 
     # Bundle mode uses output_dir graph_nodes.csv and graph_relationships.csv.
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     validation = kg_tool.validate_graph_csv_bundle_for_neo4j(
         str(neo4j_csv_dir), sample_limit=20
@@ -590,7 +590,7 @@ def load_milvus_from_text_json(text_dir: Path, load_mode: str, *, force_download
     if not os.environ.get("MILVUS_URI"):
         return {"milvus": {"skipped": True, "reason": "MILVUS_URI not set"}}
 
-    from openfund_mcp.tools import vector_tool
+    from openfund_mcp.tools.vector import tool as vector_tool
 
     embed_model = os.environ.get("EMBEDDING_MODEL", vector_tool.DEFAULT_EMBEDDING_MODEL)
     if not force_download and not can_load_embedding_model_locally(embed_model):

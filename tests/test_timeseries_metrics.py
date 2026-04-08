@@ -103,6 +103,6 @@ def test_format_timeseries_metrics_helpers() -> None:
 
 
 def test_alpha_vantage_cooldown_active_returns_bool() -> None:
-    from openfund_mcp.tools.market_tool import alpha_vantage_cooldown_active
+    from openfund_mcp.tools.market.routing import alpha_vantage_cooldown_active
 
     assert isinstance(alpha_vantage_cooldown_active(), bool)

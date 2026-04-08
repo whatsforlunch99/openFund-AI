@@ -17,6 +17,7 @@ from typing import Optional
 import pandas as pd
 import requests
 from dateutil.relativedelta import relativedelta
+from openfund_mcp.tools._shared.time import now_iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +199,7 @@ def _alpha_vantage_information_message(raw: str) -> str | None:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return now_iso_utc()
 
 
 # --- Stubs (Tavily / Yahoo) ---

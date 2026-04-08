@@ -198,7 +198,7 @@ All news tools must return a dict with either a normal payload or `{"error": "..
 
 - **Agent:** `agents/websearch_agent.py` — Invokes news tools in parallel, normalises, merges, builds citations. See [file-structure.md](../02_planning/file-structure.md).
 - **MCP tools:** `openfund_mcp/tools/news_tool.py` — `search_rss`, `search_yahoo_rss`, `search_gdelt`. Registered in `openfund_mcp/mcp_server.py` (FastMCP app and MCPServer.register_default_tools()).
-- **Tool list:** `llm/tool_descriptions.py` (`WEBSEARCHER_ALLOWED_TOOL_NAMES`); [agent-tools-reference.md](agent-tools-reference.md) for contracts.
+- **Tool list:** `openfund_mcp/tools/registry_metadata.py` (`WEBSEARCHER_ALLOWED_TOOL_NAMES`); [agent-tools-reference.md](agent-tools-reference.md) for contracts.
 
 ---
 

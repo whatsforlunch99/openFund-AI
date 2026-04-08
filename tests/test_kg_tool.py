@@ -11,7 +11,7 @@ import pytest
 
 def test_get_node_by_id_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, get_node_by_id returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_node_by_id("n1")
@@ -21,7 +21,7 @@ def test_get_node_by_id_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) 
 
 def test_get_node_by_id_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid id_key returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_node_by_id("n1", id_key="invalid-key")
@@ -32,7 +32,7 @@ def test_get_node_by_id_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_get_neighbors_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, get_neighbors returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_neighbors("n1")
@@ -43,7 +43,7 @@ def test_get_neighbors_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -
 
 def test_get_neighbors_invalid_direction(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid direction returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_neighbors("n1", direction="invalid")
@@ -53,7 +53,7 @@ def test_get_neighbors_invalid_direction(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_get_neighbors_invalid_relationship_type(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid relationship_type (non-identifier) returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_neighbors("n1", relationship_type="bad-type")
@@ -62,7 +62,7 @@ def test_get_neighbors_invalid_relationship_type(monkeypatch: pytest.MonkeyPatch
 
 def test_get_graph_schema_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, get_graph_schema returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_graph_schema()
@@ -112,7 +112,7 @@ def test_get_capabilities_includes_kg_tools(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_shortest_path_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, shortest_path returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.shortest_path("a", "b")
@@ -122,7 +122,7 @@ def test_shortest_path_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -
 
 def test_shortest_path_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid id_key returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.shortest_path("a", "b", id_key="bad-key")
@@ -134,7 +134,7 @@ def test_get_relations_isolated_node_fallback(monkeypatch: pytest.MonkeyPatch) -
     """Degree-0 nodes do not match (e)-[r]-(other); fallback MATCH (e) still returns the node."""
     from unittest.mock import MagicMock
 
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.setenv("NEO4J_URI", "bolt://localhost:7687")
     kg_tool._driver = None
@@ -176,7 +176,7 @@ def test_get_relations_isolated_node_fallback(monkeypatch: pytest.MonkeyPatch) -
 
 def test_get_similar_nodes_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, get_similar_nodes returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_similar_nodes("n1", limit=5)
@@ -186,7 +186,7 @@ def test_get_similar_nodes_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatc
 
 def test_get_similar_nodes_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid id_key returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.get_similar_nodes("n1", id_key="invalid-key")
@@ -196,7 +196,7 @@ def test_get_similar_nodes_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_fulltext_search_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, fulltext_search returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.fulltext_search("myIndex", "query text", limit=10)
@@ -206,7 +206,7 @@ def test_fulltext_search_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch)
 
 def test_fulltext_search_invalid_index_name(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid index_name (non-identifier) returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.fulltext_search("invalid-index-name", "q")
@@ -215,7 +215,7 @@ def test_fulltext_search_invalid_index_name(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_fulltext_error_is_missing_index_heuristic() -> None:
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     assert kg_tool._fulltext_error_is_missing_index(
         "There is no such fulltext schema index: company"
@@ -224,7 +224,7 @@ def test_fulltext_error_is_missing_index_heuristic() -> None:
 
 
 def test_entity_compact_alnum_normalizes_punctuation() -> None:
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     assert kg_tool._entity_compact_alnum("China Vanke Co., Ltd.") == "chinavankecoltd"
     assert kg_tool._entity_compact_alnum("China Vanke Co Ltd") == "chinavankecoltd"
@@ -234,7 +234,7 @@ def test_fulltext_search_property_fallback_when_index_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """If fulltext index is missing, fall back to name/symbol CONTAINS search."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     class _FakeDriver:
         def execute_query(self, cypher: str, parameters_=None, database_=None):
@@ -261,7 +261,7 @@ def test_fulltext_search_property_fallback_when_index_missing(
 
 def test_bulk_export_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, bulk_export returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_export("MATCH (n) RETURN n LIMIT 1", format="json")
@@ -272,7 +272,7 @@ def test_bulk_export_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_bulk_export_invalid_cypher_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     """bulk_export rejects cypher that does not start with MATCH or CALL."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_export("MERGE (n {id: 1}) RETURN n")
@@ -282,7 +282,7 @@ def test_bulk_export_invalid_cypher_rejected(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_bulk_export_write_keyword_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     """bulk_export rejects cypher containing SET/DELETE/etc. as standalone keywords."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_export("MATCH (n) SET n.x = 1 RETURN n")
@@ -293,7 +293,7 @@ def test_bulk_export_allows_identifiers_containing_forbidden_substrings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """bulk_export allows read-only queries when property/label names contain SET/CREATE/MERGE as substrings."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.setenv("NEO4J_URI", "bolt://localhost:7687")
 
@@ -316,7 +316,7 @@ def test_bulk_export_allows_identifiers_containing_forbidden_substrings(
 
 def test_bulk_create_nodes_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """When NEO4J_URI is unset, bulk_create_nodes returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_create_nodes([{"id": "n1", "name": "Node1"}, {"id": "n2"}])
@@ -326,7 +326,7 @@ def test_bulk_create_nodes_error_when_neo4j_unset(monkeypatch: pytest.MonkeyPatc
 
 def test_bulk_create_nodes_invalid_id_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid id_key returns error."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     out = kg_tool.bulk_create_nodes([{"id": "n1"}], id_key="bad-key")
@@ -367,7 +367,7 @@ def test_kg_deferred_tools_via_mcp_dispatch(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_build_graph_csvs_canonical_category_reuse_and_dataset_link() -> None:
     """build_graph_csvs canonicalizes category values and links record to dataset node."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     with tempfile.TemporaryDirectory() as d:
         data_dir = os.path.join(d, "graph_data")
@@ -509,7 +509,7 @@ def test_load_graph_csvs_to_neo4j_error_when_neo4j_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """load_graph_csvs_to_neo4j returns error when NEO4J_URI is unset."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     monkeypatch.delenv("NEO4J_URI", raising=False)
     with tempfile.TemporaryDirectory() as d:
@@ -564,7 +564,7 @@ def test_load_graph_csvs_to_neo4j_error_when_neo4j_unset(
 
 def test_validate_graph_csv_bundle_for_neo4j_minimal() -> None:
     """Bundle validator reports ok for a minimal normalized export."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     with tempfile.TemporaryDirectory() as d:
         files = {
@@ -604,7 +604,7 @@ def test_validate_graph_csv_bundle_for_neo4j_minimal() -> None:
 
 def test_build_graph_csvs_filters_narrative_category_values() -> None:
     """Narrative-like category text is excluded from category nodes and category rels."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     with tempfile.TemporaryDirectory() as d:
         data_dir = os.path.join(d, "graph_data")
@@ -653,7 +653,7 @@ def test_build_graph_csvs_filters_narrative_category_values() -> None:
 
 def test_validate_graph_csv_bundle_reports_quality_flags() -> None:
     """Bundle validator reports canonical id and tag quality failures."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     with tempfile.TemporaryDirectory() as d:
         files = {
@@ -700,7 +700,7 @@ def test_validate_graph_csv_bundle_reports_quality_flags() -> None:
 
 def test_build_graph_csvs_china_shared_across_country_and_category() -> None:
     """Same normalized value in country vs category maps to one Tag node."""
-    from openfund_mcp.tools import kg_tool
+    from openfund_mcp.tools.graph import tool as kg_tool
 
     with tempfile.TemporaryDirectory() as d:
         data_dir = os.path.join(d, "graph_data")

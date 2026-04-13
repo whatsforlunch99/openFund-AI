@@ -21,6 +21,22 @@ DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_EMBEDDING_DIM = 384
 
 
+def _load_project_env_once() -> None:
+    """Best-effort load of project-root .env for in-process tool usage."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    # openfund_mcp/tools/vector/milvus.py -> project root is four levels up
+    project_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+    load_dotenv(os.path.join(project_root, ".env"))
+
+
+_load_project_env_once()
+
+
 def _parse_milvus_uri(uri: str) -> tuple[str, int]:
     """Parse MILVUS_URI to (host, port). E.g. http://localhost:19530 -> (localhost, 19530)."""
     u = (uri or "").strip().replace("http://", "").replace("https://", "")
@@ -67,8 +83,6 @@ def _ensure_milvus_connection() -> tuple[bool, str | None]:
             logger.debug("Milvus connection attempt %s failed: %s", attempt + 1, e)
             # Retry after short delay for slow container startup
             if attempt < 4:
-                import time
-
                 time.sleep(2)
     logger.exception("vector_tool: failed to connect to Milvus: %s", last_error)
     return False, f"Milvus connection failed: {last_error}"

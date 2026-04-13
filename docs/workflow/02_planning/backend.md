@@ -108,6 +108,8 @@ Tool names are namespaced (e.g. `file_tool.read_file`, `vector_tool.search`). Al
 
 **Research execution — specialist tool selection:** Specialist agents (Librarian, WebSearcher, Analyst) determine **which MCP tools to call and with what parameters** via an **LLM call**: they receive the planner's request (including the decomposed query), are given a **prompt** and **tool descriptions** (see [agent-tools-reference.md](../03_tools_and_mcp/agent-tools-reference.md)), and the LLM returns tool calls (tool name + payload); the agent then executes those tool calls and returns results (e.g. INFORM to Planner). If no LLM is available, behavior may fall back to content-key-based dispatch.
 
+**WebSearcher authoritative news pipeline:** News fetch is API/RSS-first (`news_tool.search_rss`, `news_tool.search_yahoo_rss`, `news_tool.search_gdelt`) with Playwright fallback (`news_tool.search_playwright`) for domains without API/RSS coverage. A deterministic top-10 source registry (coverage/reliability/relevance/efficiency) assigns stable `source_rank` and `fetch_mode`. Items are scored with `0.50*authority + 0.30*recency + 0.20*match`, deduped by canonical URL + title fingerprint + near-duplicate guard, and enriched with `domain`, `allowlist_pass`, `authority_tier`, `source_rank`, `fetch_mode`. Existing `news`/`citations` are preserved; `news_items` and `news_digest` are added. When `news_items` is non-empty, WebSearcher also persists entries to `database/text_data/web_searched_data.json` (sample_text-like array) with `symbols_mentioned` and `search_timestamp`, deduped by embedding cosine similarity (`>0.9`).
+
 ---
 
 ## Configuration (env)

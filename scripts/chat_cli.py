@@ -20,6 +20,11 @@ LOGIN_TIMEOUT = 15
 MAX_LOGIN_ATTEMPTS = 3
 
 
+def is_quit_command(value: str) -> bool:
+    """Return True when the user asks to exit the CLI."""
+    return value.strip().lower() in ("quit", "exit", "q")
+
+
 def login_or_register(base_url: str) -> str | None:
     """Prompt for username/password, call POST /login (and optionally POST /register). Return user_id or None for anonymous."""
     try:
@@ -28,10 +33,14 @@ def login_or_register(base_url: str) -> str | None:
         return None
     if not username:
         return None
+    if is_quit_command(username):
+        return None
     for attempt in range(1, MAX_LOGIN_ATTEMPTS + 1):
         try:
             password = getpass.getpass("Password: " if attempt == 1 else f"Invalid credentials. Try again (attempt {attempt}/{MAX_LOGIN_ATTEMPTS}): ")
         except EOFError:
+            return None
+        if is_quit_command(password):
             return None
         try:
             resp = requests.post(
@@ -62,6 +71,8 @@ def login_or_register(base_url: str) -> str | None:
                 choice = input("Create a new user with this name? (y/N): ").strip().lower()
             except EOFError:
                 return None
+            if is_quit_command(choice):
+                return None
             if choice not in ("y", "yes"):
                 return None
             # Ask the user to set a password (with confirmation) before calling /register.
@@ -70,6 +81,8 @@ def login_or_register(base_url: str) -> str | None:
                     pw1 = getpass.getpass("Set password (min 8 chars): ")
                     pw2 = getpass.getpass("Confirm password: ")
                 except EOFError:
+                    return None
+                if is_quit_command(pw1) or is_quit_command(pw2):
                     return None
                 if pw1 != pw2:
                     print("Passwords do not match. Try again.")
@@ -131,7 +144,7 @@ def run(port: int, profile: str, skip_login: bool = False) -> None:
             break
         if not line:
             continue
-        if line.lower() in ("quit", "exit", "q"):
+        if is_quit_command(line):
             break
         body = {"query": line, "user_profile": profile}
         if user_id:

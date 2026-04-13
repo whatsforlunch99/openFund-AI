@@ -57,6 +57,7 @@ SAMPLE_PAYLOADS: dict[str, dict] = {
     "news_tool.search_rss": {"query": "semiconductor earnings", "days": 7},
     "news_tool.search_yahoo_rss": {"limit": 10},
     "news_tool.search_gdelt": {"query": "federal reserve", "limit": 5},
+    "news_tool.search_playwright": {"url": "https://example.com"},
     "analyst_tool.get_indicators": {"symbol": "NVDA", "indicator": "rsi", "as_of_date": "2024-12-31", "look_back_days": 30},
     "get_capabilities": {},
 }

@@ -228,6 +228,16 @@ def get_all_tools() -> list[ToolSpec]:
             available=_always_available,
         )
     )
+    tools.append(
+        ToolSpec(
+            name="news_tool.search_playwright",
+            description=desc["news_tool.search_playwright"],
+            handler=mods["news_tool"].search_playwright,
+            arg_specs=(ToolArgSpec("payload", ("__payload__",), None, None),),
+            agents_allowed=("websearcher",),
+            available=_always_available,
+        )
+    )
 
     # websearch vendor tools
     tools.append(

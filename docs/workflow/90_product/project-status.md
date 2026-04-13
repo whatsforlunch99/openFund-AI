@@ -17,7 +17,7 @@ Tracks **major capability readiness**. Update when a capability becomes operatio
 | LibrarianAgent | FR4 | Live | MCP retrieval (vector/kg/sql; optional file_tool when LLM selects it), LLM tool selection when llm_client is set, fallback content-key dispatch (vector_query, fund, sql_query) |
 | ResponderAgent | FR5, FR6 | Live | register_reply, broadcast_stop; responder LLM formatting when llm_client set, else OutputRail `format_for_user` + `check_compliance` by user_profile |
 | E2E one conversation | — | Live | `python main.py --e2e-once` (planner + librarian + websearcher + analyst + responder; static LLM fallback in e2e path) |
-| WebSearcherAgent | FR4 | Live | Parallel flow: fund_catalog, stooq, Yahoo, ETFdb, market_tool, news_tool; normalized_fund + news/citations; FastMCP entry; conflict resolution and LLM fallbacks when llm_client set |
+| WebSearcherAgent | FR4 | Live | Parallel flow: fund_catalog, stooq, Yahoo, ETFdb, market_tool, news_tool; deterministic top-10 source ranking, API/RSS-first + Playwright fallback hook, cross-source dedupe, weighted fallback scoring, and `news_digest`/`news_items` with backward-compatible `news`/`citations` |
 | AnalystAgent | FR4 | Live | Slice 5: analyze, needs_more_data, sharpe_ratio, max_drawdown, monte_carlo_simulation |
 | Planner specialist fan-out | FR4 | Live | Sends REQUESTs to librarian/websearcher/analyst, aggregates INFORMs, forwards consolidated result to responder |
 | SafetyGateway | FR1, FR2, AC3 | Live | Slice 6: validate_input, check_guardrails, mask_pii, process_user_input; test_stage_6_1 |

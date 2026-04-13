@@ -41,6 +41,7 @@ TOOL_DESCRIPTIONS_BY_NAME: dict[str, str] = {
     "news_tool.search_rss": "Search news via Google News RSS. Payload: query (required string), days (optional int, default 7). Returns items with title, link, published, source.",
     "news_tool.search_yahoo_rss": "Fetch finance news from Yahoo Finance RSS (fixed feed, no query). Payload: limit (optional int, default 20). Returns items with title, link, published, source.",
     "news_tool.search_gdelt": "Search news via GDELT API (free, no key; may 429). Payload: query (required string), limit (optional int, default 10). Returns items with title, link, published, source.",
+    "news_tool.search_playwright": "Fetch a web page via Playwright and extract headline when no API/RSS exists. Payload: url (required string).",
     "analyst_tool.get_indicators": "Technical indicators only (SMA, RSI, MACD, etc.) — not raw OHLCV. Do not use indicator close/open/high/low/volume; use market_tool.get_stock_data or sql_tool for price series. Payload: symbol (string), indicator (e.g. close_50_sma, rsi, macd, boll, atr), as_of_date (yyyy-mm-dd), look_back_days (int).",
     "get_capabilities": "List registered MCP tools and backend status (neo4j, postgres, milvus). Payload: {}.",
 }
@@ -54,7 +55,7 @@ LIBRARIAN_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
     "sql_tool.connection_health_check", "get_capabilities",
 ])
 WEBSEARCHER_ALLOWED_TOOL_NAMES: frozenset[str] = frozenset([
-    "fund_catalog_tool.search", "news_tool.search_rss", "news_tool.search_yahoo_rss", "news_tool.search_gdelt",
+    "fund_catalog_tool.search", "news_tool.search_rss", "news_tool.search_yahoo_rss", "news_tool.search_gdelt", "news_tool.search_playwright",
     "stooq_tool.get_price", "yahoo_finance_tool.get_fundamental", "yahoo_finance_tool.get_price",
     "etfdb_tool.get_fund_data", "market_tool.get_fundamentals", "market_tool.get_stock_data",
     "market_tool.get_balance_sheet", "market_tool.get_cashflow", "market_tool.get_income_statement",
@@ -72,7 +73,7 @@ _LIBRARIAN_TOOL_ORDER: list[str] = [
     "sql_tool.connection_health_check", "get_capabilities",
 ]
 _WEBSEARCHER_TOOL_ORDER: list[str] = [
-    "fund_catalog_tool.search", "news_tool.search_rss", "news_tool.search_yahoo_rss", "news_tool.search_gdelt",
+    "fund_catalog_tool.search", "news_tool.search_rss", "news_tool.search_yahoo_rss", "news_tool.search_gdelt", "news_tool.search_playwright",
     "stooq_tool.get_price", "yahoo_finance_tool.get_fundamental", "yahoo_finance_tool.get_price",
     "etfdb_tool.get_fund_data", "market_tool.get_fundamentals", "market_tool.get_stock_data",
     "market_tool.get_news", "market_tool.get_global_news", "market_tool.get_balance_sheet",

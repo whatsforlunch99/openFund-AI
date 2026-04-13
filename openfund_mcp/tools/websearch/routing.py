@@ -11,6 +11,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any
+from urllib.parse import urlparse
 
 from openfund_mcp.tools._shared.time import now_iso_utc
 
@@ -255,3 +256,84 @@ def search_gdelt(payload: dict) -> dict[str, Any]:
                 "source": source,
             })
     return {"items": items, "timestamp": _now_iso()}
+
+
+def search_playwright(payload: dict) -> dict[str, Any]:
+    """Best-effort page extraction via Playwright for sources without API/RSS."""
+    url = (payload.get("url") or "").strip()
+    query = (payload.get("query") or "").strip()
+    domain = (payload.get("domain") or "").strip().lower()
+    if not url:
+        if not domain:
+            return {"error": "Missing required parameter 'url' or 'domain'", "timestamp": _now_iso()}
+        encoded_q = urllib.parse.quote_plus(query) if query else ""
+        url = f"https://{domain}/search?q={encoded_q}" if encoded_q else f"https://{domain}/"
+
+    def _extract_items_from_html(html: str, page_url: str) -> list[dict[str, Any]]:
+        host = urlparse(page_url).netloc.lower()
+        if host.startswith("www."):
+            host = host[4:]
+        items: list[dict[str, Any]] = []
+        for href, text in re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', html, flags=re.I | re.S):
+            clean_title = re.sub(r"<[^>]+>", " ", text)
+            clean_title = re.sub(r"\s+", " ", clean_title).strip()
+            if len(clean_title) < 20:
+                continue
+            link = href.strip()
+            if link.startswith("/"):
+                link = f"https://{host}{link}"
+            if not link.startswith("http"):
+                continue
+            if domain and domain not in urlparse(link).netloc.lower():
+                continue
+            items.append(
+                {
+                    "title": clean_title[:300],
+                    "link": link,
+                    "published": "",
+                    "date": "",
+                    "source": host or domain or "unknown",
+                }
+            )
+            if len(items) >= 10:
+                break
+        return items
+
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except Exception:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; OpenFund-AI/1.0)"},
+            )
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+            return {"items": _extract_items_from_html(html, url), "timestamp": _now_iso()}
+        except Exception:
+            return {"items": [], "timestamp": _now_iso()}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=10000)
+            html = page.content()
+            browser.close()
+        items = _extract_items_from_html(html, url)
+        if not items:
+            title = (re.search(r"<title>(.*?)</title>", html, flags=re.I | re.S) or [None, ""])[1]
+            title = re.sub(r"\s+", " ", str(title)).strip()
+            if title:
+                items = [
+                    {
+                        "title": title[:300],
+                        "link": url,
+                        "published": "",
+                        "date": "",
+                        "source": urlparse(url).netloc,
+                    }
+                ]
+        return {"items": items, "timestamp": _now_iso()}
+    except Exception as e:
+        logger.debug("news_tool search_playwright failed: %s", e)
+        return {"items": [], "timestamp": _now_iso()}

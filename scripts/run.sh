@@ -90,7 +90,7 @@ fi
   echo ""
   echo "=================================================="
   echo "Run started: $(date '+%Y-%m-%d %H:%M:%S %z')"
-  echo "Command: ./scripts/run.sh ${ORIGINAL_ARGS[*]}"
+  echo "Command: ./scripts/run.sh ${ORIGINAL_ARGS[*]-}"
   echo "=================================================="
 } >> "$USER_LOG_FILE"
 

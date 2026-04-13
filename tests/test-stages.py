@@ -1125,15 +1125,118 @@ def test_websearcher_news_searcher() -> None:
     citations = content["citations"]
     assert isinstance(news, list)
     assert isinstance(citations, dict)
-    assert len(news) >= 1
-    for item in news:
-        assert "id" in item
-        assert item["id"].startswith("NEWS")
-        assert "title" in item
-        assert "source" in item
-    for cid, url in citations.items():
-        assert cid.startswith("NEWS")
-        assert isinstance(url, str) and len(url) > 0
+    # Strict fallback: if fewer than 2 ranked items survive, news may be empty.
+    if news:
+        for item in news:
+            assert "id" in item
+            assert item["id"].startswith("NEWS")
+            assert "title" in item
+            assert "source" in item
+        for cid, url in citations.items():
+            assert cid.startswith("NEWS")
+            assert isinstance(url, str) and len(url) > 0
+
+
+def test_websearcher_source_ranking_deterministic() -> None:
+    from a2a.message_bus import InMemoryMessageBus
+    from agents.websearch_agent import WebSearcherAgent
+
+    bus = InMemoryMessageBus()
+    agent = WebSearcherAgent("websearcher", bus, mcp_client=None)
+    a = agent._registry_top10()
+    b = agent._registry_top10()
+    assert [x["domain"] for x in a] == [x["domain"] for x in b]
+    assert [x["source_rank"] for x in a] == list(range(1, 11))
+
+
+def test_websearcher_dedupe_and_fallback_rules() -> None:
+    from a2a.message_bus import InMemoryMessageBus
+    from agents.websearch_agent import WebSearcherAgent
+
+    bus = InMemoryMessageBus()
+    agent = WebSearcherAgent("websearcher", bus, mcp_client=None)
+    rss_items = [
+        {"title": "AAPL gains on policy signal", "link": "https://reuters.com/a", "date": "2026-04-13", "source": "Reuters"},
+        {"title": "AAPL gains on policy signal", "link": "https://reuters.com/a?utm=x", "date": "2026-04-13", "source": "Reuters"},
+        {"title": "AAPL gains on policy signal!!", "link": "https://example-blog.com/x", "date": "2026-04-12", "source": "Blog"},
+        {"title": "Apple shares rise after policy signal", "link": "https://bloomberg.com/aapl-rise", "date": "2026-04-13", "source": "Bloomberg"},
+    ]
+    merged = agent._normalize_and_merge_news(rss_items, [], [], {"ticker": "AAPL", "fund_name": "", "issuer": "", "query_terms": ["aapl"]})
+    # Reuters and Bloomberg primary survive; duplicates and near-duplicates are removed.
+    assert len(merged) == 2
+    assert all(x["allowlist_pass"] is True for x in merged)
+
+    secondary = [
+        {"title": "AAPL jumps", "link": "https://example1.com/aapl", "date": "2026-04-13", "source": "Example1"},
+        {"title": "AAPL rises on outlook", "link": "https://example2.com/aapl", "date": "2026-04-13", "source": "Example2"},
+    ]
+    merged2 = agent._normalize_and_merge_news(secondary, [], [], {"ticker": "AAPL", "fund_name": "", "issuer": "", "query_terms": ["aapl"]})
+    assert len(merged2) <= 2
+    assert all((not x["allowlist_pass"]) and x["score"] >= 0.60 for x in merged2)
+    if len(merged2) >= 2:
+        assert (merged2[0].get("published") or "") >= (merged2[1].get("published") or "")
+
+
+def test_websearcher_digest_and_citation_constraints() -> None:
+    from a2a.message_bus import InMemoryMessageBus
+    from agents.websearch_agent import WebSearcherAgent
+
+    bus = InMemoryMessageBus()
+    agent = WebSearcherAgent("websearcher", bus, mcp_client=None)
+    items = [
+        {"title": "T1", "source": "Reuters", "url": "https://reuters.com/1", "summary": "s", "published": "2026-04-13"},
+        {"title": "T2", "source": "Bloomberg", "url": "https://bloomberg.com/2", "summary": "s", "published": "2026-04-13"},
+        {"title": "T3", "source": "WSJ", "url": "https://wsj.com/3", "summary": "s", "published": "2026-04-13"},
+        {"title": "T4", "source": "FT", "url": "https://ft.com/4", "summary": "s", "published": "2026-04-13"},
+    ]
+    news, citations, rows = agent._build_news_with_citations(items)
+    assert len(news) == 4
+    assert len(citations) == 3
+    assert len(rows) == 3
+    digest = agent._build_digest(news)
+    sentences = [s.strip() for s in digest.split(".") if s.strip()]
+    assert 6 <= len(sentences) <= 10
+    assert (
+        "Unclear from current sources how/where/impact occurred." in digest
+        or "Unclear from current sources how the development unfolded." in digest
+        or "Unclear from current sources where this development is concentrated." in digest
+        or "Unclear from current sources what the immediate market impact is." in digest
+    )
+
+
+def test_websearcher_citations_pick_first_three_with_urls() -> None:
+    from a2a.message_bus import InMemoryMessageBus
+    from agents.websearch_agent import WebSearcherAgent
+
+    bus = InMemoryMessageBus()
+    agent = WebSearcherAgent("websearcher", bus, mcp_client=None)
+    items = [
+        {"title": "T1", "source": "Reuters", "url": "", "summary": "s", "published": "2026-04-13"},
+        {"title": "T2", "source": "Bloomberg", "url": "https://bloomberg.com/2", "summary": "s", "published": "2026-04-13"},
+        {"title": "T3", "source": "WSJ", "url": "https://wsj.com/3", "summary": "s", "published": "2026-04-13"},
+        {"title": "T4", "source": "FT", "url": "https://ft.com/4", "summary": "s", "published": "2026-04-13"},
+    ]
+    _, citations, rows = agent._build_news_with_citations(items)
+    assert len(citations) == 3
+    assert len(rows) == 3
+
+
+def test_websearcher_returns_empty_when_insufficient_authoritative_news() -> None:
+    from a2a.message_bus import InMemoryMessageBus
+    from agents.websearch_agent import WebSearcherAgent
+
+    bus = InMemoryMessageBus()
+    agent = WebSearcherAgent("websearcher", bus, mcp_client=None)
+    one_item = [
+        {"title": "Only one noisy item", "link": "https://unknown-site.example/news", "date": "2026-04-13", "source": "Unknown"}
+    ]
+    merged = agent._normalize_and_merge_news(
+        one_item,
+        [],
+        [],
+        {"ticker": "AAPL", "fund_name": "", "issuer": "", "query_terms": ["aapl"]},
+    )
+    assert merged == []
 
 
 def test_stage_6_1() -> None:

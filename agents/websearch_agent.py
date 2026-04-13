@@ -8,9 +8,12 @@ Outputs normalized_fund, market_data/sentiment/regulatory, and news/citations.
 import json
 import logging
 import re
+from difflib import SequenceMatcher
+from hashlib import sha1
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import urlparse, urlunparse
 
 from a2a.acl_message import ACLMessage, Performative
 from a2a.message_bus import MessageBus
@@ -22,12 +25,12 @@ from agents.websearch_helpers import (
     by_tool_symbol_for_iteration,
     extract_price_from_text,
     prefer_yahoo_price_first,
-    query_implies_news_intent,
     summarize_yahoo_fundamental,
     websearch_now_iso,
 )
 from util import interaction_log
 from util.agent_heuristics import get_websearcher_heuristics
+from util.websearch_persistence import persist_websearch_news
 from util.symbol_query_extract import extract_symbol_from_query, merge_catalog_symbols_for_query
 from util.symbol_resolution_deterministic import apply_ticker_aliases
 
@@ -35,6 +38,58 @@ if TYPE_CHECKING:
     from llm.base import LLMClient
 
 logger = logging.getLogger(__name__)
+
+_AUTHORITATIVE_ALLOWLIST = {
+    "reuters.com",
+    "bloomberg.com",
+    "wsj.com",
+    "ft.com",
+    "cnbc.com",
+    "barrons.com",
+    "marketwatch.com",
+    "sec.gov",
+    "federalreserve.gov",
+    "ecb.europa.eu",
+    "bankofengland.co.uk",
+    "bis.org",
+    "imf.org",
+    "worldbank.org",
+    "oecd.org",
+    "bls.gov",
+    "bea.gov",
+    "treasury.gov",
+    "nasdaq.com",
+    "nyse.com",
+    "cboe.com",
+    "ice.com",
+    "cmegroup.com",
+    "spglobal.com",
+    "moodys.com",
+    "fitchratings.com",
+    "finra.org",
+    "investing.com",
+    "fxstreet.com",
+    "coindesk.com",
+    "cointelegraph.com",
+    "theblock.co",
+    "ic3.gov",
+    "dataplus.sec.gov",
+    "edgar.sec.gov",
+}
+
+# Deterministic top-10 source registry (coverage, reliability, relevance, efficiency).
+_SOURCE_REGISTRY = [
+    {"name": "Reuters", "domain": "reuters.com", "fetch_mode": "rss", "coverage": 1.00, "reliability": 1.00, "relevance": 0.95, "efficiency": 0.95, "crawl_url": "https://www.reuters.com/world/"},
+    {"name": "Bloomberg", "domain": "bloomberg.com", "fetch_mode": "rss", "coverage": 0.98, "reliability": 0.98, "relevance": 0.93, "efficiency": 0.90, "crawl_url": "https://www.bloomberg.com/markets"},
+    {"name": "WSJ", "domain": "wsj.com", "fetch_mode": "rss", "coverage": 0.92, "reliability": 0.97, "relevance": 0.90, "efficiency": 0.88, "crawl_url": "https://www.wsj.com/news/markets"},
+    {"name": "Financial Times", "domain": "ft.com", "fetch_mode": "rss", "coverage": 0.90, "reliability": 0.97, "relevance": 0.89, "efficiency": 0.88, "crawl_url": "https://www.ft.com/markets"},
+    {"name": "CNBC", "domain": "cnbc.com", "fetch_mode": "rss", "coverage": 0.89, "reliability": 0.92, "relevance": 0.90, "efficiency": 0.91, "crawl_url": "https://www.cnbc.com/world/?region=world"},
+    {"name": "SEC", "domain": "sec.gov", "fetch_mode": "api", "coverage": 0.72, "reliability": 1.00, "relevance": 0.85, "efficiency": 0.83},
+    {"name": "Federal Reserve", "domain": "federalreserve.gov", "fetch_mode": "api", "coverage": 0.70, "reliability": 1.00, "relevance": 0.83, "efficiency": 0.82},
+    {"name": "BLS", "domain": "bls.gov", "fetch_mode": "api", "coverage": 0.66, "reliability": 1.00, "relevance": 0.80, "efficiency": 0.81},
+    {"name": "CoinDesk", "domain": "coindesk.com", "fetch_mode": "rss", "coverage": 0.76, "reliability": 0.90, "relevance": 0.86, "efficiency": 0.90},
+    {"name": "The Block", "domain": "theblock.co", "fetch_mode": "playwright", "coverage": 0.72, "reliability": 0.89, "relevance": 0.84, "efficiency": 0.60},
+]
 
 
 class WebSearcherAgent(BaseAgent):
@@ -274,22 +329,41 @@ class WebSearcherAgent(BaseAgent):
         regulatory_items: list[dict] = []
         if not self.mcp_client:
             return (rss_items, sentiment_items, regulatory_items)
-        want_news = query_implies_news_intent(query)
+        # WebSearcher must always attempt news retrieval for tradable assets.
+        want_news = True
         av_cool = alpha_vantage_cooldown_message()
         reg = self.mcp_client.get_registered_tool_names() or []
         call = self.mcp_client.call_tool
         tasks: list[tuple[str, str, dict]] = []
         news_sym = by_tool_symbol(by_tool, "market_tool.get_news", symbol)
-        if "news_tool.search_rss" in reg and by_tool_should_call(by_tool, "news_tool.search_rss"):
-            tasks.append(("rss", "news_tool.search_rss", {"query": query, "days": days}))
-        if want_news and "news_tool.search_yahoo_rss" in reg and by_tool_should_call(
-            by_tool, "news_tool.search_yahoo_rss"
-        ):
-            tasks.append(("rss_yahoo", "news_tool.search_yahoo_rss", {"limit": 15}))
-        if want_news and "news_tool.search_gdelt" in reg and by_tool_should_call(
-            by_tool, "news_tool.search_gdelt"
-        ):
-            tasks.append(("rss_gdelt", "news_tool.search_gdelt", {"query": query, "limit": 10}))
+        if want_news:
+            for src in self._registry_top10():
+                domain = src.get("domain") or ""
+                fetch_mode = src.get("fetch_mode") or "rss"
+                domain_query = f"{query} site:{domain}".strip()
+                if (
+                    fetch_mode == "playwright"
+                    and "news_tool.search_playwright" in reg
+                    and by_tool_should_call(by_tool, "news_tool.search_playwright")
+                ):
+                    tasks.append(
+                        (
+                            "playwright_" + domain,
+                            "news_tool.search_playwright",
+                            {"query": query, "domain": domain},
+                        )
+                    )
+                elif (
+                    fetch_mode == "api"
+                    and "news_tool.search_gdelt" in reg
+                    and by_tool_should_call(by_tool, "news_tool.search_gdelt")
+                ):
+                    tasks.append(("gdelt_" + domain, "news_tool.search_gdelt", {"query": domain_query, "limit": 8}))
+                elif (
+                    "news_tool.search_rss" in reg
+                    and by_tool_should_call(by_tool, "news_tool.search_rss")
+                ):
+                    tasks.append(("rss_" + domain, "news_tool.search_rss", {"query": domain_query, "days": days}))
         today = date.today().isoformat()
         start = (date.today() - timedelta(days=days)).isoformat()
         if (
@@ -332,9 +406,31 @@ class WebSearcherAgent(BaseAgent):
                         results[key] = r
                 except Exception as e:
                     logger.debug("news fetch %s failed: %s", key, e)
-        for key in ("rss", "rss_yahoo", "rss_gdelt"):
-            if key in results and "items" in results[key]:
-                rss_items.extend(results[key]["items"] or [])
+        for key, value in results.items():
+            if (key.startswith("rss_") or key.startswith("gdelt_")) and "items" in value:
+                rss_items.extend(value["items"] or [])
+        for key, value in results.items():
+            if key.startswith("playwright_") and "items" in value:
+                rss_items.extend(value["items"] or [])
+        if (
+            len(rss_items) < 2
+            and "news_tool.search_playwright" in reg
+            and by_tool_should_call(by_tool, "news_tool.search_playwright")
+        ):
+            for src in self._registry_top10()[:5]:
+                crawl_url = (src.get("crawl_url") or "").strip()
+                domain = (src.get("domain") or "").strip()
+                if not crawl_url or not domain:
+                    continue
+                try:
+                    r = call(
+                        "news_tool.search_playwright",
+                        {"url": crawl_url, "domain": domain, "query": query},
+                    ) or {}
+                    if isinstance(r, dict) and "items" in r:
+                        rss_items.extend(r.get("items") or [])
+                except Exception as e:
+                    logger.debug("news crawl fallback %s failed: %s", domain, e)
         if "sentiment" in results:
             sentiment_items = self._content_to_news_items(
                 results["sentiment"].get("content") or "", "market_tool"
@@ -348,6 +444,172 @@ class WebSearcherAgent(BaseAgent):
             len(rss_items), len(sentiment_items), len(regulatory_items),
         )
         return (rss_items, sentiment_items, regulatory_items)
+
+    def _registry_top10(self) -> list[dict[str, Any]]:
+        ranked = sorted(
+            _SOURCE_REGISTRY,
+            key=lambda s: (
+                -((0.35 * s["coverage"]) + (0.35 * s["reliability"]) + (0.20 * s["relevance"]) + (0.10 * s["efficiency"])),
+                s["domain"],
+            ),
+        )
+        out: list[dict[str, Any]] = []
+        for idx, item in enumerate(ranked[:10], start=1):
+            rec = dict(item)
+            rec["source_rank"] = idx
+            out.append(rec)
+        return out
+
+    def _extract_domain(self, url: str) -> str:
+        if not isinstance(url, str) or not url.strip():
+            return ""
+        try:
+            host = (urlparse(url).netloc or "").lower()
+            if host.startswith("www."):
+                host = host[4:]
+            return host
+        except Exception:
+            return ""
+
+    def _domain_from_source_name(self, source_name: str) -> str:
+        text = (source_name or "").strip().lower()
+        if not text:
+            return ""
+        mapping = {
+            "reuters": "reuters.com",
+            "bloomberg": "bloomberg.com",
+            "wsj": "wsj.com",
+            "wall street journal": "wsj.com",
+            "financial times": "ft.com",
+            "ft": "ft.com",
+            "cnbc": "cnbc.com",
+            "marketwatch": "marketwatch.com",
+            "barrons": "barrons.com",
+            "federal reserve": "federalreserve.gov",
+            "u.s. securities and exchange commission": "sec.gov",
+            "bureau of labor statistics": "bls.gov",
+            "coindesk": "coindesk.com",
+            "the block": "theblock.co",
+            "yahoo finance": "finance.yahoo.com",
+        }
+        for key, domain in mapping.items():
+            if key in text:
+                return domain
+        return ""
+
+    def _canonical_url(self, url: str) -> str:
+        if not isinstance(url, str) or not url.strip():
+            return ""
+        try:
+            p = urlparse(url.strip())
+            return urlunparse((p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"), "", "", ""))
+        except Exception:
+            return url.strip()
+
+    def _title_fingerprint(self, title: str) -> str:
+        base = re.sub(r"\s+", " ", (title or "").strip().lower())
+        base = re.sub(r"[^a-z0-9 ]+", "", base)
+        return sha1(base.encode("utf-8")).hexdigest()
+
+    def _normalize_title_for_similarity(self, title: str) -> str:
+        base = re.sub(r"\s+", " ", (title or "").strip().lower())
+        return re.sub(r"[^a-z0-9 ]+", "", base)
+
+    def _published_to_date(self, raw: Any) -> str:
+        text = str(raw or "").strip()
+        if not text:
+            return ""
+        if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+            return text[:10]
+        if len(text) >= 8 and text[:8].isdigit():
+            return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+        return text[:10]
+
+    def _recency_score(self, published: str) -> float:
+        d = self._published_to_date(published)
+        if not d:
+            return 0.0
+        try:
+            dt = datetime.strptime(d, "%Y-%m-%d").date()
+        except ValueError:
+            return 0.0
+        delta = (datetime.now(timezone.utc).date() - dt).days
+        if delta <= 0:
+            return 1.0
+        if delta <= 2:
+            return 0.7
+        if delta <= 7:
+            return 0.4
+        return 0.0
+
+    def _match_score(self, title: str, terms: dict[str, str]) -> float:
+        t = (title or "").lower()
+        ticker = (terms.get("ticker") or "").lower()
+        fund = (terms.get("fund_name") or "").lower()
+        issuer = (terms.get("issuer") or "").lower()
+        query_terms = terms.get("query_terms") or []
+        if ticker and ticker in t:
+            return 1.0
+        if fund and fund in t:
+            return 0.7
+        if issuer and issuer in t:
+            return 0.4
+        if any(q and q in t for q in query_terms):
+            return 0.2
+        return 0.0
+
+    def _allowlist_pass(self, domain: str) -> bool:
+        if not domain:
+            return False
+        return any(domain == d or domain.endswith(f".{d}") for d in _AUTHORITATIVE_ALLOWLIST)
+
+    def _build_digest(self, items: list[dict[str, Any]]) -> str:
+        if len(items) < 2:
+            return "No authoritative news found in the last 7 days for the specified assets."
+        top = items[:3]
+        loc = ", ".join(sorted({(i.get("domain") or "global") for i in top})) or "global markets"
+        combined_text = " ".join(
+            f"{it.get('title', '')} {it.get('summary', '')}".lower() for it in top
+        )
+        lines = [f"Recent coverage shows a market-relevant development around {top[0].get('title', 'the queried assets')}."]
+        has_where = any((it.get("domain") or "").strip() for it in top)
+        has_how = any(
+            k in combined_text
+            for k in ("because", "after", "due to", "driven by", "triggered", "following")
+        )
+        has_impact = any(
+            k in combined_text
+            for k in ("impact", "inflow", "outflow", "price", "volatility", "yield", "spread")
+        )
+        if has_where:
+            lines.append(f"The activity is reported across {loc}.")
+        else:
+            lines.append("Unclear from current sources where this development is concentrated.")
+        if has_how:
+            lines.append("Reports describe how the move unfolded through policy, liquidity, or positioning channels.")
+        else:
+            lines.append("Unclear from current sources how the development unfolded.")
+        if has_impact:
+            lines.append("Reported consequences include measurable repricing and sentiment shifts across related assets.")
+        else:
+            lines.append("Unclear from current sources what the immediate market impact is.")
+        lines.extend(
+            [
+                "Cross-asset spillovers appear in sentiment-sensitive and rate-sensitive segments.",
+                "Near-term implications are higher event sensitivity and faster reaction to new official releases.",
+            ]
+        )
+        has_driver = any(
+            any(k in (it.get("title", "") + " " + it.get("summary", "")).lower() for k in ("supply chain", "disaster", "geopolitical", "regulatory", "cpi", "jobs", "commodity", "sector"))
+            for it in top
+        )
+        if has_driver:
+            lines.append("Performance-impact drivers such as regulatory, macro, or sector catalysts are explicitly present in current reporting.")
+        else:
+            lines.append("Unclear from current sources how/where/impact occurred.")
+        while len(lines) < 6:
+            lines.append("Additional confirmation from primary sources is likely to refine the picture.")
+        return " ".join(lines[:10])
 
     def _content_to_news_items(self, content: str, source: str) -> list[dict]:
         """Convert market_tool content to news items. Tries JSON feed; else first line as title."""
@@ -387,63 +649,109 @@ class WebSearcherAgent(BaseAgent):
         return items
 
     def _normalize_and_merge_news(
-        self, rss_items: list, sentiment_items: list, regulatory_items: list
+        self, rss_items: list, sentiment_items: list, regulatory_items: list, query_terms: dict[str, str]
     ) -> list[dict]:
-        """Convert all raw items to standard schema {title, source, date, url, summary}. Dedupe by URL."""
+        """Normalize, score, dedupe, and apply fallback thresholds."""
+        ranked_sources = self._registry_top10()
+        rank_by_domain = {s["domain"]: s for s in ranked_sources}
         seen_urls: set[str] = set()
+        seen_titles: set[str] = set()
+        seen_title_texts: list[str] = []
         out: list[dict] = []
 
-        def add(item: dict) -> None:
-            url = (item.get("link") or item.get("url") or "").strip()
-            if url and url in seen_urls:
-                return
-            if url:
-                seen_urls.add(url)
-            rec = {
-                "title": (item.get("title") or "").strip() or "(No title)",
-                "source": (item.get("source") or "Unknown").strip(),
-                "date": item.get("date") or item.get("published") or "",
-                "url": url,
-                "summary": (item.get("summary") or "").strip()[:500],
+        def source_meta(domain: str) -> dict[str, Any]:
+            src = rank_by_domain.get(domain) or {}
+            return {
+                "source_rank": src.get("source_rank", 999),
+                "fetch_mode": src.get("fetch_mode", "rss"),
             }
-            out.append(rec)
+
+        def add(item: dict) -> None:
+            raw_url = (item.get("link") or item.get("url") or "").strip()
+            canon = self._canonical_url(raw_url)
+            title = (item.get("title") or "").strip() or "(No title)"
+            title_fp = self._title_fingerprint(title)
+            title_norm = self._normalize_title_for_similarity(title)
+            domain = self._extract_domain(raw_url)
+            source_domain = self._domain_from_source_name(str(item.get("source") or ""))
+            if source_domain and (not domain or not self._allowlist_pass(domain)):
+                domain = source_domain
+            near_dup = any(SequenceMatcher(None, title_norm, prev).ratio() >= 0.93 for prev in seen_title_texts)
+            if (canon and canon in seen_urls) or title_fp in seen_titles or near_dup:
+                return
+            allow = self._allowlist_pass(domain)
+            m = source_meta(domain)
+            authority_score = 1.0 if allow else 0.0
+            recency = self._recency_score(item.get("date") or item.get("published") or "")
+            match = self._match_score(title, query_terms)
+            score = (0.50 * authority_score) + (0.30 * recency) + (0.20 * match)
+            if canon:
+                seen_urls.add(canon)
+            seen_titles.add(title_fp)
+            seen_title_texts.append(title_norm)
+            out.append(
+                {
+                    "title": title,
+                    "source": (item.get("source") or domain or "Unknown").strip(),
+                    "published": self._published_to_date(item.get("date") or item.get("published")),
+                    "url": raw_url,
+                    "summary": (item.get("summary") or "").strip()[:500],
+                    "domain": domain,
+                    "allowlist_pass": allow,
+                    "authority_tier": "primary" if allow else "secondary",
+                    "source_rank": m["source_rank"],
+                    "fetch_mode": m["fetch_mode"],
+                    "score": round(score, 4),
+                }
+            )
 
         for it in rss_items:
             if isinstance(it, dict):
-                link = it.get("link") or it.get("url") or ""
-                add({
-                    "title": it.get("title"),
-                    "source": it.get("source"),
-                    "date": it.get("date") or it.get("published"),
-                    "url": link,
-                    "link": link,
-                    "summary": it.get("summary") or it.get("title"),
-                })
+                add(it)
         for it in sentiment_items + regulatory_items:
             if isinstance(it, dict):
                 add(it)
-        # Sort by date desc (empty date last)
-        def _sort_key(x: dict) -> tuple:
-            d = x.get("date") or ""
-            return (0 if d else 1, d)
+        def _published_ord(value: str) -> int:
+            try:
+                return datetime.strptime(value or "", "%Y-%m-%d").toordinal()
+            except ValueError:
+                return -1
 
-        out.sort(key=_sort_key, reverse=True)
-        return out[:30]
+        out.sort(
+            key=lambda x: (
+                -x["score"],
+                -_published_ord(x.get("published") or ""),
+                (x.get("source") or "").lower(),
+            )
+        )
+        primary = [x for x in out if x["allowlist_pass"]]
+        if len(primary) >= 3:
+            return primary[:30]
+        secondary = [x for x in out if not x["allowlist_pass"] and x["score"] >= 0.60][:2]
+        merged = (primary + secondary)[:30]
+        if len(merged) < 2:
+            return []
+        return merged
 
-    def _build_news_with_citations(self, items: list[dict]) -> tuple[list[dict], dict[str, str]]:
+    def _build_news_with_citations(self, items: list[dict]) -> tuple[list[dict], dict[str, str], list[dict]]:
         """Assign NEWS1..NEWSn and build citations map."""
         news: list[dict] = []
         citations: dict[str, str] = {}
+        citation_rows: list[dict] = []
+        cap = 3 if len(items) >= 3 else len(items)
         for i, it in enumerate(items):
             cid = f"NEWS{i + 1}"
             rec = dict(it)
             rec["id"] = cid
             news.append(rec)
-            if rec.get("url"):
+            if rec.get("url") and len(citations) < cap:
                 citations[cid] = rec["url"]
-        return (news, citations)
+                citation_rows.append(
+                    {"title": rec.get("title") or "", "source": rec.get("source") or "", "url": rec["url"]}
+                )
+        return (news, citations, citation_rows)
 
-    def _llm_news_fallback(self, query: str, symbol: str) -> tuple[list[dict], dict[str, str]]:
+    def _llm_news_fallback(self, query: str, symbol: str) -> tuple[list[dict], dict[str, str], list[dict]]:
         """When all news APIs fail, call LLM for news. Returns (news_list, citations) with source=llm."""
         from llm.prompts import WEBSEARCHER_NEWS_FALLBACK_SYSTEM
 
@@ -852,20 +1160,25 @@ class WebSearcherAgent(BaseAgent):
                 logger.debug("news fetch failed: %s", e)
 
         # Build news + citations
-        merged_items = self._normalize_and_merge_news(
-            news_data[0], news_data[1], news_data[2]
-        )
-        news_list, citations = self._build_news_with_citations(merged_items)
+        query_terms = {
+            "ticker": symbol,
+            "fund_name": str(content.get("fund") or ""),
+            "issuer": str(content.get("issuer") or ""),
+            "query_terms": [w.lower() for w in re.findall(r"[A-Za-z]{3,}", str(query))[:10]],
+        }
+        merged_items = self._normalize_and_merge_news(news_data[0], news_data[1], news_data[2], query_terms)
+        news_list, citations, citation_rows = self._build_news_with_citations(merged_items)
 
         # News fallback: when all news APIs returned nothing, call LLM
         llm_news_fallback_used = False
         if not news_list and self._llm_client:
-            llm_news, llm_citations = self._llm_news_fallback(
+            llm_news, llm_citations, llm_rows = self._llm_news_fallback(
                 str(query)[:200], symbol
             )
             if llm_news:
                 news_list = llm_news
                 citations = llm_citations
+                citation_rows = llm_rows
                 llm_news_fallback_used = True
                 logger.info(
                     "agent.websearcher.news_llm_fallback symbol=%s news_count=%s",
@@ -886,7 +1199,22 @@ class WebSearcherAgent(BaseAgent):
             )
         financial_result["news"] = news_list
         financial_result["citations"] = citations
+        financial_result["news_items"] = news_list
+        financial_result["citation_items"] = citation_rows
+        financial_result["news_digest"] = self._build_digest(news_list)
         financial_result["news_timestamp"] = websearch_now_iso()
+        if news_list:
+            try:
+                persist_result = persist_websearch_news(
+                    news_items=news_list,
+                    symbols_mentioned=symbols[:3],
+                    search_timestamp=financial_result["news_timestamp"],
+                )
+                milvus_res = persist_result.get("milvus")
+                if isinstance(milvus_res, dict) and milvus_res.get("status") == "error":
+                    logger.warning("websearch persistence milvus upsert failed: %s", milvus_res.get("error", "unknown"))
+            except Exception as e:
+                logger.debug("websearch persistence failed: %s", e)
         if llm_news_fallback_used or (
             news_list
             and not citations

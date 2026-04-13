@@ -22,6 +22,22 @@ from openfund_mcp.tools._shared.time import now_iso_utc
 logger = logging.getLogger(__name__)
 
 
+def _load_project_env_once() -> None:
+    """Best-effort load of project-root .env for in-process tool usage."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    # openfund_mcp/tools/market/routing.py -> project root is four levels up
+    project_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+    load_dotenv(os.path.join(project_root, ".env"))
+
+
+_load_project_env_once()
+
+
 # --- Vendor config ---
 
 

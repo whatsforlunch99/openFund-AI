@@ -43,6 +43,58 @@ class ResponderAgent(BaseAgent):
         self.conversation_manager = conversation_manager
         self._llm_client = llm_client
 
+    def _format_from_final_response_object(self, obj: dict[str, Any]) -> str:
+        """Render planner final_response_object into user-facing text."""
+        summary = obj.get("summary")
+        text = summary.strip() if isinstance(summary, str) else ""
+        parts: list[str] = [text] if text else []
+
+        evidence = obj.get("evidence")
+        if isinstance(evidence, list) and evidence:
+            lines: list[str] = []
+            for item in evidence[:3]:
+                if not isinstance(item, dict):
+                    continue
+                fact = item.get("fact")
+                if isinstance(fact, str) and fact.strip():
+                    meta: list[str] = []
+                    src = item.get("source")
+                    if isinstance(src, str) and src.strip():
+                        meta.append(src.strip())
+                    ts = item.get("timestamp")
+                    if isinstance(ts, str) and ts.strip():
+                        meta.append(ts.strip())
+                    cid = item.get("citation_id")
+                    if isinstance(cid, str) and cid.strip():
+                        meta.append(cid.strip())
+                    suffix = f" ({', '.join(meta)})" if meta else ""
+                    lines.append(f"- {fact.strip()}{suffix}")
+            if lines:
+                parts.append("Evidence:\n" + "\n".join(lines))
+
+        risks = obj.get("risks")
+        if isinstance(risks, list) and risks:
+            risk_lines = [f"- {str(r).strip()}" for r in risks if str(r).strip()]
+            if risk_lines:
+                parts.append("Risks:\n" + "\n".join(risk_lines))
+
+        limitations = obj.get("limitations")
+        if isinstance(limitations, list) and limitations:
+            lim_lines = [f"- {str(x).strip()}" for x in limitations if str(x).strip()]
+            if lim_lines:
+                parts.append("Limitations:\n" + "\n".join(lim_lines))
+
+        rec = obj.get("recommendation")
+        if isinstance(rec, dict) and rec.get("allowed"):
+            action = rec.get("action")
+            reason = rec.get("reason")
+            if isinstance(action, str) and action.strip():
+                rec_line = f"Recommendation: {action.strip().upper()}"
+                if isinstance(reason, str) and reason.strip():
+                    rec_line += f" - {reason.strip()}"
+                parts.append(rec_line)
+        return "\n\n".join(p for p in parts if p).strip()
+
     def handle_message(self, message: ACLMessage) -> None:
         """Register reply and broadcast STOP.
 
@@ -60,7 +112,8 @@ class ResponderAgent(BaseAgent):
         content = message.content or {}
         conversation_id = content.get("conversation_id") or message.conversation_id
         final_response = content.get("final_response")
-        if not conversation_id or final_response is None:
+        fro = content.get("final_response_object")
+        if not conversation_id or (final_response is None and not isinstance(fro, dict)):
             return
         if not isinstance(conversation_id, str):
             conversation_id = str(conversation_id)
@@ -97,8 +150,14 @@ class ResponderAgent(BaseAgent):
 
         # Formatting phase: derive user-facing draft and run policy compliance checks.
         final_text = (
-            final_response if isinstance(final_response, str) else str(final_response)
+            final_response if isinstance(final_response, str) else str(final_response or "")
         )
+        if not (content.get("insufficient") and not content.get("partial_insufficient")):
+            if isinstance(fro, dict):
+                rendered = self._format_from_final_response_object(fro)
+                if rendered:
+                    final_text = rendered
+        final_response = final_text
         if self.output_rail is not None:
             if self._llm_client is not None:
                 from llm.prompts import RESPONDER_SYSTEM, get_responder_user_content

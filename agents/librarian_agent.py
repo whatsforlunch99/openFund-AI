@@ -201,39 +201,8 @@ class LibrarianAgent(BaseAgent):
             reply_content = dict(reply_content)
             reply_content["summary"] = summary
 
-        status = "limited_data" if (isinstance(reply_content, dict) and reply_content.get("error")) else "success"
-        reply_to = getattr(message, "reply_to", None) or message.sender
-        reply = ACLMessage(
-            performative=Performative.INFORM,
-            sender=self.name,
-            receiver=reply_to,
-            content=reply_content,
-            conversation_id=message.conversation_id,
-            reply_to=message.sender,
-        )
-        self.bus.send(reply)
-        interaction_log.log_call(
-            "agents.librarian_agent.LibrarianAgent.handle_message",
-            result={"INFORM": "sent to planner", "reply_keys": list(reply_content.keys()) if isinstance(reply_content, dict) else []},
-        )
-        if self.conversation_manager and conversation_id:
-            summary = "documents and graph"
-            nchars = 0
-            if isinstance(reply_content, dict) and reply_content.get("content"):
-                nchars = len(str(reply_content["content"]))
-            size_str = f" ({nchars} chars)" if nchars else ""
-            self.conversation_manager.append_flow(
-                conversation_id,
-                {
-                    "step": "librarian_done",
-                    "message": f"**Librarian** has returned {summary}{size_str}.",
-                    "detail": {
-                        "reply_keys": list(reply_content.keys())
-                        if isinstance(reply_content, dict)
-                        else []
-                    },
-                },
-            )
+        _ = "limited_data" if (isinstance(reply_content, dict) and reply_content.get("error")) else "success"
+        self._send_inform(message, reply_content, conversation_id)
 
     def _execute_tool_calls(self, tool_calls: list) -> dict[str, Any]:
         """Execute a list of {tool, payload} dicts via mcp_client; return parts dict (documents, graph, sql)."""
@@ -291,6 +260,8 @@ class LibrarianAgent(BaseAgent):
 
     def _send_inform(self, message: ACLMessage, reply_content: Any, conversation_id: str) -> None:
         """Send INFORM to reply_to and append flow event."""
+        if isinstance(reply_content, dict):
+            reply_content = self._augment_librarian_contract(reply_content)
         reply_to = getattr(message, "reply_to", None) or message.sender
         reply = ACLMessage(
             performative=Performative.INFORM,
@@ -311,6 +282,48 @@ class LibrarianAgent(BaseAgent):
                 conversation_id,
                 {"step": "librarian_done", "message": f"**Librarian** has returned {summary}.", "detail": {"reply_keys": list(reply_content.keys()) if isinstance(reply_content, dict) else []}},
             )
+
+    def _augment_librarian_contract(self, reply_content: dict[str, Any]) -> dict[str, Any]:
+        """Attach schema-first librarian contract fields expected by planner."""
+        out = dict(reply_content)
+        docs = out.get("documents")
+        doc_list = docs if isinstance(docs, list) else []
+        key_facts: list[str] = []
+        evidence: dict[str, str] = {}
+        citations: list[str] = []
+        for i, d in enumerate(doc_list[:5], start=1):
+            if not isinstance(d, dict):
+                continue
+            doc_id_raw = d.get("doc_id") or d.get("id") or f"DOC{i}"
+            doc_id = str(doc_id_raw).strip() or f"DOC{i}"
+            snippet_raw = d.get("snippet") or d.get("content") or d.get("text") or ""
+            snippet = str(snippet_raw).strip()
+            if snippet:
+                key_facts.append(snippet[:240])
+                evidence[doc_id] = snippet[:400]
+                citations.append(doc_id)
+
+        doc_coverage = len(evidence)
+        confidence = min(1.0, round(doc_coverage / 3.0, 2)) if doc_coverage else 0.0
+        raw_errors = out.get("errors")
+        if raw_errors is None:
+            errors: list[str] = []
+        elif isinstance(raw_errors, str):
+            errors = [raw_errors] if raw_errors.strip() else []
+        elif isinstance(raw_errors, (list, tuple)):
+            errors = [str(e).strip() for e in raw_errors if str(e).strip()]
+        else:
+            text = str(raw_errors).strip()
+            errors = [text] if text else []
+        if doc_coverage == 0 and not errors:
+            errors.append("no_internal_documents")
+
+        out["key_facts"] = key_facts
+        out["evidence"] = evidence
+        out["citations"] = citations
+        out["confidence"] = confidence
+        out["errors"] = errors
+        return out
 
     def retrieve_knowledge_graph(self, fund: str) -> dict:
         """Query knowledge graph for fund relationships via MCP kg_tool (Neo4j).

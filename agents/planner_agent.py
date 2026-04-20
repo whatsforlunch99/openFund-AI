@@ -17,6 +17,7 @@ from agents.planner_formatting import (
 )
 from agents.planner_sufficiency import check_planner_sufficiency, get_planner_refined_steps
 from agents.planner_types import VALID_USER_PROFILES, TaskStep
+from llm.prompts import PLANNER_CLASSIFY_QUERY_TYPE, get_planner_classification_user_content
 from util import interaction_log
 from util.agent_heuristics import get_planner_heuristics
 from util.answer_coverage import strong_equity_evidence_for_sufficiency
@@ -33,6 +34,8 @@ from util.specialist_snapshot import build_data_sources_from_collected
 logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from llm.base import LLMClient
+
+_VALID_QUERY_TYPES = ("price", "facts", "news", "compare", "portfolio", "thesis")
 
 
 class PlannerAgent(BaseAgent):
@@ -74,6 +77,279 @@ class PlannerAgent(BaseAgent):
         self._max_rounds = max(1, max_research_rounds)
         # Planner symbol resolution (cached via util.planner_symbol_resolution); reused round 2
         self._symbol_resolution_by_conversation: dict[str, dict[str, Any]] = {}
+        self._query_type_by_conversation: dict[str, str] = {}
+
+    def _normalize_query_type(self, value: Any) -> Optional[str]:
+        """Normalize raw classifier output into a valid query type."""
+        if not isinstance(value, str):
+            return None
+        t = value.strip().lower()
+        return t if t in _VALID_QUERY_TYPES else None
+
+    def _classify_query_type_with_llm(self, query: str) -> Optional[str]:
+        """Use LLM to classify query type; return None on failure."""
+        if self._llm_client is None:
+            return None
+        try:
+            user_content = get_planner_classification_user_content(query)
+            raw = self._llm_client.complete(PLANNER_CLASSIFY_QUERY_TYPE, user_content)
+            return self._normalize_query_type(raw)
+        except Exception:
+            return None
+
+    def _classify_query_type(self, query: str) -> str:
+        """Classify query type with strict fallback to facts."""
+        q = (query or "").strip()
+        if not q:
+            return "facts"
+        classified = self._classify_query_type_with_llm(q)
+        return classified or "facts"
+
+    def _symbols_from_resolution(self, symbol_resolution: Optional[dict[str, Any]]) -> list[str]:
+        """Return canonical symbols from planner symbol resolution."""
+        if not isinstance(symbol_resolution, dict):
+            return []
+        listings = symbol_resolution.get("listings")
+        if not isinstance(listings, list):
+            return []
+        symbols: list[str] = []
+        for rec in listings:
+            if not isinstance(rec, dict):
+                continue
+            raw = rec.get("symbol_yahoo") or rec.get("symbol_compact") or rec.get("symbol")
+            if isinstance(raw, str):
+                sym = raw.strip().upper()
+                if sym and sym not in symbols:
+                    symbols.append(sym)
+        return symbols
+
+    def _build_research_plan(
+        self,
+        query: str,
+        user_profile: str,
+        symbol_resolution: Optional[dict[str, Any]],
+        query_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Build canonical planner research-plan contract."""
+        return {
+            "query_type": query_type or self._classify_query_type(query),
+            "symbols": self._symbols_from_resolution(symbol_resolution),
+            "freshness_requirements": {
+                "price_max_age_minutes": 15,
+                "fundamentals_max_age_days": 90,
+                "news_lookback_days": 7,
+            },
+            "evidence_requirements": {
+                "min_sources": 2,
+                "require_citations": True,
+            },
+            "user_profile": user_profile if user_profile in VALID_USER_PROFILES else "beginner",
+        }
+
+    def _build_evidence_ledger(self, collected: dict[str, Any]) -> dict[str, Any]:
+        """Normalize specialist outputs into a planner evidence-ledger contract."""
+        facts: list[dict[str, Any]] = []
+        market_snapshot: dict[str, Any] = {}
+        for source in ("librarian", "websearcher", "analyst"):
+            payload = collected.get(source)
+            if not isinstance(payload, dict):
+                continue
+            source_payload = payload
+            if source == "analyst":
+                nested = payload.get("analysis")
+                if isinstance(nested, dict):
+                    source_payload = nested
+            summary = source_payload.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                facts.append(
+                    {
+                        "fact": summary.strip(),
+                        "source": source,
+                        "timestamp": source_payload.get("timestamp", ""),
+                        "confidence": source_payload.get("confidence"),
+                    }
+                )
+            if source == "websearcher":
+                nf = payload.get("normalized_fund")
+                if isinstance(nf, list) and nf and isinstance(nf[0], dict):
+                    rec = nf[0]
+                    symbol = rec.get("symbol")
+                    price = rec.get("price")
+                    if isinstance(symbol, str) and symbol.strip():
+                        market_snapshot["symbol"] = symbol.strip().upper()
+                    if isinstance(price, (int, float)):
+                        market_snapshot["price"] = float(price)
+                    ts = payload.get("timestamp") or payload.get("news_timestamp")
+                    if isinstance(ts, str) and ts.strip():
+                        market_snapshot["price_timestamp"] = ts.strip()
+        return {"facts": facts, "market_snapshot": market_snapshot}
+
+    def _evaluate_recommendation_gate(
+        self,
+        collected: dict[str, Any],
+        evidence_ledger: dict[str, Any],
+        query_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Decide recommendation eligibility from evidence + confidence gates."""
+        facts = evidence_ledger.get("facts")
+        fact_count = len(facts) if isinstance(facts, list) else 0
+        web = collected.get("websearcher")
+        analyst = collected.get("analyst")
+        confidence = None
+        if isinstance(analyst, dict):
+            c = analyst.get("confidence")
+            if isinstance(c, (int, float)):
+                confidence = float(c)
+            if confidence is None:
+                nested = analyst.get("analysis")
+                if isinstance(nested, dict):
+                    c2 = nested.get("confidence")
+                    if isinstance(c2, (int, float)):
+                        confidence = float(c2)
+
+        has_market_data = False
+        if isinstance(web, dict):
+            nf = web.get("normalized_fund")
+            if isinstance(nf, list):
+                for row in nf:
+                    if not isinstance(row, dict):
+                        continue
+                    price = row.get("price")
+                    if isinstance(price, (int, float)):
+                        has_market_data = True
+                        break
+
+        # Minimal deterministic gate defaults derived from improvement-plan targets.
+        if fact_count < 2:
+            return {
+                "recommendation_allowed": False,
+                "confidence": confidence,
+                "reason_code": "insufficient_evidence",
+            }
+        if not has_market_data:
+            return {
+                "recommendation_allowed": False,
+                "confidence": confidence,
+                "reason_code": "stale_or_missing_market_data",
+            }
+        if confidence is None or confidence < 0.75:
+            return {
+                "recommendation_allowed": False,
+                "confidence": confidence,
+                "reason_code": "low_confidence",
+            }
+        if isinstance(query_type, str) and query_type not in ("thesis", "portfolio"):
+            return {
+                "recommendation_allowed": False,
+                "confidence": confidence,
+                "reason_code": "query_type_not_recommendation",
+            }
+        freshness = web.get("freshness") if isinstance(web, dict) else None
+        if isinstance(freshness, dict):
+            if freshness.get("price_is_fresh") is False:
+                return {
+                    "recommendation_allowed": False,
+                    "confidence": confidence,
+                    "reason_code": "stale_or_missing_market_data",
+                }
+        return {
+            "recommendation_allowed": True,
+            "confidence": confidence,
+            "reason_code": "gate_passed",
+        }
+
+    def _build_final_response_object(
+        self,
+        final_text: str,
+        evidence_ledger: dict[str, Any],
+        recommendation: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build structured responder object from final text + contracts."""
+        return {
+            "summary": final_text if isinstance(final_text, str) else str(final_text),
+            "evidence": evidence_ledger.get("facts", []),
+            "recommendation": {
+                "allowed": bool(recommendation.get("recommendation_allowed")),
+                "action": "hold" if recommendation.get("recommendation_allowed") else "none",
+                "reason": recommendation.get("reason_code", ""),
+            },
+        }
+
+    def _apply_insufficient_policy(
+        self, final: str, collected: dict[str, Any], insufficient: bool
+    ) -> tuple[str, bool]:
+        """Apply insufficient/partial-insufficient policy to final text."""
+        if not insufficient:
+            return final, False
+        if collected_has_answer_signal(collected):
+            ph = get_planner_heuristics()
+            return (
+                ph.partial_insufficient_prefix + final + ph.partial_insufficient_suffix,
+                True,
+            )
+        return "Insufficient information.", False
+
+    def _append_planner_complete_flow(
+        self,
+        conversation_id: str,
+        final: str,
+        insufficient: bool,
+        partial_insufficient: bool,
+    ) -> None:
+        """Append final planner flow event before responder handoff."""
+        if not self._conversation_manager:
+            return
+        complete_msg = (
+            "All agents have responded. Sending combined results to Responder to format your answer."
+        )
+        if insufficient and partial_insufficient:
+            complete_msg = (
+                "Research was marked insufficient after max rounds, but substantive "
+                "data exists; sending a partial answer with caveats to Responder."
+            )
+        elif insufficient:
+            complete_msg = (
+                f"Information still insufficient after {self._max_rounds} round(s). "
+                "Responder will reply with insufficient."
+            )
+        self._conversation_manager.append_flow(
+            conversation_id,
+            {
+                "step": "planner_complete",
+                "message": complete_msg,
+                "detail": {
+                    "final_length": len(final),
+                    "partial_insufficient": partial_insufficient,
+                },
+            },
+        )
+
+    def _reset_conversation_state(self, conversation_id: str) -> None:
+        """Clear planner per-conversation state after responder handoff."""
+        del self._round_pending[conversation_id]
+        del self._collected[conversation_id]
+        self._user_profile_by_conversation.pop(conversation_id, None)
+        self._round_number.pop(conversation_id, None)
+        self._original_query_by_conversation.pop(conversation_id, None)
+        self._symbol_resolution_by_conversation.pop(conversation_id, None)
+        self._query_type_by_conversation.pop(conversation_id, None)
+
+    def _resolve_request_context(
+        self, query: str
+    ) -> tuple[Optional[str], dict[str, Any], str]:
+        """Resolve cache key + symbol resolution for a new request."""
+        cache_key = derive_cache_key(query)
+        cached = get_cached_entry(cache_key) if cache_key else None
+        symbol_resolution = maybe_use_cached_resolution(
+            query, cached, llm_client=self._llm_client
+        )
+        if (
+            cached is None
+            and cache_key
+            and symbol_resolution.get("status") == "resolved"
+        ):
+            put_cached_entry(cache_key, symbol_resolution)
+        return cache_key, symbol_resolution, resolution_summary_for_prompt(symbol_resolution)
 
     def handle_message(self, message: ACLMessage) -> None:
         """Handle incoming messages directed to the Planner.
@@ -235,43 +511,27 @@ class PlannerAgent(BaseAgent):
                         insufficient = True
                 partial_insufficient = False
                 if send_to_responder:
-                    if insufficient:
-                        if collected_has_answer_signal(collected):
-                            ph = get_planner_heuristics()
-                            final = (
-                                ph.partial_insufficient_prefix
-                                + final
-                                + ph.partial_insufficient_suffix
-                            )
-                            partial_insufficient = True
-                        else:
-                            final = "Insufficient information."
+                    evidence_ledger = self._build_evidence_ledger(collected)
+                    query_type = self._query_type_by_conversation.get(conversation_id)
+                    if not query_type:
+                        query_type = self._classify_query_type(original_query)
+                        self._query_type_by_conversation[conversation_id] = query_type
+                    recommendation = self._evaluate_recommendation_gate(
+                        collected, evidence_ledger, query_type=query_type
+                    )
+                    final, partial_insufficient = self._apply_insufficient_policy(
+                        final, collected, insufficient
+                    )
+                    final_response_object = self._build_final_response_object(
+                        final, evidence_ledger, recommendation
+                    )
                     # Finalization phase: send one INFORM to responder and clean planner state.
-                    if self._conversation_manager:
-                        complete_msg = (
-                            "All agents have responded. Sending combined results to Responder to format your answer."
-                        )
-                        if insufficient and partial_insufficient:
-                            complete_msg = (
-                                "Research was marked insufficient after max rounds, but substantive "
-                                "data exists; sending a partial answer with caveats to Responder."
-                            )
-                        elif insufficient:
-                            complete_msg = (
-                                f"Information still insufficient after {self._max_rounds} round(s). "
-                                "Responder will reply with insufficient."
-                            )
-                        self._conversation_manager.append_flow(
-                            conversation_id,
-                            {
-                                "step": "planner_complete",
-                                "message": complete_msg,
-                                "detail": {
-                                    "final_length": len(final),
-                                    "partial_insufficient": partial_insufficient,
-                                },
-                            },
-                        )
+                    self._append_planner_complete_flow(
+                        conversation_id,
+                        final,
+                        insufficient,
+                        partial_insufficient,
+                    )
                     if self._conversation_manager:
                         self._conversation_manager.merge_data_sources(
                             conversation_id,
@@ -286,6 +546,9 @@ class PlannerAgent(BaseAgent):
                                 "final_response": final,
                                 "conversation_id": conversation_id,
                                 "user_profile": user_profile,
+                                "evidence_ledger": evidence_ledger,
+                                "recommendation": recommendation,
+                                "final_response_object": final_response_object,
                                 "insufficient": insufficient,
                                 "partial_insufficient": partial_insufficient,
                             },
@@ -296,12 +559,7 @@ class PlannerAgent(BaseAgent):
                         "agents.planner_agent.PlannerAgent.handle_message",
                         result={"INFORM": "sent to responder"},
                     )
-                    del self._round_pending[conversation_id]
-                    del self._collected[conversation_id]
-                    self._user_profile_by_conversation.pop(conversation_id, None)
-                    self._round_number.pop(conversation_id, None)
-                    self._original_query_by_conversation.pop(conversation_id, None)
-                    self._symbol_resolution_by_conversation.pop(conversation_id, None)
+                    self._reset_conversation_state(conversation_id)
             return
 
         # New user request phase: decompose into specialist steps and dispatch round 1.
@@ -317,25 +575,15 @@ class PlannerAgent(BaseAgent):
             profile = "beginner"
         self._user_profile_by_conversation[conversation_id] = profile
         self._original_query_by_conversation[conversation_id] = query
+        self._query_type_by_conversation[conversation_id] = self._classify_query_type(query)
         self._round_number[conversation_id] = 1
         user_memory = content.get("user_memory")
         if not isinstance(user_memory, str):
             user_memory = ""
 
-        cache_key = derive_cache_key(query)
-        cached = get_cached_entry(cache_key) if cache_key else None
-        symbol_resolution = maybe_use_cached_resolution(
-            query, cached, llm_client=self._llm_client
-        )
-        if (
-            cached is None
-            and cache_key
-            and symbol_resolution.get("status") == "resolved"
-        ):
-            put_cached_entry(cache_key, symbol_resolution)
+        cache_key, symbol_resolution, res_summary = self._resolve_request_context(query)
         self._symbol_resolution_by_conversation[conversation_id] = symbol_resolution
 
-        res_summary = resolution_summary_for_prompt(symbol_resolution)
         if res_summary:
             user_memory = (user_memory + "\n\n" + res_summary).strip()
 
@@ -462,6 +710,15 @@ class PlannerAgent(BaseAgent):
         step_query = step.params.get("query", query)
         content = {"query": step_query, **step.params} # ** dictionary unpacking, overwrite query with step.params if it exists
         sr = self._symbol_resolution_by_conversation.get(conversation_id)
+        user_profile = self._user_profile_by_conversation.get(conversation_id, "beginner")
+        intent_query = self._original_query_by_conversation.get(conversation_id, query)
+        query_type = self._query_type_by_conversation.get(conversation_id)
+        if not query_type:
+            query_type = self._classify_query_type(intent_query)
+            self._query_type_by_conversation[conversation_id] = query_type
+        content["research_plan"] = self._build_research_plan(
+            intent_query, user_profile, sr, query_type=query_type
+        )
         if isinstance(sr, dict) and sr:
             content = {**content, "symbol_resolution": sr}
             if sr.get("status") == "resolved":

@@ -10,6 +10,50 @@ The codebase implements REST and WebSocket with planner-driven orchestration: `p
 
 ---
 
+## Improvement-plan achievement review (roles and orchestration)
+
+This section reviews `docs/improvement_plans/roles_and_responsibilities.md`, `docs/improvement_plans/handoff_contracts.md`, and `docs/improvement_plans/memo.md` against the current runtime behavior.
+
+| Improvement-plan target | Status | Current state in runtime flow |
+|---|---|---|
+| Planner-owned orchestration with sufficiency and refined rounds | **Achieved** | Planner dispatches specialist REQUESTs, collects INFORMs, runs sufficiency, and can execute a refined round up to `MAX_RESEARCH_ROUNDS` before handing to Responder. |
+| Up-front symbol/entity resolution gate | **Achieved** | Planner resolves `symbol_resolution` before decomposition and passes resolution context to specialists. |
+| Fail-soft insufficient behavior | **Achieved** | Planner/Responder use `insufficient` and `partial_insufficient` to avoid overconfident answers when evidence is weak. |
+| WebSearcher freshness/timestamped market and news output | **Partial** | Timestamps/citations are present, but strict freshness-contract fields and source-conflict winner rationale are not enforced as a stable planner-level schema. |
+| Structured Research Plan object (`query_type`, freshness/evidence requirements) | **Partial** | Planner now attaches a stable `research_plan` envelope to specialist REQUESTs; `query_type` is LLM-classified with strict fallback to `facts` when classification is unavailable/invalid. |
+| Planner evidence ledger (structured fact table with source/timestamp/reliability) | **Partial** | Planner now emits `evidence_ledger` with normalized facts and market snapshot in the planner-to-responder handoff; richer source reliability and freshness normalization remain to be tightened. |
+| Recommendation gating (`recommendation_allowed`, confidence/freshness gates) | **Partial** | Planner now evaluates and sends a structured recommendation gate result and responder-facing recommendation object, with recommendation text only surfaced when allowed. |
+
+### Design implication for overall flow
+
+The current flow is functionally stable for chat orchestration and now includes first-pass contract fields in the planner-to-responder handoff. Remaining work is to harden these contracts from baseline schema presence to strict policy enforcement (freshness windows, source conflict rationale, and richer reliability scoring) so recommendation safety behavior is explicit and testable.
+
+### TDD integration for remaining gaps
+
+For unresolved items, implementation should follow tests-first development:
+
+1. **Research Plan contract (Planner REQUEST shape)**
+   - Write failing tests that require planner output to include `query_type`, canonical `symbols`, `freshness_requirements`, and `evidence_requirements`.
+   - Implement planner classification + contract builder to make those tests pass.
+
+2. **Evidence Ledger contract (Planner aggregation shape)**
+   - Write failing tests that require normalized evidence entries (`fact`, `source`, `timestamp`, `confidence/reliability`) merged from specialist INFORMs.
+   - Implement ledger builder and switch sufficiency input from free-form text to ledger-backed aggregation.
+
+3. **Recommendation gate contract (Planner -> Responder)**
+   - Write failing tests that require `recommendation_allowed` and `insufficient` decisions to be derived from confidence + freshness + evidence minima.
+   - Implement gate evaluation in planner and pass structured decision fields to responder.
+
+4. **Responder final object contract**
+   - Write failing tests that require responder input/output to include summary, evidence list with citations, risks/limitations, and recommendation metadata only when allowed.
+   - Implement responder formatting against this object while preserving current profile-specific delivery.
+
+5. **Regression and flow tests**
+   - Add integration tests for price/facts/news/compare/portfolio/thesis query classes to verify contract completeness and fallback behavior.
+   - Keep existing user-facing flow semantics (timeouts, STOP, profile formatting) unchanged while contracts harden.
+
+---
+
 ## Entry points
 
 - **Chat (new conversation):** User submits a query with optional user ID and profile. No conversation ID.

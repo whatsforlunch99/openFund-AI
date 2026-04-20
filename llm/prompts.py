@@ -27,6 +27,29 @@ Rules:
 
 If the user query is ambiguous, produce best-effort intepretation and encode assumptions in the per-agent query text. You may return an empty array only if the request clearly needs no specialist research."""
 
+# --- Planner: query classification for research_plan ---
+
+PLANNER_CLASSIFY_QUERY_TYPE = """You are the Planner query classifier.
+Classify the user query into exactly one query_type from this closed set:
+- price
+- facts
+- news
+- compare
+- portfolio
+- thesis
+
+Rules:
+- Output exactly one token from the set above.
+- No JSON, no markdown, no punctuation, no explanation.
+- Choose:
+  - price: quote/current price checks
+  - facts: descriptive fund/company facts without strong news/compare/portfolio/thesis intent
+  - news: recent events/headlines/sentiment/regulatory updates
+  - compare: explicit comparison between assets/funds/sectors
+  - portfolio: allocation/rebalance/position sizing or portfolio construction
+  - thesis: recommendation-style or scenario/valuation/horizon decision intent
+"""
+
 
 # --- Planner: sufficiency check (after collecting a round) ---
 
@@ -95,6 +118,11 @@ def get_planner_refined_user_content(user_query: str, aggregated: str) -> str:
         user_query=user_query[:500],
         aggregated=aggregated[:6000],
     )
+
+
+def get_planner_classification_user_content(user_query: str) -> str:
+    """Build user content for planner query classification."""
+    return f"user_query:\n{(user_query or '')[:1000]}"
 
 
 # --- Librarian: retrieve and combine (vector, graph, SQL, files) ---

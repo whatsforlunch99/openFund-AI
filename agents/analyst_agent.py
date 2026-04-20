@@ -2,7 +2,7 @@
 
 import logging
 import math
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 from a2a.acl_message import ACLMessage, Performative
@@ -103,6 +103,35 @@ def _derive_symbol(structured_data: dict, market_data: dict) -> str:
             if isinstance(val, str) and val.strip():
                 return val.strip().upper()
     return ah.default_symbol
+
+
+def _parse_iso_utc(ts: Any) -> Optional[date]:
+    if not isinstance(ts, str) or not ts.strip():
+        return None
+    raw = ts.strip()
+    if len(raw) >= 10 and raw[4] == "-" and raw[7] == "-":
+        try:
+            return date.fromisoformat(raw[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def _extract_market_price(market_data: dict) -> Optional[float]:
+    if not isinstance(market_data, dict):
+        return None
+    val = market_data.get("price")
+    if isinstance(val, (int, float)):
+        return float(val)
+    nf = market_data.get("normalized_fund")
+    if isinstance(nf, list):
+        for row in nf:
+            if not isinstance(row, dict):
+                continue
+            p = row.get("price")
+            if isinstance(p, (int, float)):
+                return float(p)
+    return None
 
 
 class AnalystAgent(BaseAgent):
@@ -360,6 +389,19 @@ class AnalystAgent(BaseAgent):
         Returns:
             Analysis result with confidence and optional distributions.
         """
+        symbol = _derive_symbol(structured_data, market_data)
+        market_price = _extract_market_price(market_data if isinstance(market_data, dict) else {})
+        ts_raw = (market_data or {}).get("timestamp") if isinstance(market_data, dict) else None
+        ts_date = _parse_iso_utc(ts_raw)
+        stale = True
+        if ts_date is not None:
+            stale = (datetime.now(timezone.utc).date() - ts_date).days > 0
+        confidence = 0.35
+        if market_price is not None:
+            confidence = 0.55
+            if stale:
+                confidence = 0.45
+
         if self.mcp_client:
             symbol = _derive_symbol(structured_data, market_data)
             as_of = date.today().isoformat()
@@ -374,9 +416,44 @@ class AnalystAgent(BaseAgent):
                 payload,
             )
             if isinstance(api_result, dict) and "error" not in api_result:
-                return {"confidence": 0.7, "indicators": api_result, "distribution": {}}
-        # Stub when MCP unavailable or get_indicators returned error
-        return {"confidence": 0.6, "summary": "Stub analysis", "distribution": {}}
+                confidence = max(confidence, 0.8)
+                key_metrics = {"rsi": api_result.get("rsi"), "price": market_price}
+            else:
+                key_metrics = {"rsi": None, "price": market_price}
+        else:
+            key_metrics = {"rsi": None, "price": market_price}
+
+        risk_factors: list[str] = []
+        limitations: list[str] = []
+        if market_price is None:
+            risk_factors.append("missing_live_price")
+            limitations.append("Market price is missing; confidence reduced.")
+        if stale:
+            risk_factors.append("stale_market_timestamp")
+            limitations.append("Market timestamp appears stale; confidence reduced.")
+        if not risk_factors:
+            risk_factors.append("normal_market_uncertainty")
+
+        scenario_outcomes = [
+            {"scenario": "bull", "expected_return": 0.08, "probability": 0.30},
+            {"scenario": "base", "expected_return": 0.03, "probability": 0.50},
+            {"scenario": "bear", "expected_return": -0.07, "probability": 0.20},
+        ]
+        reasoning_trace = {
+            "data_sources_used": ["market_data", "structured_data"],
+            "methods_applied": ["confidence_gate", "scenario_template"],
+            "assumptions": [f"symbol={symbol}"],
+        }
+        return {
+            "confidence": round(float(confidence), 2),
+            "key_metrics": key_metrics,
+            "risk_factors": risk_factors,
+            "scenario_outcomes": scenario_outcomes,
+            "limitations": limitations,
+            "reasoning_trace": reasoning_trace,
+            "summary": "Structured analyst output generated.",
+            "distribution": {},
+        }
 
     def needs_more_data(self, analysis_result: dict) -> bool:
         """

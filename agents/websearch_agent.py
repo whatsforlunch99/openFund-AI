@@ -1068,6 +1068,61 @@ class WebSearcherAgent(BaseAgent):
             out["yahoo_fundamentals_raw"] = yahoo_raw
         return out
 
+    def _augment_websearch_contract(self, reply_content: dict[str, Any]) -> dict[str, Any]:
+        """Attach freshness/source-conflict metadata for planner contract."""
+        out = dict(reply_content)
+        nf = out.get("normalized_fund")
+        rows = nf if isinstance(nf, list) else []
+        now_utc = datetime.now(timezone.utc)
+
+        def _parse_iso(ts: Any) -> Optional[datetime]:
+            if not isinstance(ts, str) or not ts.strip():
+                return None
+            raw = ts.strip().replace("Z", "+00:00")
+            try:
+                dt = datetime.fromisoformat(raw)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(timezone.utc)
+            except ValueError:
+                return None
+
+        ts = None
+        for rec in rows:
+            if not isinstance(rec, dict):
+                continue
+            ts = rec.get("timestamp") or ts
+        if ts is None:
+            ts = out.get("timestamp")
+        dt = _parse_iso(ts)
+        price_is_fresh = False
+        fundamentals_is_fresh = False
+        if dt is not None:
+            age_min = (now_utc - dt).total_seconds() / 60.0
+            price_is_fresh = age_min <= 15.0
+            fundamentals_is_fresh = age_min <= (90.0 * 24.0 * 60.0)
+        out["freshness"] = {
+            "price_is_fresh": price_is_fresh,
+            "fundamentals_is_fresh": fundamentals_is_fresh,
+        }
+
+        source_conflicts: list[dict[str, Any]] = []
+        for rec in rows:
+            if not isinstance(rec, dict):
+                continue
+            conflict = rec.get("conflict_resolution")
+            if not isinstance(conflict, dict):
+                continue
+            source_conflicts.append(
+                {
+                    "symbol": rec.get("symbol"),
+                    "chosen_source": conflict.get("chosen_source"),
+                    "reason": conflict.get("reason"),
+                }
+            )
+        out["source_conflicts"] = source_conflicts
+        return out
+
     def _run_parallel_flow(self, content: dict) -> dict[str, Any]:
         """Query all sources in parallel: Financial Data + News Search. Merge and return reply_content."""
         sr = content.get("symbol_resolution")
@@ -1367,6 +1422,8 @@ class WebSearcherAgent(BaseAgent):
             reply_content["summary"] = summary or fallback
         else:
             reply_content["summary"] = fallback
+        if isinstance(reply_content, dict):
+            reply_content = self._augment_websearch_contract(reply_content)
         has_errors = any(
             isinstance(reply_content.get(k), dict) and reply_content.get(k).get("error")
             for k in ("market_data", "sentiment", "regulatory")

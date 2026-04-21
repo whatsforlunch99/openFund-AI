@@ -32,7 +32,7 @@ class BaseAgent(ABC):
         while True:
             # Blocking receive loop: each agent processes only messages addressed to itself.
             message = self.bus.receive(self.name)
-            
+
             if message is None:
                 continue
             # Exit loop on STOP so this agent thread shuts down cleanly

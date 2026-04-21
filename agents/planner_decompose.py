@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def decompose_planner_task(
-    llm_client: Optional["LLMClient"],
+    llm_client: Optional[LLMClient],
     query: str,
     user_memory: str = "",
     symbol_resolution: Optional[dict[str, Any]] = None,
@@ -51,9 +51,11 @@ def decompose_planner_task(
         and isinstance(symbol_resolution.get("listings"), list)
         and symbol_resolution["listings"]
     ):
-        L0 = symbol_resolution["listings"][0]
-        if isinstance(L0, dict):
-            fund = str(L0.get("symbol_yahoo") or L0.get("symbol_compact") or "")
+        listing0 = symbol_resolution["listings"][0]
+        if isinstance(listing0, dict):
+            fund = str(
+                listing0.get("symbol_yahoo") or listing0.get("symbol_compact") or ""
+            )
     if not fund:
         for substring, symbol in planner_fallback_substring_symbol_pairs():
             if substring in q_lower:

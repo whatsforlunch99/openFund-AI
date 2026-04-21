@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from util.agent_heuristics import get_websearcher_heuristics
@@ -49,10 +49,13 @@ def prefer_yahoo_price_first(
     symbol_resolution: dict[str, Any] | None, symbol: str
 ) -> bool:
     """US-style equities: prefer Yahoo chart price before Stooq when merging quotes."""
-    if isinstance(symbol_resolution, dict) and symbol_resolution.get("status") == "resolved":
-        L0 = (symbol_resolution.get("listings") or [None])[0]
-        if isinstance(L0, dict):
-            st = (L0.get("symbol_type") or "").strip().lower()
+    if (
+        isinstance(symbol_resolution, dict)
+        and symbol_resolution.get("status") == "resolved"
+    ):
+        listing0 = (symbol_resolution.get("listings") or [None])[0]
+        if isinstance(listing0, dict):
+            st = (listing0.get("symbol_type") or "").strip().lower()
             if st == "equities":
                 return True
     sym = (symbol or "").strip().upper()
@@ -67,7 +70,7 @@ def get_known_index_symbols() -> frozenset[str]:
 
 
 def websearch_now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def by_tool_should_call(by_tool: dict[str, Any] | None, tool_id: str) -> bool:
@@ -82,7 +85,9 @@ def by_tool_should_call(by_tool: dict[str, Any] | None, tool_id: str) -> bool:
     return entry.get("action") != "skip"
 
 
-def by_tool_symbol(by_tool: dict[str, Any] | None, tool_id: str, default_symbol: str) -> str:
+def by_tool_symbol(
+    by_tool: dict[str, Any] | None, tool_id: str, default_symbol: str
+) -> str:
     """Symbol string for MCP payload when action is call."""
     if not by_tool or not isinstance(by_tool, dict):
         return default_symbol
@@ -143,7 +148,10 @@ def summarize_yahoo_fundamental(yahoo_res: Any) -> dict[str, Any]:
     if not isinstance(yahoo_res, dict):
         return {"type": type(yahoo_res).__name__}
     if "error" in yahoo_res:
-        return {"error": str(yahoo_res.get("error"))[:500], "timestamp": yahoo_res.get("timestamp")}
+        return {
+            "error": str(yahoo_res.get("error"))[:500],
+            "timestamp": yahoo_res.get("timestamp"),
+        }
 
     raw = yahoo_res.get("raw")
     raw_modules = []
@@ -168,7 +176,9 @@ def summarize_yahoo_fundamental(yahoo_res: Any) -> dict[str, Any]:
     if isinstance(sector, dict):
         for k in sorted(sector.keys())[:5]:
             try:
-                sector_preview[str(k)] = float(sector[k]) if sector[k] is not None else None
+                sector_preview[str(k)] = (
+                    float(sector[k]) if sector[k] is not None else None
+                )
             except (TypeError, ValueError):
                 sector_preview[str(k)] = sector[k]
 

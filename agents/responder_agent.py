@@ -113,7 +113,9 @@ class ResponderAgent(BaseAgent):
         conversation_id = content.get("conversation_id") or message.conversation_id
         final_response = content.get("final_response")
         fro = content.get("final_response_object")
-        if not conversation_id or (final_response is None and not isinstance(fro, dict)):
+        if not conversation_id or (
+            final_response is None and not isinstance(fro, dict)
+        ):
             return
         if not isinstance(conversation_id, str):
             conversation_id = str(conversation_id)
@@ -121,7 +123,9 @@ class ResponderAgent(BaseAgent):
         interaction_log.log_call(
             "agents.responder_agent.ResponderAgent.handle_message",
             params={
-                "performative": getattr(message.performative, "value", str(message.performative)),
+                "performative": getattr(
+                    message.performative, "value", str(message.performative)
+                ),
                 "sender": message.sender,
                 "content_keys": list(content.keys()) if content else [],
                 "conversation_id": conversation_id,
@@ -150,26 +154,49 @@ class ResponderAgent(BaseAgent):
 
         # Formatting phase: derive user-facing draft and run policy compliance checks.
         final_text = (
-            final_response if isinstance(final_response, str) else str(final_response or "")
+            final_response
+            if isinstance(final_response, str)
+            else str(final_response or "")
         )
-        if not (content.get("insufficient") and not content.get("partial_insufficient")):
+        if not (
+            content.get("insufficient") and not content.get("partial_insufficient")
+        ):
             if isinstance(fro, dict):
                 rendered = self._format_from_final_response_object(fro)
                 if rendered:
                     final_text = rendered
         final_response = final_text
         if self.output_rail is not None:
-            if self._llm_client is not None:
-                from llm.prompts import RESPONDER_SYSTEM, get_responder_user_content
+            try:
+                if self._llm_client is not None:
+                    from llm.prompts import RESPONDER_SYSTEM, get_responder_user_content
 
-                user_content = get_responder_user_content(user_profile, final_text)
-                draft = self._llm_client.complete(RESPONDER_SYSTEM, user_content)
-            else:
-                draft = self.output_rail.format_for_user(final_text, user_profile)
-            comp = self.output_rail.check_compliance(draft)
-            if not comp.passed:
-                draft = f"{draft}\n\nThis is not investment advice."
-            final_response = draft
+                    user_content = get_responder_user_content(user_profile, final_text)
+                    draft = self._llm_client.complete(RESPONDER_SYSTEM, user_content)
+                else:
+                    draft = self.output_rail.format_for_user(final_text, user_profile)
+                comp = self.output_rail.check_compliance(draft)
+                if not comp.passed:
+                    # Fall back to a deterministic safe response when compliance fails.
+                    safe_fallback = (
+                        "I can share general information only and cannot provide "
+                        "personalized investment advice.\n\n"
+                        "This is not investment advice."
+                    )
+                    fallback_comp = self.output_rail.check_compliance(safe_fallback)
+                    draft = (
+                        safe_fallback
+                        if fallback_comp.passed
+                        else "This is not investment advice."
+                    )
+                final_response = draft
+            except Exception as e:
+                logger.warning("Responder formatting/compliance failed: %s", e)
+                final_response = (
+                    "I can share general information only and cannot provide "
+                    "personalized investment advice.\n\n"
+                    "This is not investment advice."
+                )
 
         # Finalization phase: persist answer to conversation state and stop all agent loops.
         reply_content = {
@@ -197,6 +224,13 @@ class ResponderAgent(BaseAgent):
             interaction_log.log_call(
                 "agents.responder_agent.ResponderAgent.handle_message",
                 result={"reply_registered": True, "broadcast_stop": True},
+            )
+        else:
+            # Fallback for non-managed runtime: still deliver final response to API.
+            self.bus.send(reply_msg)
+            interaction_log.log_call(
+                "agents.responder_agent.ResponderAgent.handle_message",
+                result={"reply_sent_via_bus": True, "broadcast_stop": False},
             )
 
     def evaluate_confidence(self, _analysis: dict) -> float:

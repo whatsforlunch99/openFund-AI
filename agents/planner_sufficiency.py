@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def check_planner_sufficiency(
-    llm_client: "LLMClient",
+    llm_client: LLMClient,
     user_query: str,
     aggregated: str,
 ) -> bool:
@@ -30,12 +30,12 @@ def check_planner_sufficiency(
         s = (out or "").strip().upper()
         return s.startswith("SUFFICIENT") and not s.startswith("INSUFFICIENT")
     except Exception as e:
-        logger.debug("Sufficiency check failed, treating as sufficient: %s", e)
-        return True
+        logger.debug("Sufficiency check failed, treating as insufficient: %s", e)
+        return False
 
 
 def get_planner_refined_steps(
-    llm_client: "LLMClient",
+    llm_client: LLMClient,
     user_query: str,
     aggregated: str,
 ) -> list[TaskStep]:

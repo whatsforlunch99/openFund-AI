@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from util.answer_coverage import has_structured_timeseries_metrics, normalized_fund_price_line
+from util.answer_coverage import (
+    has_structured_timeseries_metrics,
+    normalized_fund_price_line,
+)
 from util.symbol_query_extract import extract_symbol_from_query
 from util.timeseries_metrics import (
     format_timeseries_metrics_for_final_response,
@@ -103,10 +106,14 @@ def format_planner_final(collected: dict[str, Any]) -> str:
         if has_ws_payload:
             bits_ws: list[str] = []
             ws_query = w.get("query") or ""
-            expected_symbol = extract_symbol_from_query(ws_query) if isinstance(ws_query, str) else ""
+            expected_symbol = (
+                extract_symbol_from_query(ws_query) if isinstance(ws_query, str) else ""
+            )
             nf = w.get("normalized_fund") or []
             actual_symbols = [
-                rec.get("symbol") for rec in nf if isinstance(rec, dict) and rec.get("symbol")
+                rec.get("symbol")
+                for rec in nf
+                if isinstance(rec, dict) and rec.get("symbol")
             ]
             symbol_mismatch = bool(
                 expected_symbol
@@ -127,7 +134,10 @@ def format_planner_final(collected: dict[str, Any]) -> str:
                 cap = 280 if price_line else 120
                 bits_ws.append(f'"{planner_snippet(summary_ws, cap)}"')
             elif not price_line:
-                for key, label in (("market_data", "market data"), ("sentiment", "sentiment")):
+                for key, label in (
+                    ("market_data", "market data"),
+                    ("sentiment", "sentiment"),
+                ):
                     val = w.get(key)
                     if isinstance(val, dict):
                         err = val.get("error")
@@ -136,7 +146,9 @@ def format_planner_final(collected: dict[str, Any]) -> str:
                         else:
                             content_val = val.get("content")
                             if isinstance(content_val, str) and content_val.strip():
-                                bits_ws.append(f'{label}: "{planner_snippet(content_val, 120)}"')
+                                bits_ws.append(
+                                    f'{label}: "{planner_snippet(content_val, 120)}"'
+                                )
                             else:
                                 bits_ws.append(f"{label} present, no content")
             if bits_ws:
@@ -182,14 +194,23 @@ def conversation_state_snippet(content: dict[str, Any], max_chars: int = 350) ->
     err = content.get("error")
     if isinstance(err, str) and err.strip():
         return f"Error: {planner_snippet(err, 250)}"
-    if isinstance(content.get("market_data"), dict) and content["market_data"].get("error"):
+    if isinstance(content.get("market_data"), dict) and content["market_data"].get(
+        "error"
+    ):
         e = content["market_data"]["error"]
         return f"Error: {planner_snippet(e, 250)}"
     summary = content.get("summary")
     if isinstance(summary, str) and summary.strip():
         return f"Summary: {planner_snippet(summary, max_chars)}"
     parts = []
-    for key in ("market_data", "sentiment", "analysis", "documents", "graph", "combined_data"):
+    for key in (
+        "market_data",
+        "sentiment",
+        "analysis",
+        "documents",
+        "graph",
+        "combined_data",
+    ):
         val = content.get(key)
         if val is None:
             continue
@@ -228,7 +249,11 @@ def collected_has_answer_signal(collected: dict[str, Any]) -> bool:
         if isinstance(docs, list) and len(docs) > 0:
             return True
         g = lib.get("graph")
-        if isinstance(g, dict) and isinstance(g.get("nodes"), list) and len(g["nodes"]) > 0:
+        if (
+            isinstance(g, dict)
+            and isinstance(g.get("nodes"), list)
+            and len(g["nodes"]) > 0
+        ):
             return True
     an = collected.get("analyst")
     if isinstance(an, dict):
@@ -268,7 +293,9 @@ def format_aggregated_for_sufficiency(collected: dict[str, Any]) -> str:
                     if isinstance(rec, dict) and rec.get("symbol")
                 ]
                 if syms:
-                    chunk_lines.append(f"normalized_fund_symbols: {', '.join(syms[:8])}")
+                    chunk_lines.append(
+                        f"normalized_fund_symbols: {', '.join(syms[:8])}"
+                    )
         if agent == "librarian":
             sql_line = planner_librarian_sql_signal_line(c)
             if sql_line:

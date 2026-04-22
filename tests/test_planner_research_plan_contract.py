@@ -274,8 +274,24 @@ def test_build_final_response_object_uses_caveated_final_text() -> None:
         "CAVEATED FINAL",
         {"facts": [{"fact": "f"}]},
         {"recommendation_allowed": False, "reason_code": "low_confidence"},
+        original_query="user q",
+        symbols=["NVDA"],
+        collected={
+            "analyst": {
+                "risk_factors": ["model risk"],
+                "limitations": ["sample"],
+                "scenario_outcomes": [{"scenario": "base"}],
+                "confidence": 0.5,
+            }
+        },
     )
     assert fro.get("summary") == "CAVEATED FINAL"
+    assert fro.get("query") == "user q"
+    assert fro.get("symbols") == ["NVDA"]
+    assert fro.get("disclaimer_required") is True
+    assert fro.get("recommendation", {}).get("allowed") is False
+    assert fro.get("analysis", {}).get("confidence") == 0.5
+    assert fro.get("risks") == ["model risk"]
 
 
 def test_recommendation_gate_blocks_when_evidence_or_confidence_insufficient() -> None:

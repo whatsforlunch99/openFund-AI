@@ -210,8 +210,17 @@ class PlannerOrchestrationMixin:
                     final, partial_insufficient = self._apply_insufficient_policy(
                         final, collected, insufficient
                     )
+                    sr = self._symbol_resolution_by_conversation.get(conversation_id)
+                    sym_for_fro = self._symbols_from_resolution(
+                        sr if isinstance(sr, dict) else None
+                    )
                     final_response_object = self._build_final_response_object(
-                        final, evidence_ledger, recommendation
+                        final,
+                        evidence_ledger,
+                        recommendation,
+                        original_query=original_query,
+                        symbols=sym_for_fro,
+                        collected=collected,
                     )
                     self._append_planner_complete_flow(
                         conversation_id, final, insufficient, partial_insufficient

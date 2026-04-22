@@ -237,18 +237,71 @@ class PlannerContextMixin:
         final_text: str,
         evidence_ledger: dict[str, Any],
         recommendation: dict[str, Any],
+        *,
+        original_query: str = "",
+        symbols: Optional[list[str]] = None,
+        collected: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        """Build structured responder object from final text + contracts."""
+        """Build structured responder object from final text + contracts.
+
+        Aligns with docs/workflow/00_overview/handoff_contracts.md: summary, evidence,
+        optional analysis/risks from Analyst, recommendation gate, disclaimer flag.
+        """
+        sym_list = list(symbols) if isinstance(symbols, list) else []
+        risks: list[str] = []
+        limitations: list[str] = []
+        scenario_outcomes: list[Any] = []
+        analysis_confidence: Optional[float] = None
+        analyst = (
+            collected.get("analyst") if isinstance(collected, dict) else None
+        )
+        if isinstance(analyst, dict):
+            rf = analyst.get("risk_factors")
+            if isinstance(rf, list):
+                risks = [str(x).strip() for x in rf if str(x).strip()]
+            lim = analyst.get("limitations")
+            if isinstance(lim, list):
+                limitations = [str(x).strip() for x in lim if str(x).strip()]
+            so = analyst.get("scenario_outcomes")
+            if isinstance(so, list):
+                scenario_outcomes = so
+            ac = analyst.get("confidence")
+            if isinstance(ac, (int, float)):
+                analysis_confidence = float(ac)
+            else:
+                nested = analyst.get("analysis")
+                if isinstance(nested, dict):
+                    ac2 = nested.get("confidence")
+                    if isinstance(ac2, (int, float)):
+                        analysis_confidence = float(ac2)
+        if analysis_confidence is None:
+            rc = recommendation.get("confidence")
+            if isinstance(rc, (int, float)):
+                analysis_confidence = float(rc)
+        if analysis_confidence is None:
+            analysis_confidence = 0.0
+
+        allowed = bool(recommendation.get("recommendation_allowed"))
+        rec_obj: dict[str, Any] = {
+            "allowed": allowed,
+            "action": "hold" if allowed else "none",
+            "reason": str(recommendation.get("reason_code", "") or ""),
+            "horizon": "mid" if allowed else "",
+        }
+
         return {
+            "query": original_query if isinstance(original_query, str) else "",
+            "symbols": sym_list,
             "summary": final_text if isinstance(final_text, str) else str(final_text),
             "evidence": evidence_ledger.get("facts", []),
-            "recommendation": {
-                "allowed": bool(recommendation.get("recommendation_allowed")),
-                "action": "hold"
-                if recommendation.get("recommendation_allowed")
-                else "none",
-                "reason": recommendation.get("reason_code", ""),
+            "analysis": {
+                "confidence": analysis_confidence,
+                "scenario_outcomes": scenario_outcomes,
             },
+            "recommendation": rec_obj,
+            "risks": risks,
+            "limitations": limitations,
+            "disclaimer_required": True,
         }
 
     def _apply_insufficient_policy(

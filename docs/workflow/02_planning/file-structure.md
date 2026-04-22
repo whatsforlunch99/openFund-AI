@@ -18,6 +18,7 @@ OpenFund-AI/
 │   ├── planner_agent.py         # Orchestration + handle_message + create_research_request
 │   ├── librarian_agent.py
 │   ├── websearch_helpers.py     # by_tool helpers, Yahoo summary, news intent, timestamps
+│   ├── websearch_constants.py   # AUTHORITATIVE_ALLOWLIST, SOURCE_REGISTRY (single source for websearch mixins)
 │   ├── websearch_agent.py
 │   ├── analyst_agent.py
 │   └── responder_agent.py
@@ -773,6 +774,12 @@ combined = agent.combine_results(docs, graph_data)
 # agents/websearch_helpers.py
 
 **Purpose:** Stateless helpers for WebSearcher: `query_implies_news_intent`, `alpha_vantage_cooldown_message`, `prefer_yahoo_price_first`, `by_tool_should_call` / `by_tool_symbol` / `by_tool_symbol_for_iteration`, `pin_matches_iteration`, `extract_price_from_text`, `summarize_yahoo_fundamental`, `websearch_now_iso`, `get_known_index_symbols`.
+
+---
+
+# agents/websearch_constants.py
+
+**Purpose:** Single source of truth for **`AUTHORITATIVE_ALLOWLIST`** (domain suffix set) and **`SOURCE_REGISTRY`** (top news sources with coverage/reliability metadata). Imported by WebSearcher mixins (`websearch_news_sources`, `websearch_pipeline`, `websearch_symbol_resolution`, `websearch_news_processing`, `websearch_orchestration`); avoids drift from duplicated literals.
 
 ---
 

@@ -1,5 +1,7 @@
 """WebSearcher contract tests for freshness and source-conflict metadata."""
 
+from datetime import UTC, datetime, timedelta
+
 from a2a.message_bus import InMemoryMessageBus
 from agents.websearch_agent import WebSearcherAgent
 
@@ -27,7 +29,7 @@ def test_websearch_contract_marks_stale_price_when_timestamp_old() -> None:
             {
                 "symbol": "NVDA",
                 "price": 900.0,
-                "timestamp": "2020-01-01T00:00:00Z",
+                "price_timestamp": "2020-01-01T00:00:00Z",
             }
         ],
         "citations": {},
@@ -35,6 +37,27 @@ def test_websearch_contract_marks_stale_price_when_timestamp_old() -> None:
     out = agent._augment_websearch_contract(reply)
     freshness = out.get("freshness") or {}
     assert freshness.get("price_is_fresh") is False
+
+
+def test_websearch_contract_marks_fresh_price_from_price_timestamp() -> None:
+    bus = InMemoryMessageBus()
+    agent = WebSearcherAgent("websearcher", bus, mcp_client=None)
+    recent = (datetime.now(UTC) - timedelta(minutes=5)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    reply = {
+        "normalized_fund": [
+            {
+                "symbol": "NVDA",
+                "price": 900.0,
+                "price_timestamp": recent,
+            }
+        ],
+        "citations": {},
+    }
+    out = agent._augment_websearch_contract(reply)
+    freshness = out.get("freshness") or {}
+    assert freshness.get("price_is_fresh") is True
 
 
 def test_websearch_contract_marks_not_fresh_when_timestamp_missing() -> None:

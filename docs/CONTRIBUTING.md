@@ -16,10 +16,11 @@ This guide covers local development, tests, code quality, and PR expectations fo
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 cp .env.example .env
 ```
+
+The `dev` optional dependency group includes **pytest**, **ruff**, and other tooling (`pyproject.toml`). Use `python -m pip install -e ".[dev]"` so `python -m pytest` works without a globally installed `pytest`.
 
 ## Commands
 
@@ -36,7 +37,7 @@ cp .env.example .env
 | `python scripts/data_loader.py --load-mode existing` | Load existing datasets into configured backends. |
 | `python scripts/data_loader.py --load-mode fresh-all` | Full reload of loader-owned backend data. |
 | `python scripts/check_health.py --port 8000` | Verify `/health` and LLM readiness. |
-| `pytest tests/ -v` | Run test suite. |
+| `python -m pytest tests/ -v` | Run test suite (requires `pip install -e ".[dev]"`). |
 | `ruff check .` | Run lint checks. |
 | `black .` | Format codebase. |
 | `./scripts/install-git-hooks.sh` | Install repo-managed git hooks. |
@@ -50,8 +51,9 @@ Environment variables are documented in `docs/shared/ENV.md` (generated from `.e
 ## Testing
 
 - Run fast checks first: `ruff check .`
-- Run targeted tests while iterating: `pytest tests/ -k <keyword>`
-- Run full tests before PR: `pytest tests/ -v`
+- Run targeted tests while iterating: `python -m pytest tests/ -k <keyword>`
+- Run full tests before PR: `python -m pytest tests/ -v`
+- If `pytest` is not found, ensure the venv is active and run `python -m pip install -e ".[dev]"` first, then use **`python -m pytest`** (invokes the environment’s pytest module).
 
 ## Code Style and Quality
 

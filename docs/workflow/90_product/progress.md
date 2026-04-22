@@ -18,7 +18,9 @@ Development proceeds in **slices**; each slice is a runnable checkpoint. Tests l
 
 **MCP backend gating (no placeholder data):** Without `MILVUS_URI` / `NEO4J_URI` / `DATABASE_URL`, vector/kg/sql tools return explicit errors or empty search results—not synthetic rows or graph nodes. `llm/static_client.py` supplies `StaticLLMClient` for tests; `tests/test-stages.py` imports MCP tools from `openfund_mcp`.
 
-**Layering / cohesion refactor:** [dependency-contract.md](../02_planning/dependency-contract.md) documents import direction. `extract_symbol_from_query` moved to `util/symbol_query_extract.py` (no `util` → `agents`). Planner split: `planner_types`, `planner_formatting`, `planner_decompose`, `planner_sufficiency`, slim `planner_agent.py`. WebSearcher helpers in `agents/websearch_helpers.py`. Symbol resolution JSON cache in `util/symbol_resolution/cache_io.py`. `data_manager/` tree removed from file-structure (package not in repo); ingestion = `scripts/data_loader.py`.
+**Layering / cohesion refactor:** [dependency-contract.md](../02_planning/dependency-contract.md) documents import direction. `extract_symbol_from_query` moved to `util/symbol_query_extract.py` (no `util` → `agents`). Planner split: `planner_types`, `planner_formatting`, `planner_decompose`, `planner_sufficiency`, slim `planner_agent.py`. WebSearcher helpers in `agents/websearch_helpers.py`; allowlist/registry in `agents/websearch_constants.py` (single import for mixins). Symbol resolution JSON cache in `util/symbol_resolution/cache_io.py`. `data_manager/` tree removed from file-structure (package not in repo); ingestion = `scripts/data_loader.py`.
+
+**Contract docs:** [handoff_contracts.md](../00_overview/handoff_contracts.md) aligned with implementation (`research_plan`, augmented librarian/websearcher payloads, `final_response_object` from `_build_final_response_object`). Run contract tests: `python -m pytest tests/test_planner_research_plan_contract.py tests/test_websearch_contract.py tests/test_librarian_contract.py -v` after `python -m pip install -e ".[dev]"`.
 
 ### Slice summary
 
